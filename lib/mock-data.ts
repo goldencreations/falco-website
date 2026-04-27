@@ -567,7 +567,7 @@ export const loanApplications: LoanApplication[] = [
       { id: 'd3', name: 'National ID', type: 'identification', url: '/docs/id2.pdf', uploaded_at: '2024-01-12T11:00:00Z', verified: true, verified_by: 'usr-003' },
       { id: 'd4', name: 'Employment Letter', type: 'employment', url: '/docs/emp.pdf', uploaded_at: '2024-01-12T11:05:00Z', verified: true, verified_by: 'usr-003' },
     ],
-    status: 'approved',
+    status: 'disbursed',
     submitted_at: '2024-01-12T11:30:00Z',
     reviewed_by: 'usr-004',
     reviewed_at: '2024-01-13T09:00:00Z',

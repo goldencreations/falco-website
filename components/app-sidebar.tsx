@@ -16,6 +16,8 @@ import {
   UserCog,
   ChevronDown,
   TrendingUp,
+  Scale,
+  Calculator,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -74,6 +76,21 @@ const navigation = [
         title: "Active Loans",
         href: "/loans",
         icon: Wallet,
+      },
+    ],
+  },
+  {
+    title: "Credit Analysis",
+    items: [
+      {
+        title: "Credit Analysis",
+        href: "/credit-analysis",
+        icon: Scale,
+      },
+      {
+        title: "Loan Calculator",
+        href: "/loan-calculator",
+        icon: Calculator,
       },
     ],
   },

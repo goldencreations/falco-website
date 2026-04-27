@@ -11,6 +11,7 @@ import {
   XCircle,
   Clock,
   FileText,
+  Scale,
 } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Button } from "@/components/ui/button";
@@ -40,6 +41,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   loanApplications,
+  currentUser,
   getCustomerById,
   getProductById,
   formatCurrency,
@@ -61,10 +63,12 @@ const statusConfig: Record<
 };
 
 export default function ApplicationsPage() {
+  const canDisburse = currentUser.role === "super_admin";
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [applications, setApplications] = useState(loanApplications);
 
-  const filteredApplications = loanApplications.filter((app) => {
+  const filteredApplications = applications.filter((app) => {
     const customer = getCustomerById(app.customer_id);
     const matchesSearch =
       searchQuery === "" ||
@@ -77,7 +81,7 @@ export default function ApplicationsPage() {
     return matchesSearch && matchesStatus;
   });
 
-  const statusCounts = loanApplications.reduce(
+  const statusCounts = applications.reduce(
     (acc, app) => {
       acc[app.status] = (acc[app.status] || 0) + 1;
       return acc;
@@ -102,7 +106,7 @@ export default function ApplicationsPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{loanApplications.length}</div>
+                <div className="text-2xl font-bold">{applications.length}</div>
               </CardContent>
             </Card>
             <Card>
@@ -253,6 +257,12 @@ export default function ApplicationsPage() {
                                     View Details
                                   </Link>
                                 </DropdownMenuItem>
+                                <DropdownMenuItem asChild>
+                                  <Link href={`/credit-analysis?applicationId=${app.id}`}>
+                                    <Scale className="mr-2 h-4 w-4" />
+                                    Analyze
+                                  </Link>
+                                </DropdownMenuItem>
                                 {app.status === "under_review" && (
                                   <>
                                     <DropdownMenuItem className="text-accent">
@@ -264,7 +274,32 @@ export default function ApplicationsPage() {
                                   </>
                                 )}
                                 {app.status === "approved" && (
-                                  <DropdownMenuItem>Disburse</DropdownMenuItem>
+                                  <>
+                                    {canDisburse ? (
+                                      <DropdownMenuItem
+                                        className="text-accent"
+                                        onClick={() =>
+                                          setApplications((prev) =>
+                                            prev.map((current) =>
+                                              current.id === app.id
+                                                ? {
+                                                    ...current,
+                                                    status: "disbursed",
+                                                    updated_at: new Date().toISOString(),
+                                                  }
+                                                : current
+                                            )
+                                          )
+                                        }
+                                      >
+                                        Disburse (Top Admin)
+                                      </DropdownMenuItem>
+                                    ) : (
+                                      <DropdownMenuItem disabled>
+                                        Disburse (Top Admin only)
+                                      </DropdownMenuItem>
+                                    )}
+                                  </>
                                 )}
                               </DropdownMenuContent>
                             </DropdownMenu>

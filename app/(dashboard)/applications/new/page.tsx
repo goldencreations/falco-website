@@ -2,7 +2,16 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Search, Calculator, Upload, Send } from "lucide-react";
+import {
+  ArrowLeft,
+  Search,
+  Upload,
+  Send,
+  Plus,
+  Trash2,
+  MapPin,
+  LocateFixed,
+} from "lucide-react";
 import Link from "next/link";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Button } from "@/components/ui/button";
@@ -35,17 +44,36 @@ export default function NewApplicationPage() {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<LoanProduct | null>(null);
   const [customerSearch, setCustomerSearch] = useState("");
+
+  const [collaterals, setCollaterals] = useState([
+    { type: "", description: "", value: "", image: null as File | null },
+  ]);
+
+  const [guarantors, setGuarantors] = useState([
+    {
+      name: "",
+      phone: "",
+      nationalId: "",
+      relationship: "",
+      otherRelationship: "",
+      idFront: null as File | null,
+      idBack: null as File | null,
+    },
+  ]);
+
+  const [references, setReferences] = useState([
+    { name: "", relationship: "", phone: "", address: "" },
+  ]);
+
+  const [generalAttachments, setGeneralAttachments] = useState<FileList | null>(null);
+  const [isLocating, setIsLocating] = useState(false);
+
   const [formData, setFormData] = useState({
     amount: "",
     term: "",
     purpose: "",
-    collateralType: "",
-    collateralDescription: "",
-    collateralValue: "",
-    guarantorName: "",
-    guarantorPhone: "",
-    guarantorId: "",
-    guarantorRelationship: "",
+    latitude: "",
+    longitude: "",
   });
 
   const filteredCustomers = customers.filter(
@@ -106,12 +134,82 @@ export default function NewApplicationPage() {
 
   const loanDetails = calculateLoanDetails();
 
+  const updateCollateral = (
+    index: number,
+    key: "type" | "description" | "value" | "image",
+    value: string | File | null
+  ) => {
+    setCollaterals((prev) =>
+      prev.map((collateral, i) =>
+        i === index ? { ...collateral, [key]: value } : collateral
+      )
+    );
+  };
+
+  const updateGuarantor = (
+    index: number,
+    key:
+      | "name"
+      | "phone"
+      | "nationalId"
+      | "relationship"
+      | "otherRelationship"
+      | "idFront"
+      | "idBack",
+    value: string | File | null
+  ) => {
+    setGuarantors((prev) =>
+      prev.map((guarantor, i) => (i === index ? { ...guarantor, [key]: value } : guarantor))
+    );
+  };
+
+  const updateReference = (
+    index: number,
+    key: "name" | "relationship" | "phone" | "address",
+    value: string
+  ) => {
+    setReferences((prev) =>
+      prev.map((reference, i) => (i === index ? { ...reference, [key]: value } : reference))
+    );
+  };
+
+  const setBrowserLocation = () => {
+    if (!navigator.geolocation) return;
+    setIsLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setFormData((prev) => ({
+          ...prev,
+          latitude: position.coords.latitude.toFixed(6),
+          longitude: position.coords.longitude.toFixed(6),
+        }));
+        setIsLocating(false);
+      },
+      () => {
+        setIsLocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
   const handleSubmit = (isDraft: boolean) => {
     // In production, this would call an API
     console.log("Submitting application:", {
       customerId: selectedCustomer?.id,
       productId: selectedProduct?.id,
       ...formData,
+      collaterals: collaterals.map((c) => ({
+        ...c,
+        image: c.image?.name ?? null,
+      })),
+      guarantors: guarantors.map((g) => ({
+        ...g,
+        relationship: g.relationship === "other" ? g.otherRelationship : g.relationship,
+        idFront: g.idFront?.name ?? null,
+        idBack: g.idBack?.name ?? null,
+      })),
+      references,
+      generalAttachments: generalAttachments ? Array.from(generalAttachments).map((f) => f.name) : [],
       isDraft,
     });
     router.push("/applications");
@@ -332,59 +430,87 @@ export default function NewApplicationPage() {
               <Card>
                 <CardHeader>
                   <CardTitle>Collateral Information</CardTitle>
-                  <CardDescription>Optional security for the loan</CardDescription>
+                  <CardDescription>Add one or more collaterals and images</CardDescription>
                 </CardHeader>
-                <CardContent>
-                  <FieldGroup>
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <Field>
-                        <FieldLabel>Collateral Type</FieldLabel>
-                        <Select
-                          value={formData.collateralType}
-                          onValueChange={(value) =>
-                            setFormData({ ...formData, collateralType: value })
-                          }
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select type" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="vehicle">Vehicle</SelectItem>
-                            <SelectItem value="property">Property/Land</SelectItem>
-                            <SelectItem value="equipment">Equipment/Machinery</SelectItem>
-                            <SelectItem value="inventory">Inventory/Stock</SelectItem>
-                            <SelectItem value="savings">Savings/Deposit</SelectItem>
-                            <SelectItem value="other">Other</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </Field>
-                      <Field>
-                        <FieldLabel>Estimated Value (TZS)</FieldLabel>
-                        <Input
-                          type="number"
-                          placeholder="e.g., 5000000"
-                          value={formData.collateralValue}
-                          onChange={(e) =>
-                            setFormData({ ...formData, collateralValue: e.target.value })
-                          }
-                        />
-                      </Field>
+                <CardContent className="space-y-4">
+                  {collaterals.map((collateral, index) => (
+                    <div key={index} className="rounded-lg border border-border p-4">
+                      <div className="mb-3 flex items-center justify-between">
+                        <p className="text-sm font-semibold">Collateral {index + 1}</p>
+                        {collaterals.length > 1 && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() =>
+                              setCollaterals((prev) => prev.filter((_, i) => i !== index))
+                            }
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                      <FieldGroup>
+                        <div className="grid gap-4 sm:grid-cols-2">
+                          <Field>
+                            <FieldLabel>Collateral Type</FieldLabel>
+                            <Input
+                              placeholder="e.g., Motorcycle, TV, Land title"
+                              value={collateral.type}
+                              onChange={(e) => updateCollateral(index, "type", e.target.value)}
+                            />
+                          </Field>
+                          <Field>
+                            <FieldLabel>Estimated Value (TZS)</FieldLabel>
+                            <Input
+                              type="number"
+                              placeholder="e.g., 5000000"
+                              value={collateral.value}
+                              onChange={(e) => updateCollateral(index, "value", e.target.value)}
+                            />
+                          </Field>
+                        </div>
+                        <Field>
+                          <FieldLabel>Description</FieldLabel>
+                          <Textarea
+                            placeholder="Describe the collateral..."
+                            value={collateral.description}
+                            onChange={(e) =>
+                              updateCollateral(index, "description", e.target.value)
+                            }
+                            rows={2}
+                          />
+                        </Field>
+                        <Field>
+                          <FieldLabel>Collateral Image Attachment</FieldLabel>
+                          <Input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) =>
+                              updateCollateral(index, "image", e.target.files?.[0] ?? null)
+                            }
+                          />
+                          {collateral.image && (
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Attached: {collateral.image.name}
+                            </p>
+                          )}
+                        </Field>
+                      </FieldGroup>
                     </div>
-                    <Field>
-                      <FieldLabel>Description</FieldLabel>
-                      <Textarea
-                        placeholder="Describe the collateral..."
-                        value={formData.collateralDescription}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            collateralDescription: e.target.value,
-                          })
-                        }
-                        rows={2}
-                      />
-                    </Field>
-                  </FieldGroup>
+                  ))}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() =>
+                      setCollaterals((prev) => [
+                        ...prev,
+                        { type: "", description: "", value: "", image: null },
+                      ])
+                    }
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add Collateral
+                  </Button>
                 </CardContent>
               </Card>
 
@@ -392,65 +518,285 @@ export default function NewApplicationPage() {
               <Card>
                 <CardHeader>
                   <CardTitle>Guarantor Information</CardTitle>
-                  <CardDescription>Person who guarantees the loan</CardDescription>
+                  <CardDescription>Add one or more guarantors and ID attachments</CardDescription>
                 </CardHeader>
-                <CardContent>
-                  <FieldGroup>
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <Field>
-                        <FieldLabel>Full Name</FieldLabel>
-                        <Input
-                          placeholder="Guarantor's full name"
-                          value={formData.guarantorName}
-                          onChange={(e) =>
-                            setFormData({ ...formData, guarantorName: e.target.value })
-                          }
-                        />
-                      </Field>
-                      <Field>
-                        <FieldLabel>National ID</FieldLabel>
-                        <Input
-                          placeholder="National ID number"
-                          value={formData.guarantorId}
-                          onChange={(e) =>
-                            setFormData({ ...formData, guarantorId: e.target.value })
-                          }
-                        />
-                      </Field>
-                      <Field>
-                        <FieldLabel>Phone Number</FieldLabel>
-                        <Input
-                          placeholder="+255 xxx xxx xxx"
-                          value={formData.guarantorPhone}
-                          onChange={(e) =>
-                            setFormData({ ...formData, guarantorPhone: e.target.value })
-                          }
-                        />
-                      </Field>
-                      <Field>
-                        <FieldLabel>Relationship</FieldLabel>
-                        <Select
-                          value={formData.guarantorRelationship}
-                          onValueChange={(value) =>
-                            setFormData({ ...formData, guarantorRelationship: value })
-                          }
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select relationship" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="spouse">Spouse</SelectItem>
-                            <SelectItem value="parent">Parent</SelectItem>
-                            <SelectItem value="sibling">Sibling</SelectItem>
-                            <SelectItem value="relative">Other Relative</SelectItem>
-                            <SelectItem value="friend">Friend</SelectItem>
-                            <SelectItem value="colleague">Colleague</SelectItem>
-                            <SelectItem value="business_partner">Business Partner</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </Field>
+                <CardContent className="space-y-4">
+                  {guarantors.map((guarantor, index) => (
+                    <div key={index} className="rounded-lg border border-border p-4">
+                      <div className="mb-3 flex items-center justify-between">
+                        <p className="text-sm font-semibold">Guarantor {index + 1}</p>
+                        {guarantors.length > 1 && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() =>
+                              setGuarantors((prev) => prev.filter((_, i) => i !== index))
+                            }
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                      <FieldGroup>
+                        <div className="grid gap-4 sm:grid-cols-2">
+                          <Field>
+                            <FieldLabel>Full Name</FieldLabel>
+                            <Input
+                              placeholder="Guarantor's full name"
+                              value={guarantor.name}
+                              onChange={(e) => updateGuarantor(index, "name", e.target.value)}
+                            />
+                          </Field>
+                          <Field>
+                            <FieldLabel>National ID</FieldLabel>
+                            <Input
+                              placeholder="National ID number"
+                              value={guarantor.nationalId}
+                              onChange={(e) =>
+                                updateGuarantor(index, "nationalId", e.target.value)
+                              }
+                            />
+                          </Field>
+                          <Field>
+                            <FieldLabel>Phone Number</FieldLabel>
+                            <Input
+                              placeholder="+255 xxx xxx xxx"
+                              value={guarantor.phone}
+                              onChange={(e) => updateGuarantor(index, "phone", e.target.value)}
+                            />
+                          </Field>
+                          <Field>
+                            <FieldLabel>Relationship</FieldLabel>
+                            <Select
+                              value={guarantor.relationship}
+                              onValueChange={(value) =>
+                                updateGuarantor(index, "relationship", value)
+                              }
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select relationship" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="spouse">Spouse</SelectItem>
+                                <SelectItem value="parent">Parent</SelectItem>
+                                <SelectItem value="sibling">Sibling</SelectItem>
+                                <SelectItem value="relative">Other Relative</SelectItem>
+                                <SelectItem value="friend">Friend</SelectItem>
+                                <SelectItem value="colleague">Colleague</SelectItem>
+                                <SelectItem value="business_partner">Business Partner</SelectItem>
+                                <SelectItem value="other">Other (Specify)</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </Field>
+                        </div>
+                        {guarantor.relationship === "other" && (
+                          <Field>
+                            <FieldLabel>Specify Relationship</FieldLabel>
+                            <Input
+                              placeholder="Enter custom relationship"
+                              value={guarantor.otherRelationship}
+                              onChange={(e) =>
+                                updateGuarantor(index, "otherRelationship", e.target.value)
+                              }
+                            />
+                          </Field>
+                        )}
+                        <div className="grid gap-4 sm:grid-cols-2">
+                          <Field>
+                            <FieldLabel>Guarantor ID Front</FieldLabel>
+                            <Input
+                              type="file"
+                              accept="image/*,.pdf"
+                              onChange={(e) =>
+                                updateGuarantor(index, "idFront", e.target.files?.[0] ?? null)
+                              }
+                            />
+                            {guarantor.idFront && (
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                Attached: {guarantor.idFront.name}
+                              </p>
+                            )}
+                          </Field>
+                          <Field>
+                            <FieldLabel>Guarantor ID Back</FieldLabel>
+                            <Input
+                              type="file"
+                              accept="image/*,.pdf"
+                              onChange={(e) =>
+                                updateGuarantor(index, "idBack", e.target.files?.[0] ?? null)
+                              }
+                            />
+                            {guarantor.idBack && (
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                Attached: {guarantor.idBack.name}
+                              </p>
+                            )}
+                          </Field>
+                        </div>
+                      </FieldGroup>
                     </div>
-                  </FieldGroup>
+                  ))}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() =>
+                      setGuarantors((prev) => [
+                        ...prev,
+                        {
+                          name: "",
+                          phone: "",
+                          nationalId: "",
+                          relationship: "",
+                          otherRelationship: "",
+                          idFront: null,
+                          idBack: null,
+                        },
+                      ])
+                    }
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add Guarantor
+                  </Button>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Reference Information</CardTitle>
+                  <CardDescription>
+                    Add friends or family contacts reachable if customer is unavailable
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {references.map((reference, index) => (
+                    <div key={index} className="rounded-lg border border-border p-4">
+                      <div className="mb-3 flex items-center justify-between">
+                        <p className="text-sm font-semibold">Reference {index + 1}</p>
+                        {references.length > 1 && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() =>
+                              setReferences((prev) => prev.filter((_, i) => i !== index))
+                            }
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <Field>
+                          <FieldLabel>Full Name</FieldLabel>
+                          <Input
+                            placeholder="Reference full name"
+                            value={reference.name}
+                            onChange={(e) => updateReference(index, "name", e.target.value)}
+                          />
+                        </Field>
+                        <Field>
+                          <FieldLabel>Relationship</FieldLabel>
+                          <Input
+                            placeholder="e.g., Friend, Cousin, Neighbor"
+                            value={reference.relationship}
+                            onChange={(e) =>
+                              updateReference(index, "relationship", e.target.value)
+                            }
+                          />
+                        </Field>
+                        <Field>
+                          <FieldLabel>Phone Number</FieldLabel>
+                          <Input
+                            placeholder="+255 xxx xxx xxx"
+                            value={reference.phone}
+                            onChange={(e) => updateReference(index, "phone", e.target.value)}
+                          />
+                        </Field>
+                        <Field>
+                          <FieldLabel>Address / Location</FieldLabel>
+                          <Input
+                            placeholder="Where this reference can be found"
+                            value={reference.address}
+                            onChange={(e) => updateReference(index, "address", e.target.value)}
+                          />
+                        </Field>
+                      </div>
+                    </div>
+                  ))}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() =>
+                      setReferences((prev) => [
+                        ...prev,
+                        { name: "", relationship: "", phone: "", address: "" },
+                      ])
+                    }
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add Reference
+                  </Button>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Customer Location</CardTitle>
+                  <CardDescription>
+                    Capture latitude and longitude and preview customer location on map
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Field>
+                      <FieldLabel>Latitude</FieldLabel>
+                      <Input
+                        type="number"
+                        step="any"
+                        placeholder="-6.7924"
+                        value={formData.latitude}
+                        onChange={(e) =>
+                          setFormData({ ...formData, latitude: e.target.value })
+                        }
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Longitude</FieldLabel>
+                      <Input
+                        type="number"
+                        step="any"
+                        placeholder="39.2083"
+                        value={formData.longitude}
+                        onChange={(e) =>
+                          setFormData({ ...formData, longitude: e.target.value })
+                        }
+                      />
+                    </Field>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={setBrowserLocation}
+                    disabled={isLocating}
+                  >
+                    <LocateFixed className="mr-2 h-4 w-4" />
+                    {isLocating ? "Getting browser location..." : "Use Browser Location"}
+                  </Button>
+                  {formData.latitude && formData.longitude && (
+                    <div className="overflow-hidden rounded-lg border border-border">
+                      <div className="flex items-center gap-2 border-b border-border bg-muted px-3 py-2 text-sm">
+                        <MapPin className="h-4 w-4 text-primary" />
+                        <span>
+                          {formData.latitude}, {formData.longitude}
+                        </span>
+                      </div>
+                      <iframe
+                        title="Customer location map"
+                        src={`https://maps.google.com/maps?q=${formData.latitude},${formData.longitude}&z=15&output=embed`}
+                        className="h-64 w-full"
+                        loading="lazy"
+                      />
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
@@ -471,10 +817,20 @@ export default function NewApplicationPage() {
                     <p className="text-xs text-muted-foreground">
                       or click to browse
                     </p>
-                    <Button variant="outline" size="sm" className="mt-4">
-                      Select Files
-                    </Button>
+                    <Input
+                      type="file"
+                      multiple
+                      className="mt-4 max-w-xs"
+                      onChange={(e) => setGeneralAttachments(e.target.files)}
+                    />
                   </div>
+                  {generalAttachments && generalAttachments.length > 0 && (
+                    <div className="mt-3 text-sm text-muted-foreground">
+                      {Array.from(generalAttachments).map((file) => (
+                        <p key={file.name}>- {file.name}</p>
+                      ))}
+                    </div>
+                  )}
                   {selectedProduct && (
                     <div className="mt-4">
                       <p className="text-sm font-medium">Required:</p>
@@ -489,67 +845,26 @@ export default function NewApplicationPage() {
               </Card>
             </div>
 
-            {/* Sidebar - Loan Calculator */}
+            {/* Sidebar - Application Actions */}
             <div className="space-y-6">
               <Card className="sticky top-6">
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Calculator className="h-5 w-5" />
-                    Loan Calculator
-                  </CardTitle>
+                  <CardTitle>Application Actions</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {loanDetails ? (
-                    <>
-                      <div className="space-y-3">
-                        <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Principal</span>
-                          <span className="font-medium">{formatCurrency(amount)}</span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Interest</span>
-                          <span className="font-medium">
-                            {formatCurrency(loanDetails.interest)}
-                          </span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Processing Fee</span>
-                          <span className="font-medium">
-                            {formatCurrency(loanDetails.processingFee)}
-                          </span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Insurance Fee</span>
-                          <span className="font-medium">
-                            {formatCurrency(loanDetails.insuranceFee)}
-                          </span>
-                        </div>
-                        <Separator />
-                        <div className="flex justify-between">
-                          <span className="font-medium">Total Repayment</span>
-                          <span className="font-bold text-primary">
-                            {formatCurrency(loanDetails.totalRepayment)}
-                          </span>
-                        </div>
-                        <Separator />
-                        <div className="rounded-lg bg-muted p-3">
-                          <p className="text-sm text-muted-foreground">
-                            Monthly Installment
-                          </p>
-                          <p className="text-xl font-bold">
-                            {formatCurrency(loanDetails.installmentAmount)}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {loanDetails.installmentCount} installments
-                          </p>
-                        </div>
-                      </div>
-                    </>
-                  ) : (
-                    <p className="text-center text-sm text-muted-foreground py-8">
-                      Select a product and enter amount to see calculation
-                    </p>
+                  {loanDetails && (
+                    <div className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
+                      Product-based estimate from selected product:{" "}
+                      {formatCurrency(loanDetails.totalRepayment)} total repayment.
+                    </div>
                   )}
+
+                  <Button variant="outline" className="w-full" asChild>
+                    <Link href="/loan-calculator">Open Standalone Loan Calculator</Link>
+                  </Button>
+                  <Button variant="outline" className="w-full" asChild>
+                    <Link href="/credit-analysis">Go to Credit Analysis</Link>
+                  </Button>
 
                   <Separator />
 

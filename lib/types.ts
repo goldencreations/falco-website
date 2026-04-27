@@ -458,7 +458,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
   branch_manager: [
     'dashboard.view',
     'customers.view', 'customers.create', 'customers.edit',
-    'loans.view', 'loans.create', 'loans.approve', 'loans.disburse',
+    'loans.view', 'loans.create', 'loans.approve',
     'payments.view', 'payments.create',
     'collections.view', 'collections.create',
     'reports.view', 'reports.export',
