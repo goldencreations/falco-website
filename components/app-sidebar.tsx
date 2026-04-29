@@ -18,6 +18,7 @@ import {
   TrendingUp,
   Scale,
   Calculator,
+  MapPin,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -61,6 +62,11 @@ const navigation = [
         title: "Customers",
         href: "/customers",
         icon: Users,
+      },
+      {
+        title: "Leads",
+        href: "/leads",
+        icon: MapPin,
       },
       {
         title: "Loan Applications",
