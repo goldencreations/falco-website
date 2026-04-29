@@ -137,9 +137,6 @@ export default function LoginPage() {
             />
           </div>
           <div className="pointer-events-none absolute inset-4 rounded-[2rem] bg-gradient-to-b from-black/25 via-transparent to-black/10" />
-          <p className="absolute right-12 top-10 max-w-xs text-right text-sm font-medium text-white">
-            Browse thousands of properties to buy, sell, or rent with trusted agents.
-          </p>
         </section>
       </div>
     </main>
