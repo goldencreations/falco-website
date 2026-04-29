@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Scale, Plus, Trash2, CheckCircle2, XCircle, MinusCircle } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard-header";
@@ -45,7 +45,7 @@ const creditAnalysisSections = [
   "Attachments",
 ];
 
-export default function CreditAnalysisPage() {
+function CreditAnalysisPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const applicationId = searchParams.get("applicationId");
@@ -847,5 +847,13 @@ export default function CreditAnalysisPage() {
         </div>
       </main>
     </>
+  );
+}
+
+export default function CreditAnalysisPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading credit analysis...</div>}>
+      <CreditAnalysisPageContent />
+    </Suspense>
   );
 }
