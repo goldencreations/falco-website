@@ -65,6 +65,8 @@ const statusLabel: Record<LeadStatus, string> = {
 
 export default function LeadsPage() {
   const [leads, setLeads] = useState<Lead[]>(initialLeads);
+  const [selectedLeadId, setSelectedLeadId] = useState<string>(initialLeads[0]?.id || "");
+  const [showAddLeadForm, setShowAddLeadForm] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
   const [formData, setFormData] = useState({
     fullName: "",
@@ -115,6 +117,8 @@ export default function LeadsPage() {
     };
 
     setLeads((prev) => [newLead, ...prev]);
+    setSelectedLeadId(newLead.id);
+    setShowAddLeadForm(false);
     setFormData({
       fullName: "",
       phoneNumber: "",
@@ -128,6 +132,12 @@ export default function LeadsPage() {
     });
   };
 
+  const selectedLead = leads.find((lead) => lead.id === selectedLeadId);
+  const mapLead =
+    selectedLead && selectedLead.latitude && selectedLead.longitude
+      ? selectedLead
+      : leads.find((lead) => lead.latitude && lead.longitude);
+
   return (
     <>
       <DashboardHeader
@@ -138,138 +148,18 @@ export default function LeadsPage() {
         <div className="mx-auto max-w-7xl space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Add New Lead</CardTitle>
-              <CardDescription>
-                Record name, number, location, and notes from field work
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <FieldGroup>
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  <Field>
-                    <FieldLabel>Full Name</FieldLabel>
-                    <Input
-                      placeholder="Potential customer name"
-                      value={formData.fullName}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, fullName: e.target.value }))
-                      }
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel>Phone Number</FieldLabel>
-                    <Input
-                      placeholder="+255 xxx xxx xxx"
-                      value={formData.phoneNumber}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, phoneNumber: e.target.value }))
-                      }
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel>Alternate Number (optional)</FieldLabel>
-                    <Input
-                      placeholder="+255 xxx xxx xxx"
-                      value={formData.alternatePhone}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, alternatePhone: e.target.value }))
-                      }
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel>Location Name</FieldLabel>
-                    <Input
-                      placeholder="Area/Street/Market"
-                      value={formData.locationName}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, locationName: e.target.value }))
-                      }
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel>Latitude</FieldLabel>
-                    <Input
-                      type="number"
-                      step="any"
-                      placeholder="-6.7924"
-                      value={formData.latitude}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, latitude: e.target.value }))
-                      }
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel>Longitude</FieldLabel>
-                    <Input
-                      type="number"
-                      step="any"
-                      placeholder="39.2083"
-                      value={formData.longitude}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, longitude: e.target.value }))
-                      }
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel>Follow-up Date</FieldLabel>
-                    <Input
-                      type="date"
-                      value={formData.followUpDate}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, followUpDate: e.target.value }))
-                      }
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel>Status</FieldLabel>
-                    <Select
-                      value={formData.status}
-                      onValueChange={(value: LeadStatus) =>
-                        setFormData((prev) => ({ ...prev, status: value }))
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="new">New</SelectItem>
-                        <SelectItem value="follow_up">Follow Up</SelectItem>
-                        <SelectItem value="contacted">Contacted</SelectItem>
-                        <SelectItem value="converted">Converted</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </Field>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <CardTitle>Leads for Follow-up</CardTitle>
+                  <CardDescription>
+                    Track and update potential customers captured during field work
+                  </CardDescription>
                 </div>
-                <Field>
-                  <FieldLabel>Notes</FieldLabel>
-                  <Textarea
-                    rows={3}
-                    placeholder="Important follow-up details from the field visit"
-                    value={formData.notes}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
-                  />
-                </Field>
-              </FieldGroup>
-
-              <div className="flex flex-wrap gap-2">
-                <Button variant="outline" onClick={handleCaptureLocation} disabled={isLocating}>
-                  <LocateFixed className="mr-2 h-4 w-4" />
-                  {isLocating ? "Capturing Location..." : "Use Current Location"}
-                </Button>
-                <Button onClick={handleAddLead}>
+                <Button onClick={() => setShowAddLeadForm((prev) => !prev)}>
                   <Plus className="mr-2 h-4 w-4" />
-                  Save Lead
+                  {showAddLeadForm ? "Close" : "Add Lead"}
                 </Button>
               </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Leads for Follow-up</CardTitle>
-              <CardDescription>
-                Track and update potential customers captured during field work
-              </CardDescription>
             </CardHeader>
             <CardContent className="p-0">
               <Table>
@@ -286,7 +176,11 @@ export default function LeadsPage() {
                 </TableHeader>
                 <TableBody>
                   {leads.map((lead) => (
-                    <TableRow key={lead.id}>
+                    <TableRow
+                      key={lead.id}
+                      className="cursor-pointer"
+                      onClick={() => setSelectedLeadId(lead.id)}
+                    >
                       <TableCell className="font-medium">{lead.fullName}</TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-1">
@@ -321,6 +215,192 @@ export default function LeadsPage() {
                   ))}
                 </TableBody>
               </Table>
+            </CardContent>
+          </Card>
+
+          {showAddLeadForm && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Add New Lead</CardTitle>
+                <CardDescription>
+                  Record name, number, location, and notes from field work
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <FieldGroup>
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    <Field>
+                      <FieldLabel>Full Name</FieldLabel>
+                      <Input
+                        placeholder="Potential customer name"
+                        value={formData.fullName}
+                        onChange={(e) =>
+                          setFormData((prev) => ({ ...prev, fullName: e.target.value }))
+                        }
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Phone Number</FieldLabel>
+                      <Input
+                        placeholder="+255 xxx xxx xxx"
+                        value={formData.phoneNumber}
+                        onChange={(e) =>
+                          setFormData((prev) => ({ ...prev, phoneNumber: e.target.value }))
+                        }
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Alternate Number (optional)</FieldLabel>
+                      <Input
+                        placeholder="+255 xxx xxx xxx"
+                        value={formData.alternatePhone}
+                        onChange={(e) =>
+                          setFormData((prev) => ({ ...prev, alternatePhone: e.target.value }))
+                        }
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Location Name</FieldLabel>
+                      <Input
+                        placeholder="Area/Street/Market"
+                        value={formData.locationName}
+                        onChange={(e) =>
+                          setFormData((prev) => ({ ...prev, locationName: e.target.value }))
+                        }
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Latitude</FieldLabel>
+                      <Input
+                        type="number"
+                        step="any"
+                        placeholder="-6.7924"
+                        value={formData.latitude}
+                        onChange={(e) =>
+                          setFormData((prev) => ({ ...prev, latitude: e.target.value }))
+                        }
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Longitude</FieldLabel>
+                      <Input
+                        type="number"
+                        step="any"
+                        placeholder="39.2083"
+                        value={formData.longitude}
+                        onChange={(e) =>
+                          setFormData((prev) => ({ ...prev, longitude: e.target.value }))
+                        }
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Follow-up Date</FieldLabel>
+                      <Input
+                        type="date"
+                        value={formData.followUpDate}
+                        onChange={(e) =>
+                          setFormData((prev) => ({ ...prev, followUpDate: e.target.value }))
+                        }
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Status</FieldLabel>
+                      <Select
+                        value={formData.status}
+                        onValueChange={(value: LeadStatus) =>
+                          setFormData((prev) => ({ ...prev, status: value }))
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="new">New</SelectItem>
+                          <SelectItem value="follow_up">Follow Up</SelectItem>
+                          <SelectItem value="contacted">Contacted</SelectItem>
+                          <SelectItem value="converted">Converted</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                  </div>
+                  <Field>
+                    <FieldLabel>Notes</FieldLabel>
+                    <Textarea
+                      rows={3}
+                      placeholder="Important follow-up details from the field visit"
+                      value={formData.notes}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
+                    />
+                  </Field>
+                </FieldGroup>
+
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" onClick={handleCaptureLocation} disabled={isLocating}>
+                    <LocateFixed className="mr-2 h-4 w-4" />
+                    {isLocating ? "Capturing Location..." : "Use Current Location"}
+                  </Button>
+                  <Button onClick={handleAddLead}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Save Lead
+                  </Button>
+                </div>
+
+                {formData.latitude && formData.longitude && (
+                  <div className="overflow-hidden rounded-lg border border-border">
+                    <div className="border-b border-border bg-muted px-3 py-2 text-sm font-medium">
+                      New Lead Location Preview
+                    </div>
+                    <iframe
+                      title="New lead location preview"
+                      src={`https://maps.google.com/maps?q=${formData.latitude},${formData.longitude}&z=15&output=embed`}
+                      className="h-64 w-full"
+                      loading="lazy"
+                    />
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Leads Map</CardTitle>
+              <CardDescription>
+                Select a lead to view their captured location on the map
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Select value={selectedLeadId} onValueChange={setSelectedLeadId}>
+                <SelectTrigger className="max-w-md">
+                  <SelectValue placeholder="Choose lead for map view" />
+                </SelectTrigger>
+                <SelectContent>
+                  {leads.map((lead) => (
+                    <SelectItem key={lead.id} value={lead.id}>
+                      {lead.fullName} - {lead.locationName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              {mapLead ? (
+                <div className="overflow-hidden rounded-lg border border-border">
+                  <div className="border-b border-border bg-muted px-3 py-2 text-sm">
+                    <span className="font-medium">{mapLead.fullName}</span> |{" "}
+                    <span className="text-muted-foreground">{mapLead.locationName}</span>
+                  </div>
+                  <iframe
+                    title="Lead location map"
+                    src={`https://maps.google.com/maps?q=${mapLead.latitude},${mapLead.longitude}&z=15&output=embed`}
+                    className="h-72 w-full"
+                    loading="lazy"
+                  />
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No lead with coordinates yet. Capture latitude and longitude to display map.
+                </p>
+              )}
             </CardContent>
           </Card>
         </div>
