@@ -14,21 +14,17 @@ export default function DashboardPage() {
       />
       <main className="flex-1 overflow-auto p-4 lg:p-6">
         <div className="mx-auto max-w-7xl space-y-6">
-          {/* KPI Cards */}
           <KPICards />
 
-          {/* Charts Row */}
           <div className="grid gap-6 lg:grid-cols-3">
             <PortfolioChart />
             <AgingChart />
           </div>
 
-          {/* Activity and Tables */}
           <div className="grid gap-6 lg:grid-cols-2">
             <RecentActivity />
           </div>
 
-          {/* Loans at Risk Table */}
           <LoansAtRisk />
         </div>
       </main>
