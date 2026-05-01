@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Plus,
@@ -40,6 +40,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   loanApplications,
   currentUser,
   getCustomerById,
@@ -48,6 +56,13 @@ import {
   formatDateTime,
 } from "@/lib/mock-data";
 import type { LoanApplicationStatus } from "@/lib/types";
+
+type ApprovalRole = "loan_officer" | "branch_manager" | "super_admin";
+type WorkflowStage =
+  | "loan_officer_review"
+  | "manager_review"
+  | "top_admin_review"
+  | "completed";
 
 const statusConfig: Record<
   LoanApplicationStatus,
@@ -63,10 +78,105 @@ const statusConfig: Record<
 };
 
 export default function ApplicationsPage() {
-  const canDisburse = currentUser.role === "super_admin";
+  const roleDefault: ApprovalRole =
+    currentUser.role === "super_admin" ||
+    currentUser.role === "branch_manager" ||
+    currentUser.role === "loan_officer"
+      ? currentUser.role
+      : "loan_officer";
+  const [actingRole, setActingRole] = useState<ApprovalRole>(roleDefault);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [applications, setApplications] = useState(loanApplications);
+  const [disbursementDialogOpen, setDisbursementDialogOpen] = useState(false);
+  const [disbursementMethod, setDisbursementMethod] = useState<string>("");
+  const [selectedForDisbursement, setSelectedForDisbursement] = useState<string | null>(null);
+
+  const getWorkflowStage = (status: LoanApplicationStatus): WorkflowStage => {
+    if (status === "draft" || status === "submitted") return "loan_officer_review";
+    if (status === "under_review") return "manager_review";
+    if (status === "approved") return "top_admin_review";
+    return "completed";
+  };
+
+  const workflowLabel: Record<WorkflowStage, string> = {
+    loan_officer_review: "Loan Officer",
+    manager_review: "Manager",
+    top_admin_review: "Top Admin",
+    completed: "Completed",
+  };
+
+  const processSummary = useMemo(
+    () => ({
+      loanOfficerQueue: applications.filter(
+        (app) => getWorkflowStage(app.status) === "loan_officer_review"
+      ).length,
+      managerQueue: applications.filter((app) => getWorkflowStage(app.status) === "manager_review")
+        .length,
+      adminQueue: applications.filter((app) => getWorkflowStage(app.status) === "top_admin_review")
+        .length,
+      completed: applications.filter((app) => getWorkflowStage(app.status) === "completed").length,
+    }),
+    [applications]
+  );
+
+  const submitToManager = (appId: string) => {
+    setApplications((prev) =>
+      prev.map((app) =>
+        app.id === appId
+          ? {
+              ...app,
+              status: "under_review",
+              submitted_at: app.submitted_at ?? new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            }
+          : app
+      )
+    );
+  };
+
+  const managerDecision = (appId: string, decision: "approved" | "rejected") => {
+    setApplications((prev) =>
+      prev.map((app) =>
+        app.id === appId
+          ? {
+              ...app,
+              status: decision,
+              reviewed_by: "branch-manager-review",
+              reviewed_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            }
+          : app
+      )
+    );
+  };
+
+  const openDisbursementDialog = (appId: string) => {
+    setSelectedForDisbursement(appId);
+    setDisbursementMethod("");
+    setDisbursementDialogOpen(true);
+  };
+
+  const confirmDisbursement = () => {
+    if (!selectedForDisbursement || !disbursementMethod) return;
+    setApplications((prev) =>
+      prev.map((app) =>
+        app.id === selectedForDisbursement
+          ? {
+              ...app,
+              status: "disbursed",
+              approved_by: "top-admin",
+              approved_at: app.approved_at ?? new Date().toISOString(),
+              review_notes: `Disbursed via ${disbursementMethod}`,
+              updated_at: new Date().toISOString(),
+            }
+          : app
+      )
+    );
+    setDisbursementDialogOpen(false);
+    setSelectedForDisbursement(null);
+    setDisbursementMethod("");
+  };
 
   const filteredApplications = applications.filter((app) => {
     const customer = getCustomerById(app.customer_id);
@@ -147,6 +257,30 @@ export default function ApplicationsPage() {
             </Card>
           </div>
 
+          <Card>
+            <CardHeader>
+              <CardTitle>Approval Workflow Process</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs text-muted-foreground">Loan Officer Queue</p>
+                <p className="mt-1 text-2xl font-semibold">{processSummary.loanOfficerQueue}</p>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs text-muted-foreground">Manager Queue</p>
+                <p className="mt-1 text-2xl font-semibold">{processSummary.managerQueue}</p>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs text-muted-foreground">Top Admin Queue</p>
+                <p className="mt-1 text-2xl font-semibold">{processSummary.adminQueue}</p>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs text-muted-foreground">Completed</p>
+                <p className="mt-1 text-2xl font-semibold">{processSummary.completed}</p>
+              </div>
+            </CardContent>
+          </Card>
+
           {/* Filters and Actions */}
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-1 gap-3">
@@ -174,6 +308,16 @@ export default function ApplicationsPage() {
                   <SelectItem value="disbursed">Disbursed</SelectItem>
                 </SelectContent>
               </Select>
+              <Select value={actingRole} onValueChange={(value) => setActingRole(value as ApprovalRole)}>
+                <SelectTrigger className="w-48">
+                  <SelectValue placeholder="Acting as" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="loan_officer">Acting as Loan Officer</SelectItem>
+                  <SelectItem value="branch_manager">Acting as Manager</SelectItem>
+                  <SelectItem value="super_admin">Acting as Top Admin</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <Button asChild>
               <Link href="/applications/new">
@@ -195,6 +339,7 @@ export default function ApplicationsPage() {
                     <TableHead className="text-right">Amount</TableHead>
                     <TableHead>Purpose</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead>Workflow Stage</TableHead>
                     <TableHead>Date</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -202,7 +347,7 @@ export default function ApplicationsPage() {
                 <TableBody>
                   {filteredApplications.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
+                      <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
                         No applications found
                       </TableCell>
                     </TableRow>
@@ -212,6 +357,7 @@ export default function ApplicationsPage() {
                       const product = getProductById(app.product_id);
                       const status = statusConfig[app.status];
                       const StatusIcon = status.icon;
+                      const stage = getWorkflowStage(app.status);
 
                       return (
                         <TableRow key={app.id}>
@@ -241,6 +387,9 @@ export default function ApplicationsPage() {
                               {status.label}
                             </Badge>
                           </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{workflowLabel[stage]}</Badge>
+                          </TableCell>
                           <TableCell className="text-sm text-muted-foreground">
                             {formatDateTime(app.created_at)}
                           </TableCell>
@@ -263,42 +412,41 @@ export default function ApplicationsPage() {
                                     Analyze
                                   </Link>
                                 </DropdownMenuItem>
-                                {app.status === "under_review" && (
+                                {stage === "loan_officer_review" && (
+                                  <DropdownMenuItem
+                                    disabled={actingRole !== "loan_officer"}
+                                    onClick={() => submitToManager(app.id)}
+                                  >
+                                    Submit to Manager
+                                  </DropdownMenuItem>
+                                )}
+                                {stage === "manager_review" && (
                                   <>
-                                    <DropdownMenuItem className="text-accent">
-                                      Approve
+                                    <DropdownMenuItem
+                                      className="text-accent"
+                                      disabled={actingRole !== "branch_manager"}
+                                      onClick={() => managerDecision(app.id, "approved")}
+                                    >
+                                      Manager Approve
                                     </DropdownMenuItem>
-                                    <DropdownMenuItem className="text-destructive">
-                                      Reject
+                                    <DropdownMenuItem
+                                      className="text-destructive"
+                                      disabled={actingRole !== "branch_manager"}
+                                      onClick={() => managerDecision(app.id, "rejected")}
+                                    >
+                                      Manager Reject
                                     </DropdownMenuItem>
                                   </>
                                 )}
-                                {app.status === "approved" && (
+                                {stage === "top_admin_review" && (
                                   <>
-                                    {canDisburse ? (
-                                      <DropdownMenuItem
-                                        className="text-accent"
-                                        onClick={() =>
-                                          setApplications((prev) =>
-                                            prev.map((current) =>
-                                              current.id === app.id
-                                                ? {
-                                                    ...current,
-                                                    status: "disbursed",
-                                                    updated_at: new Date().toISOString(),
-                                                  }
-                                                : current
-                                            )
-                                          )
-                                        }
-                                      >
-                                        Disburse (Top Admin)
-                                      </DropdownMenuItem>
-                                    ) : (
-                                      <DropdownMenuItem disabled>
-                                        Disburse (Top Admin only)
-                                      </DropdownMenuItem>
-                                    )}
+                                    <DropdownMenuItem
+                                      className="text-accent"
+                                      disabled={actingRole !== "super_admin"}
+                                      onClick={() => openDisbursementDialog(app.id)}
+                                    >
+                                      Disburse (Top Admin)
+                                    </DropdownMenuItem>
                                   </>
                                 )}
                               </DropdownMenuContent>
@@ -314,6 +462,40 @@ export default function ApplicationsPage() {
           </Card>
         </div>
       </main>
+
+      <Dialog open={disbursementDialogOpen} onOpenChange={setDisbursementDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm Loan Disbursement</DialogTitle>
+            <DialogDescription>
+              Top Admin must choose disbursement method and confirm before marking this loan as
+              disbursed.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Disbursement Method</p>
+            <Select value={disbursementMethod} onValueChange={setDisbursementMethod}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select method" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                <SelectItem value="mobile_money">Mobile Money</SelectItem>
+                <SelectItem value="cash">Cash</SelectItem>
+                <SelectItem value="cheque">Cheque</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDisbursementDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={confirmDisbursement} disabled={!disbursementMethod}>
+              Confirm Disbursement
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

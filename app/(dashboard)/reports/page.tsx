@@ -29,6 +29,7 @@ import {
 } from "recharts";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import {
   Select,
@@ -58,12 +59,12 @@ import type { RiskClassification } from "@/lib/types";
 
 // Mock data for reports
 const monthlyData = [
-  { month: "Aug", disbursements: 45000000, collections: 38000000, newLoans: 28, closedLoans: 15 },
-  { month: "Sep", disbursements: 52000000, collections: 44000000, newLoans: 35, closedLoans: 22 },
-  { month: "Oct", disbursements: 48000000, collections: 46000000, newLoans: 32, closedLoans: 28 },
-  { month: "Nov", disbursements: 55000000, collections: 51000000, newLoans: 40, closedLoans: 32 },
-  { month: "Dec", disbursements: 42000000, collections: 48000000, newLoans: 25, closedLoans: 30 },
-  { month: "Jan", disbursements: 15866000, collections: 12500000, newLoans: 6, closedLoans: 4 },
+  { month: "Aug", periodStart: "2023-08-01", disbursements: 45000000, collections: 38000000, newLoans: 28, closedLoans: 15 },
+  { month: "Sep", periodStart: "2023-09-01", disbursements: 52000000, collections: 44000000, newLoans: 35, closedLoans: 22 },
+  { month: "Oct", periodStart: "2023-10-01", disbursements: 48000000, collections: 46000000, newLoans: 32, closedLoans: 28 },
+  { month: "Nov", periodStart: "2023-11-01", disbursements: 55000000, collections: 51000000, newLoans: 40, closedLoans: 32 },
+  { month: "Dec", periodStart: "2023-12-01", disbursements: 42000000, collections: 48000000, newLoans: 25, closedLoans: 30 },
+  { month: "Jan", periodStart: "2024-01-01", disbursements: 15866000, collections: 12500000, newLoans: 6, closedLoans: 4 },
 ];
 
 const productPerformance = loanProducts.map((product) => {
@@ -120,6 +121,89 @@ function formatYAxis(value: number) {
 
 export default function ReportsPage() {
   const [period, setPeriod] = useState("6m");
+  const [startDate, setStartDate] = useState("2023-08-01");
+  const [endDate, setEndDate] = useState("2024-01-31");
+  const [exportFormat, setExportFormat] = useState<"csv" | "json">("csv");
+  const [exportScope, setExportScope] = useState<"all" | "portfolio" | "aging" | "products" | "branches">("all");
+
+  const periodToRange = (selectedPeriod: string) => {
+    const latestMonth = new Date("2024-01-31T00:00:00Z");
+    const monthsBack = selectedPeriod === "1m" ? 1 : selectedPeriod === "3m" ? 3 : selectedPeriod === "6m" ? 6 : 12;
+    const rangeStart = new Date(latestMonth);
+    rangeStart.setUTCMonth(rangeStart.getUTCMonth() - (monthsBack - 1));
+    rangeStart.setUTCDate(1);
+    const toInputDate = (date: Date) => date.toISOString().slice(0, 10);
+    setStartDate(toInputDate(rangeStart));
+    setEndDate(toInputDate(latestMonth));
+  };
+
+  const filteredMonthlyData = monthlyData.filter((row) => {
+    const rowDate = new Date(row.periodStart);
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    return rowDate >= start && rowDate <= end;
+  });
+
+  const handleExport = () => {
+    const payload = {
+      timeframe: { startDate, endDate },
+      scope: exportScope,
+      portfolio: exportScope === "all" || exportScope === "portfolio" ? filteredMonthlyData : [],
+      aging: exportScope === "all" || exportScope === "aging" ? agingReport : [],
+      products: exportScope === "all" || exportScope === "products" ? productPerformance : [],
+      branches: exportScope === "all" || exportScope === "branches" ? branchPerformance : [],
+    };
+
+    const fileBase = `reports_${startDate}_to_${endDate}_${exportScope}`;
+    if (exportFormat === "json") {
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${fileBase}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      return;
+    }
+
+    const csvRows: string[] = [];
+    csvRows.push("section,metric_1,metric_2,metric_3,metric_4,metric_5");
+    filteredMonthlyData.forEach((row) => {
+      if (exportScope === "all" || exportScope === "portfolio") {
+        csvRows.push(
+          `portfolio_${row.month},${row.disbursements},${row.collections},${row.newLoans},${row.closedLoans},${row.periodStart}`
+        );
+      }
+    });
+    if (exportScope === "all" || exportScope === "aging") {
+      agingReport.forEach((row) => {
+        csvRows.push(
+          `aging_${row.classification},${row.loan_count},${row.outstanding_amount},${row.provision_amount},${row.percentage},-`
+        );
+      });
+    }
+    if (exportScope === "all" || exportScope === "products") {
+      productPerformance.forEach((row) => {
+        csvRows.push(
+          `product_${row.code},${row.loanCount},${row.outstanding},${row.par},${row.parRate.toFixed(2)},${row.name}`
+        );
+      });
+    }
+    if (exportScope === "all" || exportScope === "branches") {
+      branchPerformance.forEach((row) => {
+        csvRows.push(
+          `branch_${row.code},${row.loanCount},${row.disbursed},${row.collected},${row.collectionRate.toFixed(2)},${row.outstanding}`
+        );
+      });
+    }
+    const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${fileBase}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const totalPortfolio = loans.reduce((sum, l) => sum + l.total_outstanding, 0);
   const totalPAR = loans
@@ -152,11 +236,49 @@ export default function ReportsPage() {
                   <SelectItem value="1y">Last Year</SelectItem>
                 </SelectContent>
               </Select>
+              <Button variant="outline" onClick={() => periodToRange(period)}>
+                Apply Period to Dates
+              </Button>
+              <Input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="w-40"
+              />
+              <Input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="w-40"
+              />
             </div>
-            <Button variant="outline">
-              <Download className="mr-2 h-4 w-4" />
-              Export Reports
-            </Button>
+            <div className="flex items-center gap-2">
+              <Select value={exportScope} onValueChange={(value) => setExportScope(value as typeof exportScope)}>
+                <SelectTrigger className="w-40">
+                  <SelectValue placeholder="Export Scope" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Reports</SelectItem>
+                  <SelectItem value="portfolio">Portfolio</SelectItem>
+                  <SelectItem value="aging">Aging</SelectItem>
+                  <SelectItem value="products">Products</SelectItem>
+                  <SelectItem value="branches">Branches</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={exportFormat} onValueChange={(value) => setExportFormat(value as "csv" | "json")}>
+                <SelectTrigger className="w-28">
+                  <SelectValue placeholder="Format" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="csv">CSV</SelectItem>
+                  <SelectItem value="json">JSON</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button variant="outline" onClick={handleExport}>
+                <Download className="mr-2 h-4 w-4" />
+                Export Reports
+              </Button>
+            </div>
           </div>
 
           {/* Summary Cards */}
@@ -247,7 +369,7 @@ export default function ReportsPage() {
                   <CardContent>
                     <div className="h-[300px]">
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={monthlyData}>
+                        <BarChart data={filteredMonthlyData}>
                           <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                           <XAxis dataKey="month" />
                           <YAxis tickFormatter={formatYAxis} />
@@ -275,7 +397,7 @@ export default function ReportsPage() {
                   <CardContent>
                     <div className="h-[300px]">
                       <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={monthlyData}>
+                        <AreaChart data={filteredMonthlyData}>
                           <defs>
                             <linearGradient id="portfolioGrad" x1="0" y1="0" x2="0" y2="1">
                               <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
@@ -324,7 +446,7 @@ export default function ReportsPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {monthlyData.map((month) => (
+                      {filteredMonthlyData.map((month) => (
                         <TableRow key={month.month}>
                           <TableCell className="font-medium">{month.month}</TableCell>
                           <TableCell className="text-right">{formatCurrency(month.disbursements)}</TableCell>

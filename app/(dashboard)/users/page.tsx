@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { UserCog, ShieldCheck, FileText, Plus, Download } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Button } from "@/components/ui/button";
@@ -189,8 +190,8 @@ export default function UsersPage() {
                             </Badge>
                           </TableCell>
                           <TableCell className="text-right">
-                            <Button variant="outline" size="sm">
-                              Manage
+                            <Button variant="outline" size="sm" asChild>
+                              <Link href={`/users/${user.id}`}>Open Profile</Link>
                             </Button>
                           </TableCell>
                         </TableRow>

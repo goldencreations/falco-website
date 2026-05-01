@@ -10,6 +10,7 @@ import type {
   LoanProduct,
   LoanApplication,
   Loan,
+  LoanGroup,
   RepaymentSchedule,
   Payment,
   CollectionActivity,
@@ -531,6 +532,7 @@ export const loanApplications: LoanApplication[] = [
     id: 'app-001',
     application_number: 'APP-2024-001',
     customer_id: 'cust-003',
+    loan_mode: 'individual',
     product_id: 'prod-001',
     branch_id: 'br-001',
     requested_amount: 1500000,
@@ -558,6 +560,7 @@ export const loanApplications: LoanApplication[] = [
     id: 'app-002',
     application_number: 'APP-2024-002',
     customer_id: 'cust-004',
+    loan_mode: 'individual',
     product_id: 'prod-004',
     branch_id: 'br-002',
     requested_amount: 800000,
@@ -587,6 +590,8 @@ export const loanApplications: LoanApplication[] = [
     id: 'app-003',
     application_number: 'APP-2024-003',
     customer_id: 'cust-008',
+    loan_mode: 'group_based',
+    group_id: 'grp-001',
     product_id: 'prod-002',
     branch_id: 'br-003',
     requested_amount: 5000000,
@@ -608,6 +613,7 @@ export const loanApplications: LoanApplication[] = [
     id: 'app-004',
     application_number: 'APP-2024-004',
     customer_id: 'cust-007',
+    loan_mode: 'individual',
     product_id: 'prod-001',
     branch_id: 'br-001',
     requested_amount: 500000,
@@ -630,6 +636,7 @@ export const loans: Loan[] = [
     loan_number: 'FFS-LN-2024-0001',
     application_id: 'app-prev-001',
     customer_id: 'cust-001',
+    loan_mode: 'individual',
     product_id: 'prod-001',
     branch_id: 'br-001',
     principal_amount: 2000000,
@@ -664,6 +671,7 @@ export const loans: Loan[] = [
     loan_number: 'FFS-LN-2024-0002',
     application_id: 'app-prev-002',
     customer_id: 'cust-002',
+    loan_mode: 'individual',
     product_id: 'prod-002',
     branch_id: 'br-001',
     principal_amount: 8000000,
@@ -698,6 +706,8 @@ export const loans: Loan[] = [
     loan_number: 'FFS-LN-2024-0003',
     application_id: 'app-prev-003',
     customer_id: 'cust-005',
+    loan_mode: 'group_based',
+    group_id: 'grp-002',
     product_id: 'prod-003',
     branch_id: 'br-001',
     principal_amount: 4000000,
@@ -732,6 +742,7 @@ export const loans: Loan[] = [
     loan_number: 'FFS-LN-2024-0004',
     application_id: 'app-prev-004',
     customer_id: 'cust-006',
+    loan_mode: 'individual',
     product_id: 'prod-004',
     branch_id: 'br-001',
     principal_amount: 1000000,
@@ -765,6 +776,8 @@ export const loans: Loan[] = [
     loan_number: 'FFS-LN-2024-0005',
     application_id: 'app-prev-005',
     customer_id: 'cust-003',
+    loan_mode: 'group_based',
+    group_id: 'grp-001',
     product_id: 'prod-001',
     branch_id: 'br-001',
     principal_amount: 800000,
@@ -798,6 +811,7 @@ export const loans: Loan[] = [
     loan_number: 'FFS-LN-2024-0006',
     application_id: 'app-prev-006',
     customer_id: 'cust-008',
+    loan_mode: 'individual',
     product_id: 'prod-002',
     branch_id: 'br-003',
     principal_amount: 3000000,
@@ -984,6 +998,50 @@ export const collectionActivities: CollectionActivity[] = [
 ];
 
 // -----------------------------------------------------------------------------
+// GROUP LOANS (VIKUNDI / VIKOBA)
+// -----------------------------------------------------------------------------
+export const loanGroups: LoanGroup[] = [
+  {
+    id: 'grp-001',
+    group_code: 'VK-DSM-001',
+    group_name: 'Umoja Women Traders',
+    branch_id: 'br-001',
+    loan_officer_id: 'usr-003',
+    chairperson_customer_id: 'cust-002',
+    secretary_customer_id: 'cust-003',
+    treasurer_customer_id: 'cust-007',
+    member_customer_ids: ['cust-002', 'cust-003', 'cust-007', 'cust-006'],
+    formation_date: '2023-05-12',
+    meeting_day: 'Thursday',
+    meeting_location: 'Kariakoo Community Hall',
+    village_or_street: 'Kariakoo',
+    status: 'active',
+    notes: 'Weekly savings and rotating guarantee model.',
+    created_at: '2023-05-12T08:30:00Z',
+    updated_at: '2024-01-14T10:00:00Z',
+  },
+  {
+    id: 'grp-002',
+    group_code: 'VK-ARU-004',
+    group_name: 'Arusha Green Farmers',
+    branch_id: 'br-002',
+    loan_officer_id: 'usr-003',
+    chairperson_customer_id: 'cust-005',
+    secretary_customer_id: 'cust-004',
+    treasurer_customer_id: 'cust-008',
+    member_customer_ids: ['cust-005', 'cust-004', 'cust-008'],
+    formation_date: '2022-11-02',
+    meeting_day: 'Monday',
+    meeting_location: 'Njiro Ward Office',
+    village_or_street: 'Njiro',
+    status: 'active',
+    notes: 'Agribusiness-focused vikoba group with monthly cycles.',
+    created_at: '2022-11-02T09:00:00Z',
+    updated_at: '2024-01-10T14:00:00Z',
+  },
+];
+
+// -----------------------------------------------------------------------------
 // DASHBOARD METRICS
 // -----------------------------------------------------------------------------
 export const dashboardMetrics: DashboardMetrics = {
@@ -1036,21 +1094,29 @@ export function formatCurrency(amount: number): string {
 }
 
 export function formatDate(dateString: string): string {
-  return new Date(dateString).toLocaleDateString('en-TZ', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
+  const date = new Date(dateString);
+  if (Number.isNaN(date.getTime())) return "-";
+
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  const month = months[date.getUTCMonth()];
+  const year = date.getUTCFullYear();
+
+  return `${day} ${month} ${year}`;
 }
 
 export function formatDateTime(dateString: string): string {
-  return new Date(dateString).toLocaleString('en-TZ', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  const date = new Date(dateString);
+  if (Number.isNaN(date.getTime())) return "-";
+
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  const month = months[date.getUTCMonth()];
+  const year = date.getUTCFullYear();
+  const hours = String(date.getUTCHours()).padStart(2, "0");
+  const minutes = String(date.getUTCMinutes()).padStart(2, "0");
+
+  return `${day} ${month} ${year}, ${hours}:${minutes} UTC`;
 }
 
 export function getCustomerById(id: string): Customer | undefined {
@@ -1067,6 +1133,18 @@ export function getBranchById(id: string): Branch | undefined {
 
 export function getUserById(id: string): User | undefined {
   return users.find(u => u.id === id);
+}
+
+export function getGroupById(id: string): LoanGroup | undefined {
+  return loanGroups.find(g => g.id === id);
+}
+
+export function getGroupsByOfficerId(userId: string): LoanGroup[] {
+  return loanGroups.filter(g => g.loan_officer_id === userId);
+}
+
+export function getGroupsByCustomerId(customerId: string): LoanGroup[] {
+  return loanGroups.filter(g => g.member_customer_ids.includes(customerId));
 }
 
 export function getLoansByCustomerId(customerId: string): Loan[] {

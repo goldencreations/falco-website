@@ -45,6 +45,7 @@ export interface Branch {
 export type CustomerType = 'individual' | 'business';
 export type EmploymentType = 'employed' | 'self_employed' | 'business_owner' | 'retired' | 'unemployed';
 export type RiskGrade = 'A' | 'B' | 'C' | 'D' | 'E';
+export type LoanMode = 'individual' | 'group_based';
 
 export interface Customer {
   id: string;
@@ -172,6 +173,8 @@ export interface LoanApplication {
   id: string;
   application_number: string;
   customer_id: string;
+  loan_mode?: LoanMode;
+  group_id?: string;
   product_id: string;
   branch_id: string;
   
@@ -233,6 +236,8 @@ export interface Loan {
   loan_number: string;
   application_id: string;
   customer_id: string;
+  loan_mode?: LoanMode;
+  group_id?: string;
   product_id: string;
   branch_id: string;
   
@@ -374,6 +379,29 @@ export interface CollectionActivity {
   
   performed_by: string;
   performed_at: string;
+}
+
+// -----------------------------------------------------------------------------
+// GROUP LOAN (VIKUNDI / VIKOBA) TYPES
+// -----------------------------------------------------------------------------
+export interface LoanGroup {
+  id: string;
+  group_code: string;
+  group_name: string;
+  branch_id: string;
+  loan_officer_id: string;
+  chairperson_customer_id: string;
+  secretary_customer_id?: string;
+  treasurer_customer_id?: string;
+  member_customer_ids: string[];
+  formation_date: string;
+  meeting_day: string;
+  meeting_location: string;
+  village_or_street: string;
+  status: 'active' | 'inactive' | 'suspended';
+  notes?: string;
+  created_at: string;
+  updated_at: string;
 }
 
 // -----------------------------------------------------------------------------

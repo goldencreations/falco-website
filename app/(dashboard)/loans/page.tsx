@@ -35,12 +35,15 @@ import {
 import { Progress } from "@/components/ui/progress";
 import {
   loans,
+  currentUser,
   getCustomerById,
   getProductById,
   formatCurrency,
   formatDate,
 } from "@/lib/mock-data";
 import type { LoanStatus, RiskClassification } from "@/lib/types";
+
+type LoanViewRole = "loan_officer" | "branch_manager" | "super_admin";
 
 const statusConfig: Record<
   LoanStatus,
@@ -64,10 +67,21 @@ const riskConfig: Record<RiskClassification, { label: string; color: string }> =
 };
 
 export default function LoansPage() {
+  const roleDefault: LoanViewRole =
+    currentUser.role === "super_admin" ||
+    currentUser.role === "branch_manager" ||
+    currentUser.role === "loan_officer"
+      ? currentUser.role
+      : "loan_officer";
+  const [actingRole, setActingRole] = useState<LoanViewRole>(roleDefault);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const scopedLoans =
+    actingRole === "super_admin"
+      ? loans
+      : loans.filter((loan) => loan.branch_id === currentUser.branch_id);
 
-  const filteredLoans = loans.filter((loan) => {
+  const filteredLoans = scopedLoans.filter((loan) => {
     const customer = getCustomerById(loan.customer_id);
     const matchesSearch =
       searchQuery === "" ||
@@ -80,10 +94,10 @@ export default function LoansPage() {
     return matchesSearch && matchesStatus;
   });
 
-  const totalOutstanding = loans.reduce((sum, l) => sum + l.total_outstanding, 0);
-  const totalPrincipal = loans.reduce((sum, l) => sum + l.principal_amount, 0);
-  const activeLoans = loans.filter((l) => l.status === "active").length;
-  const inArrearsLoans = loans.filter((l) => l.status === "in_arrears").length;
+  const totalOutstanding = scopedLoans.reduce((sum, l) => sum + l.total_outstanding, 0);
+  const totalPrincipal = scopedLoans.reduce((sum, l) => sum + l.principal_amount, 0);
+  const activeLoans = scopedLoans.filter((l) => l.status === "active").length;
+  const inArrearsLoans = scopedLoans.filter((l) => l.status === "in_arrears").length;
 
   return (
     <>
@@ -102,7 +116,7 @@ export default function LoansPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{loans.length}</div>
+                <div className="text-2xl font-bold">{scopedLoans.length}</div>
                 <p className="text-sm text-muted-foreground">
                   {activeLoans} active, {inArrearsLoans} in arrears
                 </p>
@@ -140,7 +154,7 @@ export default function LoansPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-accent">
-                  {((1 - totalOutstanding / totalPrincipal) * 100).toFixed(1)}%
+                  {totalPrincipal > 0 ? ((1 - totalOutstanding / totalPrincipal) * 100).toFixed(1) : "0.0"}%
                 </div>
               </CardContent>
             </Card>
@@ -171,8 +185,26 @@ export default function LoansPage() {
                   <SelectItem value="paid_off">Paid Off</SelectItem>
                 </SelectContent>
               </Select>
+              <Select value={actingRole} onValueChange={(value) => setActingRole(value as LoanViewRole)}>
+                <SelectTrigger className="w-48">
+                  <SelectValue placeholder="Loan visibility role" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="loan_officer">Loan Officer View</SelectItem>
+                  <SelectItem value="branch_manager">Manager View</SelectItem>
+                  <SelectItem value="super_admin">Top Admin View</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
+
+          <Card>
+            <CardContent className="p-4 text-sm text-muted-foreground">
+              {actingRole === "super_admin"
+                ? "Top Admin view: showing all loans across all branches."
+                : "Branch view: showing loans for your branch only. Switch to Top Admin to view all loans."}
+            </CardContent>
+          </Card>
 
           {/* Loans Table */}
           <Card>

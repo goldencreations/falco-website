@@ -83,6 +83,11 @@ const navigation = [
         href: "/loans",
         icon: Wallet,
       },
+      {
+        title: "Vikundi / Group Loans",
+        href: "/groups",
+        icon: Users,
+      },
     ],
   },
   {

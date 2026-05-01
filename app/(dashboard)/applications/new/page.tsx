@@ -34,14 +34,19 @@ import {
 } from "@/components/ui/field";
 import {
   customers,
+  loanGroups,
   loanProducts,
   formatCurrency,
+  getCustomerById,
+  getUserById,
 } from "@/lib/mock-data";
-import type { Customer, LoanProduct } from "@/lib/types";
+import type { Customer, LoanMode, LoanProduct } from "@/lib/types";
 
 export default function NewApplicationPage() {
   const router = useRouter();
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [loanMode, setLoanMode] = useState<LoanMode>("individual");
+  const [selectedGroupId, setSelectedGroupId] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<LoanProduct | null>(null);
   const [customerSearch, setCustomerSearch] = useState("");
 
@@ -84,6 +89,13 @@ export default function NewApplicationPage() {
         c.last_name.toLowerCase().includes(customerSearch.toLowerCase()) ||
         c.customer_number.toLowerCase().includes(customerSearch.toLowerCase()))
   );
+
+  const selectedGroup = loanGroups.find((group) => group.id === selectedGroupId);
+  const groupMembers = selectedGroup
+    ? selectedGroup.member_customer_ids
+        .map((memberId) => getCustomerById(memberId))
+        .filter(Boolean) as Customer[]
+    : [];
 
   const eligibleProducts = selectedCustomer
     ? loanProducts.filter(
@@ -195,6 +207,8 @@ export default function NewApplicationPage() {
   const handleSubmit = (isDraft: boolean) => {
     // In production, this would call an API
     console.log("Submitting application:", {
+      loanMode,
+      groupId: loanMode === "group_based" ? selectedGroupId : null,
       customerId: selectedCustomer?.id,
       productId: selectedProduct?.id,
       ...formData,
@@ -238,16 +252,73 @@ export default function NewApplicationPage() {
                 <CardHeader>
                   <CardTitle>Customer Information</CardTitle>
                   <CardDescription>
-                    Search and select an existing customer
+                    Choose individual or group-based loan and select borrower context
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  <Field>
+                    <FieldLabel>Loan Type</FieldLabel>
+                    <Select
+                      value={loanMode}
+                      onValueChange={(value) => {
+                        const nextMode = value as LoanMode;
+                        setLoanMode(nextMode);
+                        setSelectedCustomer(null);
+                        setSelectedGroupId("");
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="individual">Individual</SelectItem>
+                        <SelectItem value="group_based">Group-based (Vikundi/Vikoba)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+
+                  {loanMode === "group_based" && (
+                    <Field>
+                      <FieldLabel>Select Kikundi / Group</FieldLabel>
+                      <Select value={selectedGroupId} onValueChange={setSelectedGroupId}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select group" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {loanGroups.map((group) => {
+                            const officer = getUserById(group.loan_officer_id);
+                            return (
+                              <SelectItem key={group.id} value={group.id}>
+                                {group.group_name} ({group.group_code}) - LO: {officer?.full_name ?? "-"}
+                              </SelectItem>
+                            );
+                          })}
+                        </SelectContent>
+                      </Select>
+                      {selectedGroup && (
+                        <div className="mt-2 rounded-lg border border-border bg-muted/40 p-3 text-sm">
+                          <p className="font-medium">{selectedGroup.group_name}</p>
+                          <p className="text-muted-foreground">
+                            Members: {selectedGroup.member_customer_ids.length} | Meeting: {selectedGroup.meeting_day}
+                          </p>
+                          <p className="text-muted-foreground">
+                            Loan Officer: {getUserById(selectedGroup.loan_officer_id)?.full_name ?? "-"}
+                          </p>
+                        </div>
+                      )}
+                    </Field>
+                  )}
+
                   {!selectedCustomer ? (
                     <>
                       <div className="relative">
                         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                         <Input
-                          placeholder="Search by name or customer number..."
+                          placeholder={
+                            loanMode === "group_based"
+                              ? "Search group members by name or customer number..."
+                              : "Search by name or customer number..."
+                          }
                           value={customerSearch}
                           onChange={(e) => setCustomerSearch(e.target.value)}
                           className="pl-9"
@@ -255,7 +326,14 @@ export default function NewApplicationPage() {
                       </div>
                       {customerSearch && (
                         <div className="max-h-48 space-y-2 overflow-auto">
-                          {filteredCustomers.map((customer) => (
+                          {(loanMode === "group_based"
+                            ? filteredCustomers.filter((customer) =>
+                                selectedGroup
+                                  ? selectedGroup.member_customer_ids.includes(customer.id)
+                                  : false
+                              )
+                            : filteredCustomers
+                          ).map((customer) => (
                             <button
                               key={customer.id}
                               onClick={() => {
@@ -285,7 +363,13 @@ export default function NewApplicationPage() {
                               </Badge>
                             </button>
                           ))}
-                          {filteredCustomers.length === 0 && (
+                          {(loanMode === "group_based"
+                            ? filteredCustomers.filter((customer) =>
+                                selectedGroup
+                                  ? selectedGroup.member_customer_ids.includes(customer.id)
+                                  : false
+                              ).length
+                            : filteredCustomers.length) === 0 && (
                             <p className="py-4 text-center text-muted-foreground">
                               No customers found
                             </p>
@@ -309,6 +393,11 @@ export default function NewApplicationPage() {
                           <Badge variant="secondary">
                             {selectedCustomer.customer_type}
                           </Badge>
+                          {loanMode === "group_based" && selectedGroup && (
+                            <Badge variant="outline">
+                              Group: {selectedGroup.group_name}
+                            </Badge>
+                          )}
                           <Badge
                             variant={
                               selectedCustomer.risk_grade === "A"
@@ -334,6 +423,18 @@ export default function NewApplicationPage() {
                       >
                         Change
                       </Button>
+                    </div>
+                  )}
+                  {loanMode === "group_based" && selectedGroup && (
+                    <div className="rounded-lg border border-border p-3">
+                      <p className="mb-2 text-sm font-medium">Kikundi Members</p>
+                      <div className="grid gap-2 text-sm sm:grid-cols-2">
+                        {groupMembers.map((member) => (
+                          <div key={member.id} className="rounded border border-border/60 px-2 py-1">
+                            {member.first_name} {member.last_name} ({member.customer_number})
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </CardContent>
