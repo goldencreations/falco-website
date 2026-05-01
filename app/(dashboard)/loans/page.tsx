@@ -11,7 +11,12 @@ import {
   CheckCircle,
   XCircle,
   Clock,
+  Building2,
+  User,
+  CalendarRange,
+  TrendingUp,
 } from "lucide-react";
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,14 +38,22 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   loans,
+  formatDateTime,
   getCustomerById,
   getProductById,
+  getBranchById,
+  getCollectionsByLoanId,
+  getPaymentsByLoanId,
+  getScheduleByLoanId,
+  getUserById,
   formatCurrency,
   formatDate,
 } from "@/lib/mock-data";
-import type { LoanStatus, RiskClassification } from "@/lib/types";
+import type { Loan, LoanStatus, RiskClassification } from "@/lib/types";
 
 const statusConfig: Record<
   LoanStatus,
@@ -66,6 +79,7 @@ const riskConfig: Record<RiskClassification, { label: string; color: string }> =
 export default function LoansPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [viewLoan, setViewLoan] = useState<Loan | null>(null);
 
   const filteredLoans = loans.filter((loan) => {
     const customer = getCustomerById(loan.customer_id);
@@ -84,6 +98,27 @@ export default function LoansPage() {
   const totalPrincipal = loans.reduce((sum, l) => sum + l.principal_amount, 0);
   const activeLoans = loans.filter((l) => l.status === "active").length;
   const inArrearsLoans = loans.filter((l) => l.status === "in_arrears").length;
+  const recoveryRate = ((1 - totalOutstanding / totalPrincipal) * 100).toFixed(1);
+  const viewCustomer = viewLoan ? getCustomerById(viewLoan.customer_id) : null;
+  const viewProduct = viewLoan ? getProductById(viewLoan.product_id) : null;
+  const viewBranch = viewLoan ? getBranchById(viewLoan.branch_id) : null;
+  const viewOfficer = viewLoan ? getUserById(viewLoan.loan_officer_id ?? viewLoan.disbursed_by) : null;
+  const viewPayments = viewLoan ? getPaymentsByLoanId(viewLoan.id).filter((p) => p.status === "completed") : [];
+  const viewSchedule = viewLoan ? getScheduleByLoanId(viewLoan.id) : [];
+  const viewCollections = viewLoan ? getCollectionsByLoanId(viewLoan.id) : [];
+  const paidInstallments = viewSchedule.filter((item) => item.is_paid).length;
+  const overdueInstallments = viewSchedule.filter((item) => !item.is_paid && item.days_overdue > 0).length;
+  const totalCollected = viewPayments.reduce((sum, p) => sum + p.amount, 0);
+  const interestCollected = viewPayments.reduce((sum, p) => sum + p.interest_allocated, 0);
+  const feeCollected = viewPayments.reduce((sum, p) => sum + p.fees_allocated, 0);
+  const disbursementChartData = viewLoan
+    ? [
+        { name: "Disbursed", amount: viewLoan.principal_amount },
+        { name: "Collected", amount: totalCollected },
+        { name: "Interest", amount: viewLoan.interest_amount },
+        { name: "Outstanding", amount: viewLoan.total_outstanding },
+      ]
+    : [];
 
   return (
     <>
@@ -94,7 +129,36 @@ export default function LoansPage() {
       <main className="flex-1 overflow-auto p-4 lg:p-6">
         <div className="mx-auto max-w-7xl space-y-6">
           {/* Summary Cards */}
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Card className="border-emerald-200/60 bg-gradient-to-br from-emerald-50/70 to-background shadow-sm sm:hidden dark:border-emerald-900/40 dark:from-emerald-950/20">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Loan Disbursement Snapshot</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-lg border border-emerald-200/70 bg-emerald-100/60 p-3 dark:border-emerald-900/40 dark:bg-emerald-950/15">
+                  <p className="text-[11px] text-muted-foreground">Loans</p>
+                  <p className="text-lg font-semibold">{loans.length}</p>
+                </div>
+                <div className="rounded-lg border border-emerald-200/70 bg-emerald-100/60 p-3 dark:border-emerald-900/40 dark:bg-emerald-950/15">
+                  <p className="text-[11px] text-muted-foreground">Recovery</p>
+                  <p className="text-lg font-semibold">{recoveryRate}%</p>
+                </div>
+                <div className="rounded-lg border border-emerald-200/70 bg-emerald-100/60 p-3 dark:border-emerald-900/40 dark:bg-emerald-950/15">
+                  <p className="text-[11px] text-muted-foreground">Disbursed</p>
+                  <p className="text-sm font-semibold">{formatCurrency(totalPrincipal)}</p>
+                </div>
+                <div className="rounded-lg border border-emerald-200/70 bg-emerald-100/60 p-3 dark:border-emerald-900/40 dark:bg-emerald-950/15">
+                  <p className="text-[11px] text-muted-foreground">Outstanding</p>
+                  <p className="text-sm font-semibold">{formatCurrency(totalOutstanding)}</p>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {activeLoans} active loans and {inArrearsLoans} in arrears.
+              </p>
+            </CardContent>
+          </Card>
+
+          <div className="hidden gap-4 sm:grid sm:grid-cols-2 lg:grid-cols-4">
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -140,7 +204,7 @@ export default function LoansPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-accent">
-                  {((1 - totalOutstanding / totalPrincipal) * 100).toFixed(1)}%
+                  {recoveryRate}%
                 </div>
               </CardContent>
             </Card>
@@ -260,13 +324,11 @@ export default function LoansPage() {
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-1">
-                              <Button variant="ghost" size="sm" asChild>
-                                <Link href={`/loans/${loan.id}`}>
+                              <Button variant="ghost" size="sm" onClick={() => setViewLoan(loan)}>
                                   <Eye className="h-4 w-4" />
-                                </Link>
                               </Button>
                               <Button variant="ghost" size="sm" asChild>
-                                <Link href={`/payments?loan=${loan.id}`}>
+                                <Link href={`/payments?loan=${loan.id}&openPayment=1`}>
                                   <CreditCard className="h-4 w-4" />
                                 </Link>
                               </Button>
@@ -282,6 +344,175 @@ export default function LoansPage() {
           </Card>
         </div>
       </main>
+
+      <Dialog open={Boolean(viewLoan)} onOpenChange={(open) => !open && setViewLoan(null)}>
+        <DialogContent className="max-h-[90vh] overflow-hidden border-emerald-200/60 bg-gradient-to-b from-emerald-50/60 via-background to-background sm:max-w-4xl dark:border-emerald-900/40 dark:from-emerald-950/15">
+          {viewLoan ? (
+            <>
+              <DialogHeader className="rounded-md border border-emerald-200/60 bg-emerald-50/50 p-3 dark:border-emerald-900/40 dark:bg-emerald-950/10">
+                <DialogTitle className="text-xl">
+                  Loan Disbursement Details - {viewLoan.loan_number}
+                </DialogTitle>
+                <DialogDescription>
+                  Complete customer, disbursement, collections, and credit analysis view.
+                </DialogDescription>
+              </DialogHeader>
+              <ScrollArea className="max-h-[72vh] pr-4">
+                <div className="space-y-5 pb-3">
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <Card className="border-emerald-200/60 bg-gradient-to-br from-emerald-50/55 to-background md:col-span-2 dark:border-emerald-900/35 dark:from-emerald-950/10">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-base">Customer Profile</CardTitle>
+                      </CardHeader>
+                      <CardContent className="grid gap-3 sm:grid-cols-2">
+                        <div>
+                          <p className="text-xs text-muted-foreground">Customer Name</p>
+                          <p className="font-medium">
+                            {viewCustomer ? `${viewCustomer.first_name} ${viewCustomer.last_name}` : "Unknown"}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Phone</p>
+                          <p className="font-medium">{viewCustomer?.phone_primary ?? "N/A"}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">National ID</p>
+                          <p className="font-medium">{viewCustomer?.national_id ?? "N/A"}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Address</p>
+                          <p className="font-medium">{viewCustomer?.physical_address ?? "N/A"}</p>
+                        </div>
+                      </CardContent>
+                    </Card>
+                    <Card className="border-emerald-200/60 bg-gradient-to-br from-emerald-50/55 to-background dark:border-emerald-900/35 dark:from-emerald-950/10">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-base">Application Team</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        <div className="flex items-center gap-2 text-sm">
+                          <Building2 className="h-4 w-4 text-muted-foreground" />
+                          <span>{viewBranch?.name ?? "Unknown Branch"}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-sm">
+                          <User className="h-4 w-4 text-muted-foreground" />
+                          <span>{viewOfficer?.full_name ?? "Unknown Officer"}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-sm">
+                          <CalendarRange className="h-4 w-4 text-muted-foreground" />
+                          <span>Disbursed: {formatDate(viewLoan.disbursement_date)}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-sm">
+                          <CalendarRange className="h-4 w-4 text-muted-foreground" />
+                          <span>Due: {formatDate(viewLoan.maturity_date)}</span>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  <Card className="border-emerald-200/60 bg-gradient-to-br from-emerald-50/55 to-background dark:border-emerald-900/35 dark:from-emerald-950/10">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base">Financial Distribution</CardTitle>
+                    </CardHeader>
+                    <CardContent className="grid gap-4 lg:grid-cols-2">
+                      <div className="h-64 w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={disbursementChartData}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                            <YAxis tickFormatter={(v) => `${Number(v) / 1000000}M`} />
+                            <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                            <Bar dataKey="amount" radius={[6, 6, 0, 0]} fill="hsl(var(--primary))" />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <div className="space-y-3">
+                        <div className="rounded-lg border border-emerald-200/70 bg-emerald-100/50 p-3 dark:border-emerald-900/40 dark:bg-emerald-950/15">
+                          <p className="text-xs text-muted-foreground">Disbursed Principal</p>
+                          <p className="text-lg font-semibold">{formatCurrency(viewLoan.principal_amount)}</p>
+                        </div>
+                        <div className="rounded-lg border border-emerald-200/70 bg-emerald-100/50 p-3 dark:border-emerald-900/40 dark:bg-emerald-950/15">
+                          <p className="text-xs text-muted-foreground">Collections to Date</p>
+                          <p className="text-lg font-semibold">{formatCurrency(totalCollected)}</p>
+                        </div>
+                        <div className="rounded-lg border border-emerald-200/70 bg-emerald-100/50 p-3 dark:border-emerald-900/40 dark:bg-emerald-950/15">
+                          <p className="text-xs text-muted-foreground">Interest Amount</p>
+                          <p className="text-lg font-semibold">{formatCurrency(viewLoan.interest_amount)}</p>
+                        </div>
+                        <div className="rounded-lg border border-emerald-200/70 bg-emerald-100/50 p-3 dark:border-emerald-900/40 dark:bg-emerald-950/15">
+                          <p className="text-xs text-muted-foreground">Outstanding Balance</p>
+                          <p className="text-lg font-semibold">{formatCurrency(viewLoan.total_outstanding)}</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Card className="border-emerald-200/60 bg-gradient-to-br from-emerald-50/55 to-background dark:border-emerald-900/35 dark:from-emerald-950/10">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-base">Collection Summary</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-2 text-sm">
+                        <p className="flex justify-between">
+                          <span className="text-muted-foreground">Payment records</span>
+                          <span className="font-medium">{viewPayments.length}</span>
+                        </p>
+                        <p className="flex justify-between">
+                          <span className="text-muted-foreground">Interest collected</span>
+                          <span className="font-medium">{formatCurrency(interestCollected)}</span>
+                        </p>
+                        <p className="flex justify-between">
+                          <span className="text-muted-foreground">Fee collected</span>
+                          <span className="font-medium">{formatCurrency(feeCollected)}</span>
+                        </p>
+                        <p className="flex justify-between">
+                          <span className="text-muted-foreground">Last collection date</span>
+                          <span className="font-medium">
+                            {viewPayments[viewPayments.length - 1]
+                              ? formatDateTime(viewPayments[viewPayments.length - 1].payment_date)
+                              : "No payment yet"}
+                          </span>
+                        </p>
+                      </CardContent>
+                    </Card>
+
+                    <Card className="border-emerald-200/60 bg-gradient-to-br from-emerald-50/55 to-background dark:border-emerald-900/35 dark:from-emerald-950/10">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="flex items-center gap-2 text-base">
+                          <TrendingUp className="h-4 w-4 text-primary" />
+                          Loan Analysis
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-2 text-sm">
+                        <p className="flex justify-between">
+                          <span className="text-muted-foreground">Risk classification</span>
+                          <span className="font-medium">{riskConfig[viewLoan.risk_classification].label}</span>
+                        </p>
+                        <p className="flex justify-between">
+                          <span className="text-muted-foreground">Installments paid</span>
+                          <span className="font-medium">{paidInstallments}</span>
+                        </p>
+                        <p className="flex justify-between">
+                          <span className="text-muted-foreground">Overdue installments</span>
+                          <span className="font-medium">{overdueInstallments}</span>
+                        </p>
+                        <p className="flex justify-between">
+                          <span className="text-muted-foreground">Collection actions logged</span>
+                          <span className="font-medium">{viewCollections.length}</span>
+                        </p>
+                        <p className="flex justify-between">
+                          <span className="text-muted-foreground">Days in arrears</span>
+                          <span className="font-medium">{viewLoan.days_in_arrears}</span>
+                        </p>
+                      </CardContent>
+                    </Card>
+                  </div>
+                </div>
+              </ScrollArea>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
