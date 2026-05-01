@@ -136,7 +136,7 @@ const navigation = [
         icon: Building2,
       },
       {
-        title: "User Management",
+        title: "Staff Management",
         href: "/users",
         icon: UserCog,
       },
