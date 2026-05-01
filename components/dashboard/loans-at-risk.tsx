@@ -60,7 +60,7 @@ export function LoansAtRisk() {
     .sort((a, b) => b.days_in_arrears - a.days_in_arrears);
 
   return (
-    <Card className="col-span-full border-0 shadow-sm">
+    <Card className="col-span-full border border-border/70 shadow-sm">
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <div>
           <CardTitle className="text-lg flex items-center gap-2">
