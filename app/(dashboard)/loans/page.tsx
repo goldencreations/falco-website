@@ -54,6 +54,7 @@ import {
   formatDate,
 } from "@/lib/mock-data";
 import type { Loan, LoanStatus, RiskClassification } from "@/lib/types";
+import { useBranchAssignment } from "@/components/branch-assignment-context";
 
 const statusConfig: Record<
   LoanStatus,
@@ -77,6 +78,7 @@ const riskConfig: Record<RiskClassification, { label: string; color: string }> =
 };
 
 export default function LoansPage() {
+  const { users: managedUsers, branches: managedBranches } = useBranchAssignment();
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [viewLoan, setViewLoan] = useState<Loan | null>(null);
@@ -101,8 +103,13 @@ export default function LoansPage() {
   const recoveryRate = ((1 - totalOutstanding / totalPrincipal) * 100).toFixed(1);
   const viewCustomer = viewLoan ? getCustomerById(viewLoan.customer_id) : null;
   const viewProduct = viewLoan ? getProductById(viewLoan.product_id) : null;
-  const viewBranch = viewLoan ? getBranchById(viewLoan.branch_id) : null;
-  const viewOfficer = viewLoan ? getUserById(viewLoan.loan_officer_id ?? viewLoan.disbursed_by) : null;
+  const viewBranch = viewLoan
+    ? managedBranches.find((branch) => branch.id === viewLoan.branch_id) ?? getBranchById(viewLoan.branch_id)
+    : null;
+  const viewOfficer = viewLoan
+    ? managedUsers.find((user) => user.id === (viewLoan.loan_officer_id ?? viewLoan.disbursed_by)) ??
+      getUserById(viewLoan.loan_officer_id ?? viewLoan.disbursed_by)
+    : null;
   const viewPayments = viewLoan ? getPaymentsByLoanId(viewLoan.id).filter((p) => p.status === "completed") : [];
   const viewSchedule = viewLoan ? getScheduleByLoanId(viewLoan.id) : [];
   const viewCollections = viewLoan ? getCollectionsByLoanId(viewLoan.id) : [];

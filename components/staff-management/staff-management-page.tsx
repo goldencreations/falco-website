@@ -3,12 +3,10 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { DashboardHeader } from "@/components/dashboard-header";
 import {
-  branches,
   currentUser,
   customers,
   loans,
   payments,
-  users,
 } from "@/lib/mock-data";
 import { StaffDirectory } from "@/components/staff-management/staff-directory";
 import { StaffDialogs } from "@/components/staff-management/staff-dialogs";
@@ -34,17 +32,23 @@ import {
   validatePasswordReset,
   validateStaffForm,
 } from "@/components/staff-management/utils";
+import { useBranchAssignment } from "@/components/branch-assignment-context";
 
 export function StaffManagementPage() {
+  const { users: managedUsers, branches: managedBranches } = useBranchAssignment();
   const initialStaff = useMemo(
     () =>
-      users
+      managedUsers
         .map((user, index) => mapUserToStaff(user, index))
         .filter((staff): staff is StaffRecord => Boolean(staff)),
-    []
+    [managedUsers]
   );
 
   const [staffMembers, setStaffMembers] = useState<StaffRecord[]>(initialStaff);
+  useEffect(() => {
+    setStaffMembers(initialStaff);
+  }, [initialStaff]);
+
   const [search, setSearch] = useState("");
   const [selectedRole, setSelectedRole] = useState<"all" | StaffRole>("all");
   const [selectedBranch, setSelectedBranch] = useState<string>("all");
@@ -86,14 +90,14 @@ export function StaffManagementPage() {
     () =>
       workspaceStaff
         ? buildStaffWorkspaceDTO(workspaceStaff.id, workspaceStaff, {
-            users,
-            branches,
+            users: managedUsers,
+            branches: managedBranches,
             customers,
             loans,
             payments,
           })
         : null,
-    [workspaceStaff]
+    [workspaceStaff, managedUsers, managedBranches]
   );
 
   const workspaceAccessFlags: StaffWorkspaceAccessFlags = useMemo(() => {
