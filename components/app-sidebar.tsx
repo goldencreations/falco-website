@@ -84,6 +84,11 @@ const navigation = [
         href: "/loans",
         icon: Wallet,
       },
+      {
+        title: "Loan Disbursement",
+        href: "/loans?status=disbursed",
+        icon: CreditCard,
+      },
     ],
   },
   {
