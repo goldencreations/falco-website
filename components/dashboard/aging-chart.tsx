@@ -60,7 +60,7 @@ export function AgingChart({ branchScope }: { branchScope: DashboardBranchScope 
       : branches.find((b) => b.id === branchScope)?.name ?? "Branch";
 
   return (
-    <Card className="border border-border/70 shadow-sm">
+    <Card className="flex h-full min-h-0 flex-col border border-border/70 shadow-sm">
       <CardHeader className="pb-2">
         <CardTitle className="text-lg">Portfolio aging (BOT)</CardTitle>
         <CardDescription>
@@ -135,7 +135,7 @@ export function AgingChart({ branchScope }: { branchScope: DashboardBranchScope 
         </div>
 
         <div className="space-y-2 border-t border-border/60 pt-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Breakdown</p>
+          <p className="text-[10px] font-normal uppercase tracking-[0.12em] text-muted-foreground">Breakdown</p>
           {buckets.map((item) => {
             const seg = SEGMENT_STYLES[item.classification];
             return (

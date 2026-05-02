@@ -43,6 +43,7 @@ import {
 } from "@/components/staff-management/types";
 import {
   isOnline,
+  PROVISIONING_STAFF_ROLE_OPTIONS,
   roleHasPortalAccess,
   roleLabel,
   STAFF_ROLE_OPTIONS,
@@ -52,6 +53,10 @@ interface StaffDialogsProps {
   createOpen: boolean;
   createForm: StaffFormState;
   createFormError: string;
+  /** When true, creates a pending provisioning request (no password). */
+  provisioningHire?: boolean;
+  /** When set, create form branch field is read-only (e.g. branch manager). */
+  createLockedBranchId?: string;
   onCreateOpenChange: (open: boolean) => void;
   onCreateFormChange: (updater: (prev: StaffFormState) => StaffFormState) => void;
   onCreateSubmit: (event: FormEvent<HTMLFormElement>) => void;
@@ -72,7 +77,22 @@ interface StaffDialogsProps {
   onResetSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }
 
-function StaffRoleSelectContent() {
+function StaffRoleSelectContent({ variant = "all" }: { variant?: "all" | "provisioning" }) {
+  if (variant === "provisioning") {
+    return (
+      <SelectGroup>
+        <SelectLabel className="px-2 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          Role (pending approval)
+        </SelectLabel>
+        {PROVISIONING_STAFF_ROLE_OPTIONS.map((role) => (
+          <SelectItem key={role.value} value={role.value}>
+            {role.label}
+          </SelectItem>
+        ))}
+      </SelectGroup>
+    );
+  }
+
   const portalRoles = STAFF_ROLE_OPTIONS.filter((o) => o.portalAccess);
   const operationalRoles = STAFF_ROLE_OPTIONS.filter((o) => !o.portalAccess);
   return (
@@ -101,14 +121,19 @@ function StaffRoleSelectContent() {
   );
 }
 
-function StaffFormFields({
+export function StaffFormFields({
   form,
   onChange,
+  provisioningHire,
+  lockedBranchId,
 }: {
   form: StaffFormState;
   onChange: (updater: (prev: StaffFormState) => StaffFormState) => void;
+  provisioningHire?: boolean;
+  /** When set (e.g. branch manager), branch is fixed and not editable. */
+  lockedBranchId?: string;
 }) {
-  const portal = roleHasPortalAccess(form.role);
+  const portal = !provisioningHire && roleHasPortalAccess(form.role);
 
   return (
     <div className="space-y-6">
@@ -171,32 +196,41 @@ function StaffFormFields({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent align="start" className="min-w-[var(--radix-select-trigger-width)]">
-                <StaffRoleSelectContent />
+                <StaffRoleSelectContent variant={provisioningHire ? "provisioning" : "all"} />
               </SelectContent>
             </Select>
             <p className="text-xs leading-relaxed text-muted-foreground">
-              {portal
-                ? "This role can sign in to the organization portal. Set an initial password below."
-                : "Operational profile: tracked in the directory without provisioning portal login."}
+              {provisioningHire
+                ? "Submits a pending hire. No portal login until a super administrator approves."
+                : portal
+                  ? "This role can sign in to the organization portal. Set an initial password below."
+                  : "Operational profile: tracked in the directory without provisioning portal login."}
             </p>
           </div>
           <div className="space-y-2">
             <Label>Branch</Label>
-            <Select
-              value={form.branch_id}
-              onValueChange={(value) => onChange((prev) => ({ ...prev, branch_id: value }))}
-            >
-              <SelectTrigger className="w-full min-w-0 bg-background">
-                <SelectValue placeholder="Select branch" />
-              </SelectTrigger>
-              <SelectContent>
-                {branches.map((branch) => (
-                  <SelectItem key={branch.id} value={branch.id}>
-                    {branch.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {lockedBranchId ? (
+              <p className="rounded-md border border-dashed border-border/80 bg-muted/30 px-3 py-2 text-sm">
+                {branches.find((b) => b.id === lockedBranchId)?.name ?? lockedBranchId}
+                <span className="ml-2 text-xs text-muted-foreground">(your branch)</span>
+              </p>
+            ) : (
+              <Select
+                value={form.branch_id}
+                onValueChange={(value) => onChange((prev) => ({ ...prev, branch_id: value }))}
+              >
+                <SelectTrigger className="w-full min-w-0 bg-background">
+                  <SelectValue placeholder="Select branch" />
+                </SelectTrigger>
+                <SelectContent>
+                  {branches.map((branch) => (
+                    <SelectItem key={branch.id} value={branch.id}>
+                      {branch.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
         </div>
       </div>
@@ -247,9 +281,10 @@ function StaffFormFields({
 export function StaffDialogs(props: StaffDialogsProps) {
   const isMobile = useIsMobile();
 
-  const createTitle = "Add staff member";
-  const createDescription =
-    "Create a staff record with the correct role and branch. Portal passwords are only required for roles that sign in to the system.";
+  const createTitle = props.provisioningHire ? "Propose new hire" : "Add staff member";
+  const createDescription = props.provisioningHire
+    ? "Submit name, contact, branch, and role. The profile stays pending until it is approved in the Pending hires queue."
+    : "Create a staff record with the correct role and branch. Portal passwords are only required for roles that sign in to the system.";
 
   return (
     <>
@@ -261,14 +296,19 @@ export function StaffDialogs(props: StaffDialogsProps) {
               <SheetDescription>{createDescription}</SheetDescription>
             </SheetHeader>
             <form className="flex flex-1 flex-col gap-4 overflow-auto px-4 pb-4" onSubmit={props.onCreateSubmit}>
-              <StaffFormFields form={props.createForm} onChange={props.onCreateFormChange} />
+              <StaffFormFields
+                form={props.createForm}
+                onChange={props.onCreateFormChange}
+                provisioningHire={props.provisioningHire}
+                lockedBranchId={props.createLockedBranchId}
+              />
               {props.createFormError ? <p className="text-sm text-destructive">{props.createFormError}</p> : null}
               <SheetFooter className="mt-auto flex-row gap-2 px-0 pt-2">
                 <Button type="button" variant="outline" className="flex-1" onClick={props.onCreateCancel}>
                   Cancel
                 </Button>
                 <Button type="submit" className="flex-1">
-                  Create staff
+                  {props.provisioningHire ? "Submit for approval" : "Create staff"}
                 </Button>
               </SheetFooter>
             </form>
@@ -282,13 +322,20 @@ export function StaffDialogs(props: StaffDialogsProps) {
               <DialogDescription className="text-pretty">{createDescription}</DialogDescription>
             </DialogHeader>
             <form className="grid gap-5 py-2" onSubmit={props.onCreateSubmit}>
-              <StaffFormFields form={props.createForm} onChange={props.onCreateFormChange} />
+              <StaffFormFields
+                form={props.createForm}
+                onChange={props.onCreateFormChange}
+                provisioningHire={props.provisioningHire}
+                lockedBranchId={props.createLockedBranchId}
+              />
               {props.createFormError ? <p className="text-sm text-destructive">{props.createFormError}</p> : null}
               <DialogFooter className="gap-2 sm:gap-0">
                 <Button type="button" variant="outline" onClick={props.onCreateCancel}>
                   Cancel
                 </Button>
-                <Button type="submit">Create staff</Button>
+                <Button type="submit">
+                  {props.provisioningHire ? "Submit for approval" : "Create staff"}
+                </Button>
               </DialogFooter>
             </form>
           </DialogContent>

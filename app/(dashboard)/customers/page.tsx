@@ -56,7 +56,6 @@ export default function CustomersPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [riskFilter, setRiskFilter] = useState<string>("all");
-  const [viewMode, setViewMode] = useState<"table" | "cards">("table");
 
   const filteredCustomers = customers.filter((customer) => {
     const matchesSearch =
@@ -84,10 +83,10 @@ export default function CustomersPage() {
         title="Customer Management"
         description="View and manage customer profiles"
       />
-      <main className="flex-1 overflow-auto p-4 lg:p-6">
-        <div className="mx-auto max-w-7xl space-y-6">
+      <main className="flex min-h-0 flex-1 overflow-y-auto overflow-x-hidden scroll-smooth p-4 pb-10 lg:p-6 lg:pb-8">
+        <div className="mx-auto w-full max-w-7xl space-y-6">
           <div className="rounded-2xl border border-emerald-100 bg-gradient-to-r from-emerald-50 via-background to-background p-4 sm:p-5">
-            <div className="flex items-start justify-between gap-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">
                   Customer Portfolio
@@ -97,7 +96,7 @@ export default function CustomersPage() {
                   Search, filter and review customer profiles with branch-ready insights.
                 </p>
               </div>
-              <Badge className="border-emerald-200 bg-emerald-100 text-emerald-800 hover:bg-emerald-100">
+              <Badge className="w-fit shrink-0 border-emerald-200 bg-emerald-100 text-emerald-800 hover:bg-emerald-100">
                 <Sparkles className="mr-1 h-3 w-3" />
                 Professional View
               </Badge>
@@ -179,8 +178,8 @@ export default function CustomersPage() {
           <Card className="border-emerald-100">
             <CardContent className="p-4">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex flex-1 flex-wrap gap-3">
-              <div className="relative flex-1 min-w-[200px] max-w-sm">
+              <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:flex-wrap">
+              <div className="relative min-w-0 flex-1 sm:min-w-[200px] sm:max-w-sm">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   placeholder="Search customers..."
@@ -190,7 +189,7 @@ export default function CustomersPage() {
                 />
               </div>
               <Select value={typeFilter} onValueChange={setTypeFilter}>
-                <SelectTrigger className="w-36">
+                <SelectTrigger className="w-full sm:w-36">
                   <Filter className="mr-2 h-4 w-4" />
                   <SelectValue placeholder="Type" />
                 </SelectTrigger>
@@ -201,7 +200,7 @@ export default function CustomersPage() {
                 </SelectContent>
               </Select>
               <Select value={riskFilter} onValueChange={setRiskFilter}>
-                <SelectTrigger className="w-36">
+                <SelectTrigger className="w-full sm:w-36">
                   <SelectValue placeholder="Risk Grade" />
                 </SelectTrigger>
                 <SelectContent>
@@ -213,7 +212,7 @@ export default function CustomersPage() {
                 </SelectContent>
               </Select>
             </div>
-            <Button asChild>
+            <Button asChild className="w-full shrink-0 sm:w-auto">
               <Link href="/customers/new">
                 <Plus className="mr-2 h-4 w-4" />
                 New Customer

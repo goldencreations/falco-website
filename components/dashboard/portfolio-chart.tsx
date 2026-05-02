@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import {
   Bar,
   BarChart,
@@ -44,9 +45,6 @@ const tipStyle = {
   boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
 };
 
-/** Fixed px height — Recharts ResponsiveContainer often renders 0px with height="100%" inside tabs. */
-const CHART_H = 260;
-
 function MiniSparkBars({
   values,
   colorClass,
@@ -70,6 +68,26 @@ function MiniSparkBars({
   );
 }
 
+/**
+ * Renders a bar chart in a box that grows with the card (grid row) so we do not
+ * leave a dead band under the graph when the adjacent aging card is taller.
+ */
+function FilledBarChart({
+  children,
+}: {
+  children: ReactNode;
+}) {
+  return (
+    <div className="relative min-h-[280px] w-full flex-1">
+      <div className="absolute inset-0">
+        <ResponsiveContainer width="100%" height="100%">
+          {children}
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
 export function PortfolioChart({ branchScope }: { branchScope: DashboardBranchScope }) {
   const disbursementData = getDisbursementsVsCollectionsSeries(branchScope);
   const portfolioTrend = getPortfolioTrendSeries(branchScope);
@@ -88,8 +106,8 @@ export function PortfolioChart({ branchScope }: { branchScope: DashboardBranchSc
       : branches.find((b) => b.id === branchScope)?.name ?? "Branch";
 
   return (
-    <Card className="overflow-hidden border border-border/70 shadow-sm xl:col-span-2">
-      <CardHeader className="space-y-4 pb-3">
+    <Card className="flex h-full min-h-[22rem] flex-col overflow-hidden border border-border/70 shadow-sm xl:col-span-2">
+      <CardHeader className="shrink-0 space-y-4 pb-3">
         <div>
           <CardTitle className="text-lg">Lending & collections activity</CardTitle>
           <CardDescription>
@@ -99,30 +117,30 @@ export function PortfolioChart({ branchScope }: { branchScope: DashboardBranchSc
         </div>
         <div className="grid gap-2 sm:grid-cols-3">
           <div className="rounded-xl border border-border/60 bg-muted/25 px-3 py-2.5">
-            <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            <p className="text-[10px] font-normal uppercase tracking-[0.12em] text-muted-foreground">
               Latest disbursement
             </p>
-            <p className="mt-1 break-words text-sm font-semibold tabular-nums leading-snug">
+            <p className="mt-1 break-words text-base font-bold tabular-nums leading-tight tracking-tight">
               {tzs(latestDisbursements.disbursements)}
             </p>
             <p className="mt-1 text-[10px] text-muted-foreground">6‑month track</p>
             <MiniSparkBars values={disbSeries} colorClass="bg-[hsl(185_55%_42%)]/90" />
           </div>
           <div className="rounded-xl border border-border/60 bg-muted/25 px-3 py-2.5">
-            <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            <p className="text-[10px] font-normal uppercase tracking-[0.12em] text-muted-foreground">
               Latest collections
             </p>
-            <p className="mt-1 break-words text-sm font-semibold tabular-nums leading-snug">
+            <p className="mt-1 break-words text-base font-bold tabular-nums leading-tight tracking-tight">
               {tzs(latestDisbursements.collections)}
             </p>
             <p className="mt-1 text-[10px] text-muted-foreground">6‑month track</p>
             <MiniSparkBars values={collSeries} colorClass="bg-[hsl(152_55%_42%)]/90" />
           </div>
           <div className="rounded-xl border border-border/60 bg-muted/25 px-3 py-2.5">
-            <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            <p className="text-[10px] font-normal uppercase tracking-[0.12em] text-muted-foreground">
               Book vs at‑risk (period end)
             </p>
-            <p className="mt-1 break-words text-sm font-semibold tabular-nums leading-snug">
+            <p className="mt-1 break-words text-base font-bold tabular-nums leading-tight tracking-tight">
               {tzs(latestPortfolio.outstanding)} · PAR {tzs(latestPortfolio.atRisk)}
             </p>
             <div className="mt-2 grid grid-cols-2 gap-2 text-[10px] text-muted-foreground">
@@ -136,9 +154,9 @@ export function PortfolioChart({ branchScope }: { branchScope: DashboardBranchSc
           </div>
         </div>
       </CardHeader>
-      <CardContent className="pt-0">
-        <Tabs defaultValue="disbursements" className="flex flex-col gap-3">
-          <TabsList className="grid h-auto w-full max-w-lg grid-cols-2 gap-1 p-1">
+      <CardContent className="flex flex-1 flex-col min-h-0 pt-0 pb-4">
+        <Tabs defaultValue="disbursements" className="flex flex-1 flex-col gap-3 min-h-0">
+          <TabsList className="grid h-auto w-full max-w-lg shrink-0 grid-cols-2 gap-1 p-1">
             <TabsTrigger value="disbursements" className="touch-manipulation text-xs sm:text-sm">
               Disbursements vs collections
             </TabsTrigger>
@@ -147,109 +165,103 @@ export function PortfolioChart({ branchScope }: { branchScope: DashboardBranchSc
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="disbursements" className="flex-none outline-none">
-            <div
-              className="w-full rounded-lg border border-border/40 bg-muted/10"
-              style={{ height: CHART_H }}
-            >
-              <ResponsiveContainer width="100%" height={CHART_H}>
-              <BarChart
-                data={disbursementData}
-                barGap={3}
-                barCategoryGap="18%"
-                margin={{ top: 16, right: 8, left: 4, bottom: 4 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border" />
-                <XAxis
-                  dataKey="month"
-                  tick={{ fontSize: 11 }}
-                  tickLine={false}
-                  axisLine={false}
-                  className="text-muted-foreground"
-                />
-                <YAxis
-                  tickFormatter={formatYAxis}
-                  tick={{ fontSize: 11 }}
-                  tickLine={false}
-                  axisLine={false}
-                  className="text-muted-foreground"
-                  width={48}
-                />
-                <Tooltip formatter={(value: number) => tzs(value)} contentStyle={tipStyle} />
-                <Legend iconType="rect" wrapperStyle={{ paddingTop: 8 }} />
-                <Bar
-                  dataKey="disbursements"
-                  name="Disbursements"
-                  fill="hsl(185 55% 45%)"
-                  radius={[4, 4, 0, 0]}
-                  maxBarSize={32}
-                />
-                <Bar
-                  dataKey="collections"
-                  name="Collections"
-                  fill="hsl(152 55% 42%)"
-                  radius={[4, 4, 0, 0]}
-                  maxBarSize={32}
-                />
-                <Bar
-                  dataKey="expected"
-                  name="Expected collections"
-                  fill="hsl(38 92% 50%)"
-                  radius={[4, 4, 0, 0]}
-                  maxBarSize={32}
-                  opacity={0.9}
-                />
-              </BarChart>
-            </ResponsiveContainer>
+          <TabsContent value="disbursements" className="mt-0 flex flex-1 flex-col outline-none data-[state=inactive]:hidden">
+            <div className="flex flex-1 flex-col overflow-hidden rounded-lg border border-border/40 bg-muted/10">
+              <FilledBarChart>
+                <BarChart
+                  data={disbursementData}
+                  barGap={3}
+                  barCategoryGap="18%"
+                  margin={{ top: 16, right: 8, left: 4, bottom: 8 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border" />
+                  <XAxis
+                    dataKey="month"
+                    tick={{ fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={false}
+                    className="text-muted-foreground"
+                  />
+                  <YAxis
+                    tickFormatter={formatYAxis}
+                    tick={{ fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={false}
+                    className="text-muted-foreground"
+                    width={48}
+                  />
+                  <Tooltip formatter={(value: number) => tzs(value)} contentStyle={tipStyle} />
+                  <Legend iconType="rect" wrapperStyle={{ paddingTop: 8 }} />
+                  <Bar
+                    dataKey="disbursements"
+                    name="Disbursements"
+                    fill="hsl(185 55% 45%)"
+                    radius={[4, 4, 0, 0]}
+                    maxBarSize={32}
+                  />
+                  <Bar
+                    dataKey="collections"
+                    name="Collections"
+                    fill="hsl(152 55% 42%)"
+                    radius={[4, 4, 0, 0]}
+                    maxBarSize={32}
+                  />
+                  <Bar
+                    dataKey="expected"
+                    name="Expected collections"
+                    fill="hsl(38 92% 50%)"
+                    radius={[4, 4, 0, 0]}
+                    maxBarSize={32}
+                    opacity={0.9}
+                  />
+                </BarChart>
+              </FilledBarChart>
             </div>
           </TabsContent>
 
-          <TabsContent value="portfolio" className="flex-none outline-none">
-            <div
-              className="w-full rounded-lg border border-border/40 bg-muted/10"
-              style={{ height: CHART_H }}
-            >
-              <ResponsiveContainer width="100%" height={CHART_H}>
-              <BarChart
-                data={portfolioTrend}
-                barGap={4}
-                barCategoryGap="22%"
-                margin={{ top: 16, right: 8, left: 4, bottom: 4 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border" />
-                <XAxis
-                  dataKey="month"
-                  tick={{ fontSize: 11 }}
-                  tickLine={false}
-                  axisLine={false}
-                  className="text-muted-foreground"
-                />
-                <YAxis
-                  tickFormatter={formatYAxis}
-                  tick={{ fontSize: 11 }}
-                  tickLine={false}
-                  axisLine={false}
-                  className="text-muted-foreground"
-                  width={48}
-                />
-                <Tooltip formatter={(value: number) => tzs(value)} contentStyle={tipStyle} />
-                <Legend iconType="rect" wrapperStyle={{ paddingTop: 8 }} />
-                <Bar
-                  dataKey="outstanding"
-                  name="Outstanding book"
-                  fill="hsl(185 55% 45%)"
-                  radius={[4, 4, 0, 0]}
-                  maxBarSize={36}
-                />
-                <Bar
-                  dataKey="atRisk"
-                  name="Portfolio at risk (PAR)"
-                  fill="hsl(0 72% 52%)"
-                  radius={[4, 4, 0, 0]}
-                  maxBarSize={36}
-                />
-              </BarChart>
-            </ResponsiveContainer>
+          <TabsContent value="portfolio" className="mt-0 flex flex-1 flex-col outline-none data-[state=inactive]:hidden">
+            <div className="flex flex-1 flex-col overflow-hidden rounded-lg border border-border/40 bg-muted/10">
+              <FilledBarChart>
+                <BarChart
+                  data={portfolioTrend}
+                  barGap={4}
+                  barCategoryGap="22%"
+                  margin={{ top: 16, right: 8, left: 4, bottom: 8 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border" />
+                  <XAxis
+                    dataKey="month"
+                    tick={{ fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={false}
+                    className="text-muted-foreground"
+                  />
+                  <YAxis
+                    tickFormatter={formatYAxis}
+                    tick={{ fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={false}
+                    className="text-muted-foreground"
+                    width={48}
+                  />
+                  <Tooltip formatter={(value: number) => tzs(value)} contentStyle={tipStyle} />
+                  <Legend iconType="rect" wrapperStyle={{ paddingTop: 8 }} />
+                  <Bar
+                    dataKey="outstanding"
+                    name="Outstanding book"
+                    fill="hsl(185 55% 45%)"
+                    radius={[4, 4, 0, 0]}
+                    maxBarSize={36}
+                  />
+                  <Bar
+                    dataKey="atRisk"
+                    name="Portfolio at risk (PAR)"
+                    fill="hsl(0 72% 52%)"
+                    radius={[4, 4, 0, 0]}
+                    maxBarSize={36}
+                  />
+                </BarChart>
+              </FilledBarChart>
             </div>
           </TabsContent>
         </Tabs>

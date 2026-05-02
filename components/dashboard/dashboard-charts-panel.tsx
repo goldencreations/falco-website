@@ -53,7 +53,7 @@ export function DashboardChartsPanel() {
         </Button>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-3">
+      <div className="grid gap-6 xl:grid-cols-3 xl:items-stretch">
         <PortfolioChart branchScope={scope} />
         <AgingChart branchScope={scope} />
       </div>

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   LayoutDashboard,
   Users,
@@ -21,7 +21,9 @@ import {
   Calculator,
   MapPin,
   DatabaseBackup,
+  Users2,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Sidebar,
@@ -46,7 +48,20 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { currentUser } from "@/lib/mock-data";
 
-const navigation = [
+type SidebarNavItem =
+  | {
+      title: string;
+      href: string;
+      icon: LucideIcon;
+      subItems: { title: string; href: string }[];
+    }
+  | {
+      title: string;
+      href: string;
+      icon: LucideIcon;
+    };
+
+const navigation: { title: string; items: SidebarNavItem[] }[] = [
   {
     title: "Main",
     items: [
@@ -92,7 +107,7 @@ const navigation = [
       },
       {
         title: "Loan Disbursement",
-        href: "/loans?status=disbursed",
+        href: "/disbursements",
         icon: CreditCard,
       },
     ],
@@ -170,6 +185,34 @@ export function AppSidebar() {
   const router = useRouter();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
+  const visibleNavigation = useMemo(() => {
+    const role = currentUser.role;
+    const staffGroup: { title: string; items: SidebarNavItem[] } = {
+      title: "Staff",
+      items: [
+        {
+          title: "Team & assignments",
+          href: "/staff/team",
+          icon: Users2,
+        },
+      ],
+    };
+    return navigation
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((item) => {
+          if (item.href === "/users") return role === "super_admin";
+          return true;
+        }),
+      }))
+      .filter((group) => group.items.length > 0)
+      .flatMap((group) =>
+        group.title === "Collections" && (role === "branch_manager" || role === "super_admin")
+          ? [group, staffGroup]
+          : [group]
+      );
+  }, []);
+
   const handleLogout = async () => {
     setIsLoggingOut(true);
     try {
@@ -200,7 +243,7 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent className="px-2 py-4">
-        {navigation.map((group) => (
+        {visibleNavigation.map((group) => (
           <SidebarGroup key={group.title}>
             <SidebarGroupLabel className="px-2 text-[10px] font-semibold uppercase tracking-widest text-sidebar-foreground/40">
               {group.title}
@@ -208,7 +251,7 @@ export function AppSidebar() {
             <SidebarGroupContent>
               <SidebarMenu>
                 {group.items.map((item) =>
-                  item.subItems ? (
+                  "subItems" in item ? (
                     <Collapsible key={item.title} className="group/collapsible">
                       <SidebarMenuItem>
                         <CollapsibleTrigger asChild>

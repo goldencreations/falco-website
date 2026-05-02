@@ -218,7 +218,7 @@ export default function CustomerDetailPage({
     return (
       <>
         <DashboardHeader title="Customer Not Found" />
-        <main className="flex-1 p-6">
+        <main className="flex min-h-0 flex-1 overflow-y-auto p-6">
           <div className="text-center py-12">
             <p className="text-muted-foreground">Customer not found</p>
             <Button asChild className="mt-4">
@@ -378,7 +378,7 @@ export default function CustomerDetailPage({
         title="Customer Profile"
         description={customer.customer_number}
       />
-      <main className="flex-1 overflow-auto p-4 lg:p-6">
+      <main className="flex min-h-0 flex-1 overflow-y-auto overflow-x-hidden scroll-smooth p-4 pb-10 lg:p-6 lg:pb-8">
         <div className="mx-auto max-w-7xl space-y-6">
           <div className="flex items-center justify-between">
             <Button variant="ghost" size="sm" asChild>

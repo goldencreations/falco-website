@@ -393,7 +393,7 @@ export default function NewCustomerPage() {
         title="Create Customer"
         description="Capture complete customer details aligned with the customers database table."
       />
-      <main className="flex-1 overflow-auto p-4 lg:p-6">
+      <main className="flex min-h-0 flex-1 overflow-y-auto overflow-x-hidden scroll-smooth p-4 pb-10 lg:p-6 lg:pb-8">
         <div className="mx-auto max-w-6xl space-y-6">
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-100 bg-gradient-to-r from-emerald-50 to-background p-4">
             <div className="space-y-1">
