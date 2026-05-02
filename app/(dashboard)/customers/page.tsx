@@ -13,6 +13,7 @@ import {
   Building2,
   User,
   AlertTriangle,
+  Sparkles,
 } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Button } from "@/components/ui/button";
@@ -85,9 +86,51 @@ export default function CustomersPage() {
       />
       <main className="flex-1 overflow-auto p-4 lg:p-6">
         <div className="mx-auto max-w-7xl space-y-6">
+          <div className="rounded-2xl border border-emerald-100 bg-gradient-to-r from-emerald-50 via-background to-background p-4 sm:p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">
+                  Customer Portfolio
+                </p>
+                <h2 className="mt-1 text-lg font-semibold tracking-tight">Monitor and manage customer records</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Search, filter and review customer profiles with branch-ready insights.
+                </p>
+              </div>
+              <Badge className="border-emerald-200 bg-emerald-100 text-emerald-800 hover:bg-emerald-100">
+                <Sparkles className="mr-1 h-3 w-3" />
+                Professional View
+              </Badge>
+            </div>
+          </div>
+
           {/* Summary Cards */}
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Card>
+          <Card className="sm:hidden border-emerald-100 bg-emerald-50/60">
+            <CardContent className="p-4">
+              <p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">Customer Summary</p>
+              <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                <div className="rounded-lg border bg-background p-3">
+                  <p className="text-xs text-muted-foreground">Total</p>
+                  <p className="text-lg font-semibold">{totalCustomers}</p>
+                </div>
+                <div className="rounded-lg border bg-background p-3">
+                  <p className="text-xs text-muted-foreground">Individual</p>
+                  <p className="text-lg font-semibold">{individualCount}</p>
+                </div>
+                <div className="rounded-lg border bg-background p-3">
+                  <p className="text-xs text-muted-foreground">Business</p>
+                  <p className="text-lg font-semibold">{businessCount}</p>
+                </div>
+                <div className="rounded-lg border border-destructive/20 bg-background p-3">
+                  <p className="text-xs text-muted-foreground">Blacklisted</p>
+                  <p className="text-lg font-semibold text-destructive">{blacklistedCount}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className="hidden gap-4 sm:grid sm:grid-cols-2 lg:grid-cols-4">
+            <Card className="border-emerald-100 bg-emerald-50/40">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">
                   Total Customers
@@ -97,10 +140,10 @@ export default function CustomersPage() {
                 <div className="text-2xl font-bold">{totalCustomers}</div>
               </CardContent>
             </Card>
-            <Card>
+            <Card className="border-emerald-100 bg-emerald-50/30">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                  <User className="h-4 w-4" />
+                  <User className="h-4 w-4 text-emerald-700" />
                   Individual
                 </CardTitle>
               </CardHeader>
@@ -108,10 +151,10 @@ export default function CustomersPage() {
                 <div className="text-2xl font-bold">{individualCount}</div>
               </CardContent>
             </Card>
-            <Card>
+            <Card className="border-emerald-100 bg-emerald-50/30">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                  <Building2 className="h-4 w-4" />
+                  <Building2 className="h-4 w-4 text-emerald-700" />
                   Business
                 </CardTitle>
               </CardHeader>
@@ -119,7 +162,7 @@ export default function CustomersPage() {
                 <div className="text-2xl font-bold">{businessCount}</div>
               </CardContent>
             </Card>
-            <Card>
+            <Card className="border-destructive/20 bg-destructive/5">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
                   <AlertTriangle className="h-4 w-4" />
@@ -133,7 +176,9 @@ export default function CustomersPage() {
           </div>
 
           {/* Filters and Actions */}
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <Card className="border-emerald-100">
+            <CardContent className="p-4">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-1 flex-wrap gap-3">
               <div className="relative flex-1 min-w-[200px] max-w-sm">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -174,14 +219,17 @@ export default function CustomersPage() {
                 New Customer
               </Link>
             </Button>
-          </div>
+              </div>
+            </CardContent>
+          </Card>
 
           {/* Customers Table */}
-          <Card>
+          <Card className="overflow-hidden border-emerald-100">
             <CardContent className="p-0">
-              <Table>
+              <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0 [touch-action:pan-x]">
+                <Table className="min-w-[980px]">
                 <TableHeader>
-                  <TableRow>
+                  <TableRow className="bg-emerald-50/70 hover:bg-emerald-50/70">
                     <TableHead>Customer</TableHead>
                     <TableHead>Contact</TableHead>
                     <TableHead>Type</TableHead>
@@ -305,7 +353,8 @@ export default function CustomersPage() {
                     })
                   )}
                 </TableBody>
-              </Table>
+                </Table>
+              </div>
             </CardContent>
           </Card>
         </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useMemo } from "react";
+import { use, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -126,12 +126,66 @@ function generateLoanDistribution(loans: { product_id: string; principal_amount:
 
 const CHART_COLORS = ["#0d9488", "#0891b2", "#6366f1", "#f59e0b", "#ef4444"];
 
+type CustomerExportPayload = {
+  generated_at: string;
+  customer: {
+    customer_number: string;
+    full_name: string;
+    customer_type: string;
+    national_id: string;
+    phone_primary: string;
+    phone_secondary: string | null;
+    email: string | null;
+    physical_address: string;
+    ward: string;
+    district: string;
+    region: string;
+    risk_grade: string;
+    credit_score: number | null;
+    is_blacklisted: boolean;
+    monthly_income: number;
+    branch_name: string;
+    created_by_name: string;
+    created_at: string;
+  };
+  summary: {
+    total_loans: number;
+    total_borrowed: number;
+    total_paid: number;
+    total_outstanding: number;
+    total_payments: number;
+  };
+  loans: Array<{
+    loan_number: string;
+    status: string;
+    product_name: string;
+    principal_amount: number;
+    total_paid: number;
+    total_outstanding: number;
+    disbursement_date: string;
+    maturity_date: string;
+    follow_up_loan_officer: string;
+    branch_manager: string;
+  }>;
+  payments: Array<{
+    payment_number: string;
+    amount: number;
+    payment_method: string;
+    payment_status: string;
+    payment_date: string;
+    received_by: string;
+    loan_number: string;
+    follow_up_loan_officer: string;
+  }>;
+};
+
 export default function CustomerDetailPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
   const resolvedParams = use(params);
+  const [isExporting, setIsExporting] = useState(false);
   const customer = customers.find((c) => c.id === resolvedParams.id);
 
   const customerLoans = useMemo(
@@ -185,6 +239,139 @@ export default function CustomerDetailPage({
   const onTimePayments = customerPayments.filter((p) => p.status === "completed").length;
   const repaymentRate = customerPayments.length > 0 ? (onTimePayments / customerPayments.length) * 100 : 0;
 
+  const handleExportPdf = async () => {
+    try {
+      setIsExporting(true);
+      const response = await fetch(`/api/customers/${resolvedParams.id}/export`);
+      if (!response.ok) {
+        throw new Error(`Export endpoint returned ${response.status}`);
+      }
+      const data = (await response.json()) as CustomerExportPayload;
+
+      const [{ jsPDF }, autoTableModule] = await Promise.all([
+        import("jspdf"),
+        import("jspdf-autotable"),
+      ]);
+      const autoTable = autoTableModule.default;
+
+      const doc = new jsPDF("p", "mm", "a4");
+      const pageWidth = doc.internal.pageSize.getWidth();
+      doc.setFontSize(16);
+      doc.text("Customer Portfolio Report", 14, 16);
+      doc.setFontSize(10);
+      doc.text(`Generated: ${formatDateTime(data.generated_at)}`, 14, 22);
+      doc.text(`Customer: ${data.customer.full_name} (${data.customer.customer_number})`, 14, 28);
+
+      autoTable(doc, {
+        startY: 34,
+        theme: "grid",
+        styles: { fontSize: 9 },
+        head: [["Customer Profile", "Value"]],
+        body: [
+          ["Customer Type", data.customer.customer_type],
+          ["National ID", data.customer.national_id],
+          ["Primary Phone", data.customer.phone_primary],
+          ["Email", data.customer.email ?? "N/A"],
+          ["Branch", data.customer.branch_name],
+          ["Risk Grade", data.customer.risk_grade],
+          ["Credit Score", data.customer.credit_score?.toString() ?? "N/A"],
+          ["Monthly Income", formatCurrency(data.customer.monthly_income)],
+          ["Address", `${data.customer.physical_address}, ${data.customer.district}, ${data.customer.region}`],
+          ["Created By", data.customer.created_by_name],
+        ],
+      });
+
+      autoTable(doc, {
+        startY: (doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY
+          ? ((doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 6)
+          : 92,
+        theme: "striped",
+        styles: { fontSize: 9 },
+        head: [["Summary", "Value"]],
+        body: [
+          ["Total Loans", data.summary.total_loans.toString()],
+          ["Total Borrowed", formatCurrency(data.summary.total_borrowed)],
+          ["Total Paid", formatCurrency(data.summary.total_paid)],
+          ["Total Outstanding", formatCurrency(data.summary.total_outstanding)],
+          ["Payments Recorded", data.summary.total_payments.toString()],
+        ],
+      });
+
+      autoTable(doc, {
+        startY: (doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable
+          ? ((doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8)
+          : 130,
+        theme: "grid",
+        styles: { fontSize: 8 },
+        head: [[
+          "Loan",
+          "Product",
+          "Status",
+          "Principal",
+          "Outstanding",
+          "Follow-up Officer",
+          "Branch Manager",
+        ]],
+        body: data.loans.map((loan) => [
+          loan.loan_number,
+          loan.product_name,
+          loan.status,
+          formatCurrency(loan.principal_amount),
+          formatCurrency(loan.total_outstanding),
+          loan.follow_up_loan_officer,
+          loan.branch_manager,
+        ]),
+      });
+
+      autoTable(doc, {
+        startY: (doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable
+          ? ((doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8)
+          : 180,
+        theme: "grid",
+        styles: { fontSize: 8 },
+        head: [[
+          "Payment #",
+          "Date",
+          "Amount",
+          "Method",
+          "Status",
+          "Received By",
+          "Loan",
+          "Follow-up Officer",
+        ]],
+        body: data.payments.map((payment) => [
+          payment.payment_number,
+          formatDateTime(payment.payment_date),
+          formatCurrency(payment.amount),
+          payment.payment_method.replace("_", " "),
+          payment.payment_status,
+          payment.received_by,
+          payment.loan_number,
+          payment.follow_up_loan_officer,
+        ]),
+        didDrawPage: () => {
+          doc.setFontSize(8);
+          doc.text(
+            "Falco Financial Services - customer report export (backend route ready: /api/customers/:id/export)",
+            14,
+            doc.internal.pageSize.getHeight() - 6
+          );
+          doc.text(
+            `Page ${doc.getNumberOfPages()}`,
+            pageWidth - 28,
+            doc.internal.pageSize.getHeight() - 6
+          );
+        },
+      });
+
+      doc.save(`${data.customer.customer_number}-customer-report.pdf`);
+    } catch (exportError) {
+      console.error("Failed to export customer PDF", exportError);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
     <>
       <DashboardHeader
@@ -201,9 +388,9 @@ export default function CustomerDetailPage({
               </Link>
             </Button>
             <div className="flex gap-2">
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" onClick={handleExportPdf} disabled={isExporting}>
                 <Download className="mr-2 h-4 w-4" />
-                Export Report
+                {isExporting ? "Exporting..." : "Export Report"}
               </Button>
               <Button variant="outline" size="sm">
                 <Edit className="mr-2 h-4 w-4" />

@@ -70,6 +70,11 @@ const navigation = [
         icon: MapPin,
       },
       {
+        title: "Branches",
+        href: "/branches",
+        icon: Building2,
+      },
+      {
         title: "Loan Applications",
         href: "/applications",
         icon: FileText,
