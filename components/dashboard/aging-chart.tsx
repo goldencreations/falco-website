@@ -1,140 +1,168 @@
 "use client";
 
-import {
-  Cell,
-  Legend,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-} from "recharts";
+import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { agingReport, formatCurrency } from "@/lib/mock-data";
+import { formatCurrency, branches } from "@/lib/mock-data";
+import { getAgingBucketsForScope, type DashboardBranchScope } from "@/lib/dashboard-analytics";
 
-const COLORS = {
-  current: "hsl(var(--chart-2))",
-  especially_mentioned: "hsl(var(--chart-3))",
-  substandard: "hsl(var(--chart-5))",
-  doubtful: "hsl(var(--chart-4))",
-  loss: "hsl(var(--foreground))",
+/**
+ * Distinct segment fills so each BOT bucket reads clearly (not one blended hue).
+ * Falls back to theme chart tokens where possible.
+ */
+const SEGMENT_STYLES: Record<
+  string,
+  { fill: string; stroke: string }
+> = {
+  current: {
+    fill: "hsl(152 55% 42%)",
+    stroke: "hsl(152 55% 32%)",
+  },
+  especially_mentioned: {
+    fill: "hsl(38 96% 52%)",
+    stroke: "hsl(28 90% 44%)",
+  },
+  substandard: {
+    fill: "hsl(280 55% 52%)",
+    stroke: "hsl(280 50% 38%)",
+  },
+  doubtful: {
+    fill: "hsl(0 72% 52%)",
+    stroke: "hsl(0 65% 40%)",
+  },
+  loss: {
+    fill: "hsl(220 10% 46%)",
+    stroke: "hsl(220 12% 32%)",
+  },
 };
 
-const LABELS = {
-  current: "Current",
-  especially_mentioned: "Watch (1-30)",
-  substandard: "Substandard (31-90)",
-  doubtful: "Doubtful (91-180)",
-  loss: "Loss (>180)",
+const tipStyle = {
+  backgroundColor: "hsl(var(--card))",
+  border: "1px solid hsl(var(--border))",
+  borderRadius: "8px",
+  boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
 };
 
-export function AgingChart() {
-  const data = agingReport
+export function AgingChart({ branchScope }: { branchScope: DashboardBranchScope }) {
+  const buckets = getAgingBucketsForScope(branchScope);
+  const pieData = buckets
     .filter((item) => item.outstanding_amount > 0)
     .map((item) => ({
-      name: LABELS[item.classification],
+      name: item.label,
       value: item.outstanding_amount,
-      percentage: item.percentage,
       classification: item.classification,
-      loanCount: item.loan_count,
     }));
 
-  const totalOutstanding = data.reduce((sum, item) => sum + item.value, 0);
+  const totalOutstanding = buckets.reduce((sum, item) => sum + item.outstanding_amount, 0);
+
+  const scopeLabel =
+    branchScope === "all"
+      ? "All branches"
+      : branches.find((b) => b.id === branchScope)?.name ?? "Branch";
 
   return (
     <Card className="border border-border/70 shadow-sm">
       <CardHeader className="pb-2">
-        <CardTitle className="text-lg">Portfolio Aging</CardTitle>
-        <CardDescription>BOT classification breakdown by outstanding balance</CardDescription>
+        <CardTitle className="text-lg">Portfolio aging (BOT)</CardTitle>
+        <CardDescription>
+          Outstanding by risk bucket from the loan register —{" "}
+          <span className="font-medium text-foreground">{scopeLabel}</span>.
+        </CardDescription>
       </CardHeader>
-      <CardContent>
-        <div className="h-[280px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie
-                data={data}
-                cx="50%"
-                cy="50%"
-                innerRadius={55}
-                outerRadius={95}
-                paddingAngle={3}
-                dataKey="value"
-                strokeWidth={2}
-                stroke="hsl(var(--card))"
-              >
-                {data.map((entry) => (
-                  <Cell
-                    key={entry.classification}
-                    fill={COLORS[entry.classification as keyof typeof COLORS]}
+      <CardContent className="space-y-5">
+        <div className="relative w-full overflow-hidden rounded-xl border border-border/50 bg-muted/20 px-2 pt-4 sm:px-4">
+          {pieData.length === 0 ? (
+            <div className="flex h-[300px] items-center justify-center text-sm text-muted-foreground">
+              No classified exposure in this scope.
+            </div>
+          ) : (
+            <div className="h-[300px] w-full sm:h-[320px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart margin={{ top: 8, right: 8, bottom: 8, left: 8 }}>
+                  <Pie
+                    data={pieData}
+                    cx="50%"
+                    cy="48%"
+                    innerRadius={68}
+                    outerRadius={108}
+                    paddingAngle={4}
+                    dataKey="value"
+                    strokeWidth={2}
+                    cornerRadius={3}
+                  >
+                    {pieData.map((entry) => {
+                      const s = SEGMENT_STYLES[entry.classification] ?? {
+                        fill: "hsl(var(--chart-1))",
+                        stroke: "hsl(var(--border))",
+                      };
+                      return <Cell key={entry.classification} fill={s.fill} stroke={s.stroke} />;
+                    })}
+                  </Pie>
+                  <text
+                    x="50%"
+                    y="44%"
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    className="fill-muted-foreground text-[11px]"
+                  >
+                    Total exposure
+                  </text>
+                  <text
+                    x="50%"
+                    y="54%"
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    className="fill-foreground text-sm font-semibold"
+                  >
+                    {formatCurrency(totalOutstanding)}
+                  </text>
+                  <Tooltip
+                    formatter={(value: number) => formatCurrency(value)}
+                    contentStyle={tipStyle}
                   />
-                ))}
-              </Pie>
-              <text
-                x="50%"
-                y="47%"
-                textAnchor="middle"
-                dominantBaseline="middle"
-                className="fill-muted-foreground text-[11px]"
-              >
-                Total Exposure
-              </text>
-              <text
-                x="50%"
-                y="56%"
-                textAnchor="middle"
-                dominantBaseline="middle"
-                className="fill-foreground text-xs font-semibold"
-              >
-                {formatCurrency(totalOutstanding)}
-              </text>
-              <Tooltip
-                formatter={(value: number) => formatCurrency(value)}
-                contentStyle={{
-                  backgroundColor: "hsl(var(--card))",
-                  border: "1px solid hsl(var(--border))",
-                  borderRadius: "8px",
-                  boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
-                }}
-              />
-              <Legend
-                verticalAlign="bottom"
-                height={36}
-                iconType="circle"
-                formatter={(value) => (
-                  <span className="text-xs text-foreground">{value}</span>
-                )}
-              />
-            </PieChart>
-          </ResponsiveContainer>
+                  <Legend
+                    layout="horizontal"
+                    verticalAlign="bottom"
+                    align="center"
+                    wrapperStyle={{ paddingTop: 12, paddingBottom: 8 }}
+                    iconType="circle"
+                    iconSize={8}
+                    formatter={(value) => <span className="text-xs text-foreground">{value}</span>}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </div>
 
-        <div className="mt-3 space-y-2">
-          {agingReport.map((item) => (
-            <div
-              key={item.classification}
-              className="flex items-center justify-between rounded-lg border border-transparent p-2 text-sm transition-colors hover:border-border/60 hover:bg-muted/50"
-            >
-              <div className="flex items-center gap-2.5">
-                <div
-                  className="h-3 w-3 rounded-full ring-2 ring-background"
-                  style={{
-                    backgroundColor:
-                      COLORS[item.classification as keyof typeof COLORS],
-                  }}
-                />
-                <span className="text-muted-foreground font-medium">
-                  {LABELS[item.classification as keyof typeof LABELS]}
-                </span>
+        <div className="space-y-2 border-t border-border/60 pt-4">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Breakdown</p>
+          {buckets.map((item) => {
+            const seg = SEGMENT_STYLES[item.classification];
+            return (
+              <div
+                key={item.classification}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/40 bg-card/50 px-3 py-2 text-sm transition-colors hover:bg-muted/40"
+              >
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <div
+                    className="h-3 w-3 shrink-0 rounded-full ring-2 ring-background"
+                    style={{
+                      backgroundColor: seg?.fill ?? "hsl(var(--chart-1))",
+                    }}
+                  />
+                  <span className="truncate font-medium text-foreground">{item.label}</span>
+                </div>
+                <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 sm:gap-4">
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                    {item.loan_count} loans · {item.percentage}%
+                  </span>
+                  <span className="min-w-[7rem] text-right font-semibold tabular-nums">
+                    {formatCurrency(item.outstanding_amount)}
+                  </span>
+                </div>
               </div>
-              <div className="flex items-center gap-4">
-                <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-                  {item.loan_count} loans
-                </span>
-                <span className="font-semibold tabular-nums">
-                  {formatCurrency(item.outstanding_amount)}
-                </span>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </CardContent>
     </Card>

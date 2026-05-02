@@ -1,7 +1,7 @@
 "use client";
 
+import { useState } from "react";
 import {
-  Wallet,
   Users,
   TrendingUp,
   AlertTriangle,
@@ -11,23 +11,14 @@ import {
   CreditCard,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { dashboardMetrics, formatCurrency } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 
+/** Activity-oriented labels — avoids duplicating “total portfolio” from the hero strip. */
 const kpiData = [
   {
-    title: "Total Portfolio",
-    value: formatCurrency(dashboardMetrics.total_portfolio),
-    change: "+12.5%",
-    changeType: "positive" as const,
-    icon: Wallet,
-    description: `${dashboardMetrics.active_loans} active loans`,
-    colorClass: "bg-kpi-portfolio",
-    iconBgClass: "bg-kpi-portfolio/10",
-    iconClass: "text-kpi-portfolio",
-  },
-  {
-    title: "Collections Today",
+    title: "Cash collected today",
     value: formatCurrency(dashboardMetrics.collections_today),
     change: `${dashboardMetrics.collection_rate}%`,
     changeType: "positive" as const,
@@ -38,147 +29,222 @@ const kpiData = [
     iconClass: "text-kpi-collections",
   },
   {
-    title: "PAR > 30 Days",
+    title: "At-risk exposure (PAR)",
     value: formatCurrency(dashboardMetrics.par_over_90 + dashboardMetrics.par_31_90),
-    change: `${dashboardMetrics.npl_ratio}%`,
+    change: `${dashboardMetrics.npl_ratio}% NPL`,
     changeType: "negative" as const,
     icon: AlertTriangle,
-    description: "Non-performing loans ratio",
+    description: "non-performing vs book",
     colorClass: "bg-kpi-risk",
     iconBgClass: "bg-kpi-risk/10",
     iconClass: "text-kpi-risk",
   },
   {
-    title: "Pending Applications",
+    title: "Applications in pipeline",
     value: dashboardMetrics.pending_applications.toString(),
     change: "2 new",
     changeType: "neutral" as const,
     icon: FileText,
-    description: "Awaiting review",
+    description: "awaiting decision",
     colorClass: "bg-kpi-applications",
     iconBgClass: "bg-kpi-applications/10",
     iconClass: "text-kpi-applications",
   },
   {
-    title: "Total Customers",
+    title: "Registered customers",
     value: dashboardMetrics.total_customers.toString(),
     change: "+3",
     changeType: "positive" as const,
     icon: Users,
-    description: "This month",
+    description: "active relationships",
     colorClass: "bg-kpi-customers",
     iconBgClass: "bg-kpi-customers/10",
     iconClass: "text-kpi-customers",
   },
   {
-    title: "Disbursements MTD",
+    title: "Disbursements (MTD)",
     value: formatCurrency(dashboardMetrics.disbursements_this_month),
     change: "+8.2%",
     changeType: "positive" as const,
     icon: TrendingUp,
-    description: "vs last month",
+    description: "vs prior month",
     colorClass: "bg-kpi-disbursements",
     iconBgClass: "bg-kpi-disbursements/10",
     iconClass: "text-kpi-disbursements",
   },
 ];
 
+function DotGrid() {
+  return (
+    <div
+      className="mt-3 grid w-full max-w-[9rem] grid-cols-8 gap-1.5 opacity-[0.35]"
+      aria-hidden
+    >
+      {Array.from({ length: 40 }).map((_, i) => (
+        <span key={i} className="h-1 w-1 rounded-full bg-primary/40" />
+      ))}
+    </div>
+  );
+}
+
+type Period = "today" | "week" | "all";
+
 export function KPICards() {
+  const [period, setPeriod] = useState<Period>("today");
+
+  const primary = kpiData[0];
+  const gridMetrics = kpiData.slice(1, 5);
+
   return (
     <>
-      <Card className="border border-border/70 bg-card/95 shadow-sm md:hidden">
-        <CardContent className="p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <p className="text-sm font-semibold">Dashboard Summary</p>
-            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
-              Live Metrics
-            </span>
+      {/* Mobile: split hero + 2×2 grid (reference layout) */}
+      <Card className="overflow-hidden border border-border/70 bg-card/95 shadow-sm @container/kpi md:hidden">
+        <CardContent className="space-y-4 p-4">
+          <div className="flex gap-2">
+            {(
+              [
+                { id: "today" as const, label: "Today" },
+                { id: "week" as const, label: "This week" },
+                { id: "all" as const, label: "All time" },
+              ] as const
+            ).map(({ id, label }) => (
+              <Button
+                key={id}
+                type="button"
+                variant={period === id ? "default" : "outline"}
+                size="sm"
+                className={cn(
+                  "h-9 flex-1 touch-manipulation rounded-full px-2 text-xs font-medium",
+                  period === id && "shadow-sm"
+                )}
+                onClick={() => setPeriod(id)}
+              >
+                {label}
+              </Button>
+            ))}
           </div>
 
-          <div className="space-y-2">
-            {kpiData.map((kpi) => (
-              <div
-                key={kpi.title}
-                className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5"
-              >
-                <div className="flex min-w-0 items-center gap-2.5">
-                  <div className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-md", kpi.iconBgClass)}>
-                    <kpi.icon className={cn("h-4 w-4", kpi.iconClass)} />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="truncate text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      {kpi.title}
-                    </p>
-                    <p className="truncate text-sm font-semibold">{kpi.value}</p>
-                  </div>
+          <div className="rounded-2xl border border-border/50 bg-muted/35 p-4">
+            <div className="grid grid-cols-1 gap-4 min-[400px]:grid-cols-[minmax(0,44%)_minmax(0,56%)] min-[400px]:items-start">
+              {/* Primary metric */}
+              <div className="flex min-w-0 flex-col justify-between gap-2 border-b border-border/40 pb-4 min-[400px]:border-b-0 min-[400px]:pb-0 min-[400px]:pr-2">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    {primary.title}
+                  </p>
+                  <p className="mt-2 block w-full min-w-0 whitespace-nowrap font-bold leading-none tracking-tight text-primary tabular-nums text-[clamp(0.65rem,calc(5.5cqw+0.35rem),1.85rem)]">
+                    {primary.value}
+                  </p>
+                  <p className="mt-2 text-xs leading-snug text-muted-foreground">
+                    <span className="font-semibold text-success">{primary.change}</span>{" "}
+                    {primary.description}
+                  </p>
+                  <p className="mt-1 text-[11px] capitalize text-muted-foreground/80">
+                    {period === "today" ? "Today" : period === "week" ? "This week" : "All time"} view
+                  </p>
                 </div>
-                <div className="shrink-0">
-                  {kpi.changeType === "positive" ? (
-                    <span className="inline-flex items-center gap-0.5 rounded-full bg-success/10 px-2 py-0.5 text-[11px] font-medium text-success">
-                      <ArrowUpRight className="h-3 w-3" />
-                      {kpi.change}
-                    </span>
-                  ) : kpi.changeType === "negative" ? (
-                    <span className="inline-flex items-center gap-0.5 rounded-full bg-destructive/10 px-2 py-0.5 text-[11px] font-medium text-destructive">
-                      <ArrowDownRight className="h-3 w-3" />
-                      {kpi.change}
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-0.5 rounded-full bg-info/10 px-2 py-0.5 text-[11px] font-medium text-info">
-                      <TrendingUp className="h-3 w-3" />
-                      {kpi.change}
-                    </span>
-                  )}
-                </div>
+                <DotGrid />
               </div>
-            ))}
+
+              {/* 2×2 metrics */}
+              <div className="grid grid-cols-2 gap-2">
+                {gridMetrics.map((kpi) => {
+                  const isAlert = kpi.changeType === "negative";
+                  return (
+                    <div
+                      key={kpi.title}
+                      className={cn(
+                        "@container/cell flex min-w-0 flex-col items-center rounded-xl border bg-background px-1.5 py-3 text-center shadow-sm",
+                        isAlert
+                          ? "border-destructive/25 bg-destructive/[0.04]"
+                          : "border-border/60"
+                      )}
+                    >
+                      <kpi.icon
+                        className={cn(
+                          "h-5 w-5 shrink-0",
+                          isAlert ? "text-destructive" : kpi.iconClass
+                        )}
+                        aria-hidden
+                      />
+                      <p
+                        className={cn(
+                          "mx-auto mt-2 block w-full max-w-full min-w-0 whitespace-nowrap px-0.5 text-center font-bold tabular-nums leading-none text-[clamp(0.52rem,calc(13cqw+0.15rem),1rem)]",
+                          isAlert ? "text-destructive" : "text-foreground"
+                        )}
+                      >
+                        {kpi.value}
+                      </p>
+                      <p
+                        className={cn(
+                          "mt-1 line-clamp-2 text-[10px] font-medium leading-tight",
+                          isAlert ? "text-destructive/90" : "text-muted-foreground"
+                        )}
+                      >
+                        {kpi.title}
+                      </p>
+                      <p className="mt-1 text-[10px] text-muted-foreground">
+                        {kpi.change} · {kpi.description}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         </CardContent>
       </Card>
 
-      <div className="hidden gap-4 md:grid md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="hidden gap-3 md:grid md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {kpiData.map((kpi) => (
           <Card
             key={kpi.title}
-            className="group relative overflow-hidden border border-border/70 bg-card/95 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+            className="group @container relative overflow-visible border border-border/70 bg-card/95 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
           >
-            <div className={cn("absolute left-0 right-0 top-0 h-1.5", kpi.colorClass)} />
-            <div className={cn("absolute inset-0 opacity-[0.03] transition-opacity group-hover:opacity-[0.06]", kpi.colorClass)} />
-            <CardContent className="pt-5 pb-4">
-              <div className="flex items-start justify-between">
-                <div className="space-y-1">
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            <div className={cn("absolute left-0 right-0 top-0 h-1.5 rounded-t-xl", kpi.colorClass)} />
+            <div
+              className={cn(
+                "pointer-events-none absolute inset-0 rounded-xl opacity-[0.03] transition-opacity group-hover:opacity-[0.06]",
+                kpi.colorClass
+              )}
+            />
+            <CardContent className="overflow-visible pt-5 pb-4">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1 space-y-1">
+                  <p className="text-xs font-medium uppercase leading-snug tracking-wide text-muted-foreground">
                     {kpi.title}
                   </p>
-                  <p className="text-2xl font-bold tracking-tight">{kpi.value}</p>
+                  <p className="whitespace-nowrap text-[clamp(0.65rem,calc(4.2cqw+0.28rem),1.55rem)] font-bold tabular-nums leading-none tracking-tight">
+                    {kpi.value}
+                  </p>
                 </div>
                 <div
                   className={cn(
-                    "flex h-10 w-10 items-center justify-center rounded-lg ring-1 ring-border/40",
+                    "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ring-1 ring-border/40",
                     kpi.iconBgClass
                   )}
                 >
                   <kpi.icon className={cn("h-5 w-5", kpi.iconClass)} />
                 </div>
               </div>
-              <div className="mt-3 flex items-center gap-1.5 text-xs">
+              <div className="mt-3 flex flex-wrap items-baseline gap-x-1.5 gap-y-1 text-xs leading-snug">
                 {kpi.changeType === "positive" ? (
-                  <span className="flex items-center gap-0.5 text-success font-medium">
+                  <span className="flex shrink-0 items-center gap-0.5 font-medium text-success">
                     <ArrowUpRight className="h-3 w-3" />
                     {kpi.change}
                   </span>
                 ) : kpi.changeType === "negative" ? (
-                  <span className="flex items-center gap-0.5 text-destructive font-medium">
+                  <span className="flex shrink-0 items-center gap-0.5 font-medium text-destructive">
                     <ArrowDownRight className="h-3 w-3" />
                     {kpi.change}
                   </span>
                 ) : (
-                  <span className="flex items-center gap-0.5 text-info font-medium">
+                  <span className="flex shrink-0 items-center gap-0.5 font-medium text-info">
                     <TrendingUp className="h-3 w-3" />
                     {kpi.change}
                   </span>
                 )}
-                <span className="text-muted-foreground">{kpi.description}</span>
+                <span className="min-w-0 text-muted-foreground">{kpi.description}</span>
               </div>
             </CardContent>
           </Card>

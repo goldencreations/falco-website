@@ -1,7 +1,6 @@
 import { DashboardHeader } from "@/components/dashboard-header";
 import { KPICards } from "@/components/dashboard/kpi-cards";
-import { PortfolioChart } from "@/components/dashboard/portfolio-chart";
-import { AgingChart } from "@/components/dashboard/aging-chart";
+import { DashboardChartsPanel } from "@/components/dashboard/dashboard-charts-panel";
 import { RecentActivity } from "@/components/dashboard/recent-activity";
 import { LoansAtRisk } from "@/components/dashboard/loans-at-risk";
 import { dashboardMetrics, formatCurrency } from "@/lib/mock-data";
@@ -20,7 +19,7 @@ export default function DashboardPage() {
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="rounded-xl border border-border/50 bg-background/80 p-3">
                 <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Net Position</p>
-                <p className="mt-1 text-xl font-bold">
+                <p className="mt-1 break-words text-xl font-bold tabular-nums leading-tight">
                   {formatCurrency(dashboardMetrics.collections_today - dashboardMetrics.expected_collections_today)}
                 </p>
                 <p className="mt-1 flex items-center gap-1 text-xs text-success">
@@ -37,10 +36,12 @@ export default function DashboardPage() {
                 </p>
               </div>
               <div className="rounded-xl border border-border/50 bg-background/80 p-3">
-                <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Total Portfolio</p>
-                <p className="mt-1 text-xl font-bold">{formatCurrency(dashboardMetrics.total_portfolio)}</p>
+                <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Outstanding book</p>
+                <p className="mt-1 break-words text-xl font-bold tabular-nums leading-tight">
+                  {formatCurrency(dashboardMetrics.total_portfolio)}
+                </p>
                 <p className="mt-1 flex items-center gap-1 text-xs text-primary">
-                  <WalletCards className="h-3.5 w-3.5" />
+                  <WalletCards className="h-3.5 w-3.5 shrink-0" />
                   {dashboardMetrics.active_loans} active loans
                 </p>
               </div>
@@ -49,10 +50,7 @@ export default function DashboardPage() {
 
           <KPICards />
 
-          <div className="grid gap-6 xl:grid-cols-3">
-            <PortfolioChart />
-            <AgingChart />
-          </div>
+          <DashboardChartsPanel />
 
           <RecentActivity />
 
