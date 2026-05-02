@@ -20,6 +20,7 @@ import {
   Scale,
   Calculator,
   MapPin,
+  DatabaseBackup,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -151,6 +152,11 @@ const navigation = [
         icon: UserCog,
       },
       {
+        title: "Backup",
+        href: "/backup",
+        icon: DatabaseBackup,
+      },
+      {
         title: "Settings",
         href: "/settings",
         icon: Settings,
@@ -169,7 +175,7 @@ export function AppSidebar() {
     try {
       await fetch("/api/logout", { method: "POST" });
     } finally {
-      router.push("/login");
+      router.push("/");
       router.refresh();
       setIsLoggingOut(false);
     }

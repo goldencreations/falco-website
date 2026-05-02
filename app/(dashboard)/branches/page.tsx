@@ -11,6 +11,7 @@ import {
 import {
   Building2,
   CalendarRange,
+  Download,
   Eye,
   PencilLine,
   Plus,
@@ -101,6 +102,7 @@ export default function BranchesPage() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [newOfficerId, setNewOfficerId] = useState("");
+  const [exportingBranchId, setExportingBranchId] = useState<string | null>(null);
 
   const branchManagers = useMemo(() => users.filter((u) => u.role === "branch_manager"), [users]);
   const loanOfficers = useMemo(() => users.filter((u) => u.role === "loan_officer"), [users]);
@@ -290,6 +292,133 @@ export default function BranchesPage() {
   const unassignedOrExternalOfficers = loanOfficers.filter(
     (officer) => officer.branch_id !== selectedBranch?.id
   );
+
+  const exportBranchDetailsPdf = async (branchId: string) => {
+    try {
+      setExportingBranchId(branchId);
+      const response = await fetch(`/api/branches/${branchId}/export`);
+      if (!response.ok) {
+        throw new Error(`Branch export failed with status ${response.status}`);
+      }
+      const payload = (await response.json()) as {
+        generated_at: string;
+        branch: {
+          name: string;
+          code: string;
+          region: string;
+          address: string;
+          phone: string;
+          manager: { full_name: string; phone: string; email: string } | null;
+          loan_officers: Array<{ full_name: string; phone: string; employee_id: string }>;
+          totals: { customers: number; disbursed: number; collected: number; outstanding: number };
+        };
+        customers: Array<{
+          customer_number: string;
+          customer_name: string;
+          contact_phone: string;
+          assigned_loan_officer: { full_name: string; phone: string } | null;
+          total_taken: number;
+          total_outstanding: number;
+        }>;
+        payments: Array<{
+          payment_number: string;
+          customer_name: string;
+          amount: number;
+          status: string;
+          method: string;
+          payment_date: string;
+          received_by: string;
+        }>;
+      };
+
+      const [{ jsPDF }, autoTableModule] = await Promise.all([
+        import("jspdf"),
+        import("jspdf-autotable"),
+      ]);
+      const autoTable = autoTableModule.default;
+      const doc = new jsPDF("p", "mm", "a4");
+      doc.setFontSize(16);
+      doc.text("Branch Portfolio Export", 14, 16);
+      doc.setFontSize(10);
+      doc.text(
+        `${payload.branch.name} (${payload.branch.code}) - Generated ${new Date(
+          payload.generated_at
+        ).toLocaleString()}`,
+        14,
+        22
+      );
+
+      autoTable(doc, {
+        startY: 28,
+        head: [["Branch Detail", "Value"]],
+        body: [
+          ["Region", payload.branch.region],
+          ["Address", payload.branch.address],
+          ["Phone", payload.branch.phone],
+          ["Manager", payload.branch.manager?.full_name ?? "Unassigned"],
+          ["Manager Contact", payload.branch.manager?.phone ?? "N/A"],
+          ["Total Customers", String(payload.branch.totals.customers)],
+          ["Disbursed", formatCurrency(payload.branch.totals.disbursed)],
+          ["Collected", formatCurrency(payload.branch.totals.collected)],
+          ["Outstanding", formatCurrency(payload.branch.totals.outstanding)],
+        ],
+        styles: { fontSize: 9 },
+      });
+
+      autoTable(doc, {
+        startY: (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 6,
+        head: [["Loan Officers", "Employee ID", "Phone"]],
+        body: payload.branch.loan_officers.map((officer) => [
+          officer.full_name,
+          officer.employee_id,
+          officer.phone,
+        ]),
+        styles: { fontSize: 8 },
+      });
+
+      autoTable(doc, {
+        startY: (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 6,
+        head: [[
+          "Customer",
+          "Phone",
+          "Assigned Loan Officer",
+          "Officer Contact",
+          "Taken",
+          "Outstanding",
+        ]],
+        body: payload.customers.map((customer) => [
+          `${customer.customer_name} (${customer.customer_number})`,
+          customer.contact_phone,
+          customer.assigned_loan_officer?.full_name ?? "Unassigned",
+          customer.assigned_loan_officer?.phone ?? "N/A",
+          formatCurrency(customer.total_taken),
+          formatCurrency(customer.total_outstanding),
+        ]),
+        styles: { fontSize: 8 },
+      });
+
+      autoTable(doc, {
+        startY: (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 6,
+        head: [["Payment #", "Customer", "Amount", "Status", "Method", "Date", "Received By"]],
+        body: payload.payments.map((payment) => [
+          payment.payment_number,
+          payment.customer_name,
+          formatCurrency(payment.amount),
+          payment.status,
+          payment.method,
+          new Date(payment.payment_date).toLocaleString(),
+          payment.received_by,
+        ]),
+        styles: { fontSize: 8 },
+      });
+
+      doc.save(`${payload.branch.code}-branch-export.pdf`);
+    } catch (error) {
+      console.error("Branch export failed", error);
+    } finally {
+      setExportingBranchId(null);
+    }
+  };
 
   return (
     <>
@@ -534,20 +663,41 @@ export default function BranchesPage() {
       </Dialog>
 
       <Sheet open={Boolean(selectedBranch)} onOpenChange={(open) => !open && setOverviewBranchId(null)}>
-        <SheetContent side="right" className="w-full p-0 sm:max-w-5xl">
+        <SheetContent
+          side="right"
+          className="flex h-full max-h-[100dvh] w-full max-w-[100vw] flex-col gap-0 overflow-hidden border-emerald-200/50 p-0 sm:max-w-5xl dark:border-emerald-900/30"
+        >
           {selectedBranch ? (
             <>
-              <SheetHeader className="border-b border-emerald-200/60 bg-emerald-50/35 px-4 py-4 text-left sm:px-6 dark:border-emerald-900/40 dark:bg-emerald-950/10">
-                <SheetTitle className="flex items-center gap-2">
-                  <Building2 className="h-5 w-5 text-primary" />
-                  {selectedBranch.name} Overview
-                </SheetTitle>
-                <SheetDescription>
-                  Professional branch summary with assignment controls and customer analytics.
-                </SheetDescription>
+              <div
+                className="flex shrink-0 justify-center pt-2 sm:hidden"
+                aria-hidden
+              >
+                <span className="h-1.5 w-10 rounded-full bg-muted-foreground/25" />
+              </div>
+              <SheetHeader className="shrink-0 space-y-3 border-b border-emerald-200/60 bg-emerald-50/35 px-4 pb-4 pt-2 text-left sm:px-6 sm:py-4 dark:border-emerald-900/40 dark:bg-emerald-950/10">
+                <div className="pr-8 sm:pr-4">
+                  <SheetTitle className="flex items-start gap-2 text-left text-base leading-snug sm:items-center sm:text-lg">
+                    <Building2 className="mt-0.5 h-5 w-5 shrink-0 text-primary sm:mt-0" />
+                    <span className="break-words">{selectedBranch.name} Overview</span>
+                  </SheetTitle>
+                  <SheetDescription className="text-left text-xs sm:text-sm">
+                    Professional branch summary with assignment controls and customer analytics.
+                  </SheetDescription>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full touch-manipulation sm:w-auto sm:self-start"
+                  onClick={() => exportBranchDetailsPdf(selectedBranch.id)}
+                  disabled={exportingBranchId === selectedBranch.id}
+                >
+                  <Download className="mr-2 h-4 w-4 shrink-0" />
+                  {exportingBranchId === selectedBranch.id ? "Exporting..." : "Export Branch PDF"}
+                </Button>
               </SheetHeader>
-              <ScrollArea className="h-[calc(100vh-120px)] px-4 py-4 sm:px-6">
-                <div className="space-y-5 pb-8">
+              <ScrollArea className="min-h-0 flex-1 px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6">
+                <div className="space-y-5 pb-6 sm:pb-8">
                   <Card className="border-emerald-200/60 bg-gradient-to-br from-emerald-50/70 to-background shadow-sm sm:hidden dark:border-emerald-900/40 dark:from-emerald-950/20">
                     <CardHeader className="pb-2">
                       <CardTitle className="text-sm">Branch Summary</CardTitle>
@@ -630,20 +780,20 @@ export default function BranchesPage() {
                   </div>
 
                   <Card>
-                    <CardHeader>
+                    <CardHeader className="pb-3 sm:pb-6">
                       <CardTitle className="text-base">Manager Assignment</CardTitle>
                     </CardHeader>
-                    <CardContent className="grid gap-3 sm:grid-cols-2">
+                    <CardContent className="grid gap-4 sm:grid-cols-2">
                       <div className="rounded-md border p-3">
                         <p className="text-xs text-muted-foreground">Current Manager</p>
-                        <p className="font-medium">{branchManager?.full_name ?? "Unassigned"}</p>
+                        <p className="break-words font-medium">{branchManager?.full_name ?? "Unassigned"}</p>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="min-w-0">
                         <Select
                           value={selectedBranch.manager_id || "none"}
                           onValueChange={(value) => assignManager(selectedBranch.id, value === "none" ? null : value)}
                         >
-                          <SelectTrigger>
+                          <SelectTrigger className="w-full touch-manipulation">
                             <SelectValue placeholder="Change manager" />
                           </SelectTrigger>
                           <SelectContent>
@@ -660,16 +810,16 @@ export default function BranchesPage() {
                   </Card>
 
                   <Card>
-                    <CardHeader>
+                    <CardHeader className="pb-3 sm:pb-6">
                       <CardTitle className="flex items-center gap-2 text-base">
-                        <UserCheck className="h-4 w-4 text-primary" />
+                        <UserCheck className="h-4 w-4 shrink-0 text-primary" />
                         Loan Officers in Branch
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-3">
-                      <div className="flex flex-col gap-2 sm:flex-row">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
                         <Select value={newOfficerId} onValueChange={setNewOfficerId}>
-                          <SelectTrigger className="sm:w-80">
+                          <SelectTrigger className="w-full min-w-0 touch-manipulation sm:w-80">
                             <SelectValue placeholder="Assign loan officer from another branch" />
                           </SelectTrigger>
                           <SelectContent>
@@ -681,6 +831,7 @@ export default function BranchesPage() {
                           </SelectContent>
                         </Select>
                         <Button
+                          className="w-full touch-manipulation sm:w-auto sm:shrink-0"
                           onClick={() => {
                             if (!newOfficerId) return;
                             assignLoanOfficer(newOfficerId, selectedBranch.id);
@@ -694,12 +845,21 @@ export default function BranchesPage() {
                       {branchOfficerList.length ? (
                         <div className="grid gap-2 sm:grid-cols-2">
                           {branchOfficerList.map((officer) => (
-                            <div key={officer.id} className="flex items-center justify-between rounded-md border p-3 text-sm">
-                              <div>
-                                <p className="font-medium">{officer.full_name}</p>
+                            <div
+                              key={officer.id}
+                              className="flex flex-col gap-2 rounded-md border p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+                            >
+                              <div className="min-w-0 flex-1">
+                                <p className="break-words font-medium">{officer.full_name}</p>
                                 <p className="text-muted-foreground">{officer.employee_id}</p>
                               </div>
-                              <Button size="sm" variant="ghost" onClick={() => removeLoanOfficer(officer.id)}>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-10 w-full touch-manipulation sm:h-9 sm:w-9 sm:shrink-0"
+                                aria-label={`Remove ${officer.full_name} from branch`}
+                                onClick={() => removeLoanOfficer(officer.id)}
+                              >
                                 <UserMinus className="h-4 w-4" />
                               </Button>
                             </div>
@@ -712,34 +872,48 @@ export default function BranchesPage() {
                   </Card>
 
                   <Card>
-                    <CardHeader>
+                    <CardHeader className="pb-3 sm:pb-6">
                       <CardTitle className="text-base">Expected Office Collection Filter</CardTitle>
                       <CardDescription>
                         Filter expected due amount and portfolio list by date range.
                       </CardDescription>
                     </CardHeader>
-                    <CardContent className="grid gap-3 sm:grid-cols-4">
+                    <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-4 sm:gap-3">
                       <div className="space-y-1">
                         <Label htmlFor="from-date">From</Label>
-                        <Input id="from-date" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+                        <Input
+                          id="from-date"
+                          type="date"
+                          className="touch-manipulation"
+                          value={fromDate}
+                          onChange={(e) => setFromDate(e.target.value)}
+                        />
                       </div>
                       <div className="space-y-1">
                         <Label htmlFor="to-date">To</Label>
-                        <Input id="to-date" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+                        <Input
+                          id="to-date"
+                          type="date"
+                          className="touch-manipulation"
+                          value={toDate}
+                          onChange={(e) => setToDate(e.target.value)}
+                        />
                       </div>
-                      <div className="sm:col-span-2 flex items-end">
+                      <div className="flex items-stretch sm:col-span-2 sm:items-end">
                         <div className="w-full rounded-lg border p-3">
                           <p className="text-xs text-muted-foreground">Expected Amount in Range</p>
-                          <p className="text-xl font-semibold">{formatCurrency(expectedCollectionInRange)}</p>
+                          <p className="text-lg font-semibold tabular-nums sm:text-xl">
+                            {formatCurrency(expectedCollectionInRange)}
+                          </p>
                         </div>
                       </div>
                     </CardContent>
                   </Card>
 
                   <Card>
-                    <CardHeader>
+                    <CardHeader className="pb-3 sm:pb-6">
                       <CardTitle className="flex items-center gap-2 text-base">
-                        <Users className="h-4 w-4 text-primary" />
+                        <Users className="h-4 w-4 shrink-0 text-primary" />
                         Customer Portfolio
                       </CardTitle>
                     </CardHeader>
@@ -749,37 +923,95 @@ export default function BranchesPage() {
                           No customers match the selected date filter.
                         </div>
                       ) : (
-                        <div className="overflow-x-auto rounded-md border">
-                          <table className="w-full text-sm">
-                            <thead>
-                              <tr className="border-b bg-muted/50 text-left">
-                                <th className="p-2">Customer</th>
-                                <th className="p-2 text-right">Taken</th>
-                                <th className="p-2 text-right">Collected</th>
-                                <th className="p-2 text-right">Outstanding</th>
-                                <th className="p-2 text-right">Action</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {customerRows.map((row) => (
-                                <tr key={row.customer.id} className="border-b last:border-0">
-                                  <td className="p-2">
-                                    <p className="font-medium">{customerFullName(row.customer)}</p>
-                                    <p className="text-xs text-muted-foreground">{row.customer.phone_primary}</p>
-                                  </td>
-                                  <td className="p-2 text-right">{formatCurrency(row.taken)}</td>
-                                  <td className="p-2 text-right">{formatCurrency(row.collected)}</td>
-                                  <td className="p-2 text-right">{formatCurrency(row.outstanding)}</td>
-                                  <td className="p-2 text-right">
-                                    <Button size="sm" onClick={() => setSelectedCustomerId(row.customer.id)}>
-                                      View Summary
-                                    </Button>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
+                        <>
+                          <div className="space-y-3 sm:hidden">
+                            {customerRows.map((row) => (
+                              <div
+                                key={row.customer.id}
+                                className="rounded-xl border bg-card/80 p-4 shadow-sm ring-1 ring-border/60"
+                              >
+                                <div className="min-w-0">
+                                  <p className="break-words font-medium leading-snug">
+                                    {customerFullName(row.customer)}
+                                  </p>
+                                  <p className="mt-0.5 text-xs text-muted-foreground">
+                                    {row.customer.phone_primary}
+                                  </p>
+                                </div>
+                                <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+                                  <div>
+                                    <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                      Taken
+                                    </dt>
+                                    <dd className="mt-0.5 tabular-nums font-semibold">
+                                      {formatCurrency(row.taken)}
+                                    </dd>
+                                  </div>
+                                  <div>
+                                    <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                      Collected
+                                    </dt>
+                                    <dd className="mt-0.5 tabular-nums font-semibold">
+                                      {formatCurrency(row.collected)}
+                                    </dd>
+                                  </div>
+                                  <div className="col-span-2">
+                                    <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                      Outstanding
+                                    </dt>
+                                    <dd className="mt-0.5 tabular-nums font-semibold">
+                                      {formatCurrency(row.outstanding)}
+                                    </dd>
+                                  </div>
+                                </dl>
+                                <Button
+                                  className="mt-4 w-full touch-manipulation"
+                                  size="sm"
+                                  onClick={() => setSelectedCustomerId(row.customer.id)}
+                                >
+                                  View Summary
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="hidden sm:block">
+                            <div className="-mx-1 overflow-x-auto rounded-md border sm:mx-0">
+                              <table className="w-full min-w-[640px] text-sm">
+                                <thead>
+                                  <tr className="border-b bg-muted/50 text-left">
+                                    <th className="p-2">Customer</th>
+                                    <th className="p-2 text-right">Taken</th>
+                                    <th className="p-2 text-right">Collected</th>
+                                    <th className="p-2 text-right">Outstanding</th>
+                                    <th className="p-2 text-right">Action</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {customerRows.map((row) => (
+                                    <tr key={row.customer.id} className="border-b last:border-0">
+                                      <td className="p-2">
+                                        <p className="font-medium">{customerFullName(row.customer)}</p>
+                                        <p className="text-xs text-muted-foreground">{row.customer.phone_primary}</p>
+                                      </td>
+                                      <td className="p-2 text-right tabular-nums">{formatCurrency(row.taken)}</td>
+                                      <td className="p-2 text-right tabular-nums">{formatCurrency(row.collected)}</td>
+                                      <td className="p-2 text-right tabular-nums">{formatCurrency(row.outstanding)}</td>
+                                      <td className="p-2 text-right">
+                                        <Button
+                                          size="sm"
+                                          className="touch-manipulation"
+                                          onClick={() => setSelectedCustomerId(row.customer.id)}
+                                        >
+                                          View Summary
+                                        </Button>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        </>
                       )}
                     </CardContent>
                   </Card>
