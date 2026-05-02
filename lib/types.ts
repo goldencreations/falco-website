@@ -276,6 +276,10 @@ export interface Loan {
   days_in_arrears: number;
   risk_classification: RiskClassification;
   
+  // Personnel (aligns with SYSTEM_ARCHITECTURE loans table)
+  loan_officer_id?: string;
+  manager_id?: string;
+
   // System
   disbursed_by: string;
   created_at: string;

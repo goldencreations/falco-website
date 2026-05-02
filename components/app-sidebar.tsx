@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useState } from "react";
 import {
   LayoutDashboard,
   Users,
@@ -50,7 +51,7 @@ const navigation = [
     items: [
       {
         title: "Dashboard",
-        href: "/",
+        href: "/dashboard",
         icon: LayoutDashboard,
       },
     ],
@@ -140,7 +141,7 @@ const navigation = [
         icon: Building2,
       },
       {
-        title: "User Management",
+        title: "Staff Management",
         href: "/users",
         icon: UserCog,
       },
@@ -155,6 +156,19 @@ const navigation = [
 
 export function AppSidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const handleLogout = async () => {
+    setIsLoggingOut(true);
+    try {
+      await fetch("/api/logout", { method: "POST" });
+    } finally {
+      router.push("/login");
+      router.refresh();
+      setIsLoggingOut(false);
+    }
+  };
 
   return (
     <Sidebar className="border-sidebar-border">
@@ -262,7 +276,14 @@ export function AppSidebar() {
               {currentUser.role.replace("_", " ")}
             </span>
           </div>
-          <button className="rounded-lg p-2 text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors">
+          <button
+            type="button"
+            onClick={handleLogout}
+            disabled={isLoggingOut}
+            className="rounded-lg p-2 text-sidebar-foreground/50 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground disabled:cursor-not-allowed disabled:opacity-60"
+            aria-label="Logout"
+            title="Logout"
+          >
             <LogOut className="h-4 w-4" />
           </button>
         </div>

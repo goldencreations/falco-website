@@ -44,11 +44,46 @@ function formatYAxis(value: number) {
 }
 
 export function PortfolioChart() {
+  const latestDisbursements = disbursementData[disbursementData.length - 1];
+  const latestPortfolio = portfolioTrend[portfolioTrend.length - 1];
+
   return (
-    <Card className="col-span-2 border-0 shadow-sm">
+    <Card className="xl:col-span-2 border border-border/70 shadow-sm">
       <CardHeader className="pb-2">
         <CardTitle className="text-lg">Portfolio Performance</CardTitle>
         <CardDescription>Monthly disbursements, collections, and portfolio trends</CardDescription>
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
+            <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Latest Disbursement</p>
+            <p className="text-sm font-semibold">
+              {new Intl.NumberFormat("en-TZ", {
+                style: "currency",
+                currency: "TZS",
+                maximumFractionDigits: 0,
+              }).format(latestDisbursements.disbursements)}
+            </p>
+          </div>
+          <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
+            <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Latest Collection</p>
+            <p className="text-sm font-semibold">
+              {new Intl.NumberFormat("en-TZ", {
+                style: "currency",
+                currency: "TZS",
+                maximumFractionDigits: 0,
+              }).format(latestDisbursements.collections)}
+            </p>
+          </div>
+          <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
+            <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Portfolio at Month End</p>
+            <p className="text-sm font-semibold">
+              {new Intl.NumberFormat("en-TZ", {
+                style: "currency",
+                currency: "TZS",
+                maximumFractionDigits: 0,
+              }).format(latestPortfolio.portfolio)}
+            </p>
+          </div>
+        </div>
       </CardHeader>
       <CardContent>
         <Tabs defaultValue="disbursements" className="space-y-4">
@@ -59,7 +94,7 @@ export function PortfolioChart() {
             <TabsTrigger value="portfolio">Portfolio Trend</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="disbursements" className="h-[300px]">
+          <TabsContent value="disbursements" className="h-[320px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={disbursementData} barGap={4}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border" />
@@ -112,7 +147,7 @@ export function PortfolioChart() {
             </ResponsiveContainer>
           </TabsContent>
 
-          <TabsContent value="portfolio" className="h-[300px]">
+          <TabsContent value="portfolio" className="h-[320px]">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={portfolioTrend}>
                 <defs>

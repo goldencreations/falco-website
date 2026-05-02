@@ -38,8 +38,10 @@ export function AgingChart() {
       loanCount: item.loan_count,
     }));
 
+  const totalOutstanding = data.reduce((sum, item) => sum + item.value, 0);
+
   return (
-    <Card className="border-0 shadow-sm">
+    <Card className="border border-border/70 shadow-sm">
       <CardHeader className="pb-2">
         <CardTitle className="text-lg">Portfolio Aging</CardTitle>
         <CardDescription>BOT classification breakdown by outstanding balance</CardDescription>
@@ -66,6 +68,24 @@ export function AgingChart() {
                   />
                 ))}
               </Pie>
+              <text
+                x="50%"
+                y="47%"
+                textAnchor="middle"
+                dominantBaseline="middle"
+                className="fill-muted-foreground text-[11px]"
+              >
+                Total Exposure
+              </text>
+              <text
+                x="50%"
+                y="56%"
+                textAnchor="middle"
+                dominantBaseline="middle"
+                className="fill-foreground text-xs font-semibold"
+              >
+                {formatCurrency(totalOutstanding)}
+              </text>
               <Tooltip
                 formatter={(value: number) => formatCurrency(value)}
                 contentStyle={{
@@ -91,7 +111,7 @@ export function AgingChart() {
           {agingReport.map((item) => (
             <div
               key={item.classification}
-              className="flex items-center justify-between text-sm p-2 rounded-lg hover:bg-muted/50 transition-colors"
+              className="flex items-center justify-between rounded-lg border border-transparent p-2 text-sm transition-colors hover:border-border/60 hover:bg-muted/50"
             >
               <div className="flex items-center gap-2.5">
                 <div

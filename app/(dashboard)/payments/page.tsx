@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Plus,
@@ -94,12 +94,8 @@ export default function PaymentsPage() {
   const [selectedLoan, setSelectedLoan] = useState("");
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("mobile_money");
-  const [referenceNumber, setReferenceNumber] = useState("");
-  const [collectionChannel, setCollectionChannel] = useState<"system" | "manual_collection">("system");
-  const [recordedPayments, setRecordedPayments] = useState(payments);
-  const [selectedPaymentId, setSelectedPaymentId] = useState("");
-  const [selectedBankRecordId, setSelectedBankRecordId] = useState("");
-  const [reconciliationNote, setReconciliationNote] = useState("");
+  const [requestedLoanId, setRequestedLoanId] = useState<string | null>(null);
+  const [openPaymentForm, setOpenPaymentForm] = useState<string | null>(null);
 
   const bankRecords: BankRecord[] = [
     {
@@ -252,6 +248,34 @@ export default function PaymentsPage() {
   const activeLoans = loans.filter(
     (l) => l.status === "active" || l.status === "in_arrears"
   );
+  const selectedLoanDetails = selectedLoan
+    ? loans.find((loan) => loan.id === selectedLoan)
+    : undefined;
+  const selectedCustomer = selectedLoanDetails
+    ? getCustomerById(selectedLoanDetails.customer_id)
+    : undefined;
+  const preselectedLoan = useMemo(
+    () => (requestedLoanId ? loans.find((loan) => loan.id === requestedLoanId) : undefined),
+    [requestedLoanId]
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    setRequestedLoanId(params.get("loan"));
+    setOpenPaymentForm(params.get("openPayment"));
+  }, []);
+
+  useEffect(() => {
+    if (!preselectedLoan) return;
+    setSelectedLoan(preselectedLoan.id);
+    if (!paymentAmount) {
+      setPaymentAmount(String(preselectedLoan.installment_amount));
+    }
+    if (openPaymentForm === "1") {
+      setIsDialogOpen(true);
+    }
+  }, [preselectedLoan, openPaymentForm, paymentAmount]);
 
   const handleRecordPayment = () => {
     if (!selectedLoan || !paymentAmount || !referenceNumber) return;
@@ -519,7 +543,9 @@ export default function PaymentsPage() {
                   <DialogHeader>
                     <DialogTitle>Record New Payment</DialogTitle>
                     <DialogDescription>
-                      Record a payment received from a customer
+                      {selectedCustomer
+                        ? `Record payment for ${selectedCustomer.first_name} ${selectedCustomer.last_name} (${selectedLoanDetails?.loan_number}).`
+                        : "Record a payment received from a customer"}
                     </DialogDescription>
                   </DialogHeader>
                   <FieldGroup className="py-4">

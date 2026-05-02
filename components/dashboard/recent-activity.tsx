@@ -112,28 +112,33 @@ export function RecentActivity() {
   const activities = getRecentActivities();
 
   return (
-    <Card className="col-span-2 border-0 shadow-sm">
+    <Card className="border border-border/70 shadow-sm">
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <div>
           <CardTitle className="text-lg">Recent Activity</CardTitle>
           <CardDescription>Latest transactions and updates</CardDescription>
         </div>
-        <Button variant="ghost" size="sm" asChild className="text-primary gap-1">
-          <Link href="/payments">
-            View All
-            <ArrowUpRight className="h-4 w-4" />
-          </Link>
-        </Button>
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="hidden text-xs sm:inline-flex">
+            {activities.length} updates
+          </Badge>
+          <Button variant="ghost" size="sm" asChild className="gap-1 text-primary">
+            <Link href="/payments">
+              View All
+              <ArrowUpRight className="h-4 w-4" />
+            </Link>
+          </Button>
+        </div>
       </CardHeader>
       <CardContent>
-        <div className="space-y-3">
+        <div className="max-h-[420px] space-y-3 overflow-auto pr-1">
           {activities.map((activity) => {
             const config = typeConfig[activity.type];
             const Icon = config.icon;
             return (
               <div
                 key={activity.id}
-                className="flex items-start gap-4 p-3 rounded-lg border border-border/50 hover:border-border hover:bg-muted/30 transition-colors"
+                className="flex items-start gap-4 rounded-lg border border-border/50 p-3 transition-colors hover:border-border hover:bg-muted/30"
               >
                 <div
                   className={cn(
