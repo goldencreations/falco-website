@@ -129,10 +129,10 @@ export function KPICards() {
               {/* Primary metric */}
               <div className="flex min-w-0 flex-col justify-between gap-2 border-b border-border/40 pb-4 min-[400px]:border-b-0 min-[400px]:pb-0 min-[400px]:pr-2">
                 <div className="min-w-0">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <p className="text-[10px] font-normal uppercase tracking-[0.12em] text-muted-foreground">
                     {primary.title}
                   </p>
-                  <p className="mt-2 block w-full min-w-0 whitespace-nowrap font-bold leading-none tracking-tight text-primary tabular-nums text-[clamp(0.65rem,calc(5.5cqw+0.35rem),1.85rem)]">
+                  <p className="mt-1.5 block w-full min-w-0 whitespace-nowrap font-bold leading-none tracking-tight text-primary tabular-nums text-[clamp(1.125rem,calc(5.5cqw+0.55rem),2rem)]">
                     {primary.value}
                   </p>
                   <p className="mt-2 text-xs leading-snug text-muted-foreground">
@@ -169,7 +169,7 @@ export function KPICards() {
                       />
                       <p
                         className={cn(
-                          "mx-auto mt-2 block w-full max-w-full min-w-0 whitespace-nowrap px-0.5 text-center font-bold tabular-nums leading-none text-[clamp(0.52rem,calc(13cqw+0.15rem),1rem)]",
+                          "mx-auto mt-2 block w-full max-w-full min-w-0 whitespace-nowrap px-0.5 text-center font-bold tabular-nums leading-none text-[clamp(0.875rem,calc(13cqw+0.45rem),1.125rem)]",
                           isAlert ? "text-destructive" : "text-foreground"
                         )}
                       >
@@ -177,8 +177,8 @@ export function KPICards() {
                       </p>
                       <p
                         className={cn(
-                          "mt-1 line-clamp-2 text-[10px] font-medium leading-tight",
-                          isAlert ? "text-destructive/90" : "text-muted-foreground"
+                          "mt-1 line-clamp-2 text-[9px] font-normal leading-snug",
+                          isAlert ? "text-destructive/85" : "text-muted-foreground"
                         )}
                       >
                         {kpi.title}
@@ -211,10 +211,10 @@ export function KPICards() {
             <CardContent className="overflow-visible pt-5 pb-4">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1 space-y-1">
-                  <p className="text-xs font-medium uppercase leading-snug tracking-wide text-muted-foreground">
+                  <p className="text-[10px] font-normal uppercase leading-tight tracking-[0.12em] text-muted-foreground">
                     {kpi.title}
                   </p>
-                  <p className="whitespace-nowrap text-[clamp(0.65rem,calc(4.2cqw+0.28rem),1.55rem)] font-bold tabular-nums leading-none tracking-tight">
+                  <p className="mt-0.5 whitespace-nowrap text-[clamp(1.125rem,calc(4.5cqw+0.45rem),1.875rem)] font-bold tabular-nums leading-none tracking-tight text-foreground">
                     {kpi.value}
                   </p>
                 </div>

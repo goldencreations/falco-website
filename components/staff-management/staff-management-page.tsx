@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DashboardHeader } from "@/components/dashboard-header";
 import {
   currentUser,
@@ -8,9 +8,15 @@ import {
   loans,
   payments,
 } from "@/lib/mock-data";
+import type { User } from "@/lib/types";
+import type { StaffAccessRequest, StaffProvisioningRequest } from "@/lib/staff-requests-types";
 import { StaffDirectory } from "@/components/staff-management/staff-directory";
 import { StaffDialogs } from "@/components/staff-management/staff-dialogs";
 import { StaffWorkspaceSheet } from "@/components/staff-management/staff-workspace-sheet";
+import {
+  AccessRequestsTable,
+  PendingHiresTable,
+} from "@/components/staff-management/staff-admin-queues";
 import {
   buildStaffWorkspaceDTO,
   type StaffWorkspaceAccessFlags,
@@ -30,24 +36,38 @@ import {
   mapUserToStaff,
   roleHasPortalAccess,
   validatePasswordReset,
-  validateStaffForm,
+  validateProvisioningHireForm,
 } from "@/components/staff-management/utils";
 import { useBranchAssignment } from "@/components/branch-assignment-context";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-export function StaffManagementPage() {
-  const { users: managedUsers, branches: managedBranches } = useBranchAssignment();
-  const initialStaff = useMemo(
-    () =>
-      managedUsers
-        .map((user, index) => mapUserToStaff(user, index))
-        .filter((staff): staff is StaffRecord => Boolean(staff)),
-    [managedUsers]
+type AdminTab = "directory" | "pending" | "access";
+
+function StaffManagementDenied() {
+  return (
+    <>
+      <DashboardHeader
+        title="Staff Management"
+        description="Organization-wide staff directory and approval queues."
+      />
+      <main className="flex-1 overflow-auto p-4 lg:p-6">
+        <p className="text-muted-foreground">You do not have access to this page.</p>
+      </main>
+    </>
   );
+}
 
-  const [staffMembers, setStaffMembers] = useState<StaffRecord[]>(initialStaff);
-  useEffect(() => {
-    setStaffMembers(initialStaff);
-  }, [initialStaff]);
+function StaffManagementPageInner() {
+  const { users: managedUsers, branches: managedBranches } = useBranchAssignment();
+
+  const [directoryUsers, setDirectoryUsers] = useState<User[]>([]);
+  const [staffMembers, setStaffMembers] = useState<StaffRecord[]>([]);
+
+  const [adminTab, setAdminTab] = useState<AdminTab>("directory");
+  const [provisioningRows, setProvisioningRows] = useState<StaffProvisioningRequest[]>([]);
+  const [accessRows, setAccessRows] = useState<StaffAccessRequest[]>([]);
+  const [loadingProvisioning, setLoadingProvisioning] = useState(false);
+  const [loadingAccess, setLoadingAccess] = useState(false);
 
   const [search, setSearch] = useState("");
   const [selectedRole, setSelectedRole] = useState<"all" | StaffRole>("all");
@@ -72,6 +92,47 @@ export function StaffManagementPage() {
   const workspaceCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [accessOverrides, setAccessOverrides] = useState<Record<string, StaffWorkspaceAccessFlags>>({});
 
+  const refreshDirectory = useCallback(async () => {
+    const res = await fetch("/api/staff/directory");
+    if (!res.ok) return;
+    const data = (await res.json()) as { users: User[] };
+    const users = data.users ?? [];
+    setDirectoryUsers(users);
+    const mapped = users
+      .map((u, i) => mapUserToStaff(u, i))
+      .filter((s): s is StaffRecord => Boolean(s));
+    setStaffMembers(mapped);
+  }, []);
+
+  const loadProvisioning = useCallback(async () => {
+    setLoadingProvisioning(true);
+    try {
+      const res = await fetch("/api/staff/provisioning?status=pending");
+      const data = await res.json();
+      setProvisioningRows(data.requests ?? []);
+    } finally {
+      setLoadingProvisioning(false);
+    }
+  }, []);
+
+  const loadAccess = useCallback(async () => {
+    setLoadingAccess(true);
+    try {
+      const res = await fetch("/api/staff/access-requests");
+      const data = await res.json();
+      const all = (data.requests ?? []) as StaffAccessRequest[];
+      setAccessRows(all.filter((r) => r.status === "pending"));
+    } finally {
+      setLoadingAccess(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshDirectory();
+    void loadProvisioning();
+    void loadAccess();
+  }, [refreshDirectory, loadProvisioning, loadAccess]);
+
   useEffect(() => {
     return () => {
       if (workspaceCloseTimer.current) clearTimeout(workspaceCloseTimer.current);
@@ -86,18 +147,23 @@ export function StaffManagementPage() {
     }
   }, [staffMembers, workspaceStaff]);
 
+  const usersForWorkspace = useMemo(
+    () => (directoryUsers.length > 0 ? directoryUsers : managedUsers),
+    [directoryUsers, managedUsers]
+  );
+
   const workspaceDto = useMemo(
     () =>
       workspaceStaff
         ? buildStaffWorkspaceDTO(workspaceStaff.id, workspaceStaff, {
-            users: managedUsers,
+            users: usersForWorkspace,
             branches: managedBranches,
             customers,
             loans,
             payments,
           })
         : null,
-    [workspaceStaff, managedUsers, managedBranches]
+    [workspaceStaff, usersForWorkspace, managedBranches]
   );
 
   const workspaceAccessFlags: StaffWorkspaceAccessFlags = useMemo(() => {
@@ -152,10 +218,10 @@ export function StaffManagementPage() {
     setCreateFormError("");
   };
 
-  const handleCreateStaff = (event: FormEvent<HTMLFormElement>) => {
+  const handleCreateStaff = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    const validationError = validateStaffForm(createForm);
+    const validationError = validateProvisioningHireForm(createForm);
     if (validationError) {
       setCreateFormError(validationError);
       return;
@@ -166,38 +232,27 @@ export function StaffManagementPage() {
       return;
     }
 
-    const now = new Date().toISOString();
-    const employeeNumber = String(staffMembers.length + 101).padStart(3, "0");
+    const res = await fetch("/api/staff/provisioning", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        full_name: createForm.full_name.trim(),
+        email: createForm.email.trim().toLowerCase(),
+        phone: createForm.phone.trim(),
+        role: createForm.role,
+        branch_id: createForm.branch_id,
+      }),
+    });
 
-    const backendPayload = {
-      email: createForm.email.trim().toLowerCase(),
-      full_name: createForm.full_name.trim(),
-      phone: createForm.phone.trim(),
-      role: createForm.role,
-      branch_id: createForm.branch_id,
-      is_active: true,
-      ...(roleHasPortalAccess(createForm.role)
-        ? { password: createForm.password }
-        : { password: null as string | null }),
-    };
-    void backendPayload;
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    if (!res.ok) {
+      setCreateFormError(typeof data.error === "string" ? data.error : "Request failed.");
+      return;
+    }
 
-    const newStaff: StaffRecord = {
-      id: `staff-${Date.now()}`,
-      email: createForm.email.trim().toLowerCase(),
-      full_name: createForm.full_name.trim(),
-      phone: createForm.phone.trim(),
-      role: createForm.role,
-      branch_id: createForm.branch_id,
-      employee_id: `EMP-${employeeNumber}`,
-      is_active: true,
-      created_at: now,
-      updated_at: now,
-      last_login: null,
-    };
-
-    setStaffMembers((prev) => [newStaff, ...prev]);
     closeCreate();
+    await loadProvisioning();
+    setAdminTab("pending");
   };
 
   const openEdit = (staff: StaffRecord) => {
@@ -206,7 +261,7 @@ export function StaffManagementPage() {
     setEditFormError("");
   };
 
-  const handleEditStaff = (event: FormEvent<HTMLFormElement>) => {
+  const handleEditStaff = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!editStaff || !editForm) return;
 
@@ -232,34 +287,26 @@ export function StaffManagementPage() {
       return;
     }
 
-    const updatedPayload = {
-      id: editStaff.id,
-      full_name: editForm.full_name.trim(),
-      email: editForm.email.trim().toLowerCase(),
-      phone: editForm.phone.trim(),
-      role: editForm.role,
-      branch_id: editForm.branch_id,
-      is_active: editForm.is_active,
-    };
-    void updatedPayload;
+    const res = await fetch(`/api/staff/directory/${editStaff.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        full_name: editForm.full_name.trim(),
+        email: editForm.email.trim().toLowerCase(),
+        phone: editForm.phone.trim(),
+        role: editForm.role,
+        branch_id: editForm.branch_id,
+        is_active: editForm.is_active,
+      }),
+    });
 
-    setStaffMembers((prev) =>
-      prev.map((staff) =>
-        staff.id === editStaff.id
-          ? {
-              ...staff,
-              full_name: editForm.full_name.trim(),
-              email: editForm.email.trim().toLowerCase(),
-              phone: editForm.phone.trim(),
-              role: editForm.role,
-              branch_id: editForm.branch_id,
-              is_active: editForm.is_active,
-              updated_at: new Date().toISOString(),
-            }
-          : staff
-      )
-    );
+    const payload = (await res.json().catch(() => ({}))) as { error?: string };
+    if (!res.ok) {
+      setEditFormError(typeof payload.error === "string" ? payload.error : "Update failed.");
+      return;
+    }
 
+    await refreshDirectory();
     setEditStaff(null);
     setEditForm(null);
     setEditFormError("");
@@ -281,13 +328,6 @@ export function StaffManagementPage() {
       return;
     }
 
-    const resetPayload = {
-      id: resetStaff.id,
-      new_password: resetForm.password,
-      requested_by: currentUser.id,
-    };
-    void resetPayload;
-
     setStaffMembers((prev) =>
       prev.map((staff) =>
         staff.id === resetStaff.id ? { ...staff, updated_at: new Date().toISOString() } : staff
@@ -298,54 +338,107 @@ export function StaffManagementPage() {
     setResetFormError("");
   };
 
-  const toggleStaffStatus = (staff: StaffRecord) => {
+  const toggleStaffStatus = async (staff: StaffRecord) => {
     const nextStatus = !staff.is_active;
-    const statusPayload = {
-      id: staff.id,
-      is_active: nextStatus,
-      updated_by: currentUser.id,
-    };
-    void statusPayload;
+    const res = await fetch(`/api/staff/directory/${staff.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_active: nextStatus }),
+    });
+    if (!res.ok) return;
+    await refreshDirectory();
+  };
 
-    setStaffMembers((prev) =>
-      prev.map((item) =>
-        item.id === staff.id
-          ? { ...item, is_active: nextStatus, updated_at: new Date().toISOString() }
-          : item
-      )
-    );
+  const resolveStaffName = useCallback(
+    (staffId: string) => staffMembers.find((s) => s.id === staffId)?.full_name ?? staffId,
+    [staffMembers]
+  );
+
+  const handleProvisioningResolve = async (id: string, status: "approved" | "rejected") => {
+    const res = await fetch(`/api/staff/provisioning/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status, notes: null }),
+    });
+    if (!res.ok) return;
+    await loadProvisioning();
+    await refreshDirectory();
+  };
+
+  const handleAccessResolve = async (id: string, status: "approved" | "rejected") => {
+    const res = await fetch(`/api/staff/access-requests/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status, resolution_notes: null }),
+    });
+    if (!res.ok) return;
+    await loadAccess();
+    await refreshDirectory();
   };
 
   return (
     <>
       <DashboardHeader
         title="Staff Management"
-        description="Add staff by role and branch. Initial passwords are required only for Super Admin, Branch Manager, and Loan Officer."
+        description="Directory, pending hires, and branch manager access requests."
       />
       <main className="flex-1 overflow-auto p-4 lg:p-6">
         <div className="mx-auto max-w-7xl space-y-6">
-          <StaffDirectory
-            staffMembers={staffMembers}
-            filteredStaff={filteredStaff}
-            search={search}
-            selectedRole={selectedRole}
-            selectedBranch={selectedBranch}
-            selectedStatus={selectedStatus}
-            onSearchChange={setSearch}
-            onRoleChange={setSelectedRole}
-            onBranchChange={setSelectedBranch}
-            onStatusChange={setSelectedStatus}
-            onAddStaff={() => setIsCreateOpen(true)}
-            onView={setViewStaff}
-            onEdit={openEdit}
-            onResetPassword={(staff) => {
-              setResetStaff(staff);
-              setResetForm(defaultResetForm);
-              setResetFormError("");
-            }}
-            onToggleStatus={toggleStaffStatus}
-            onOpenWorkspace={openWorkspace}
-          />
+          <Tabs value={adminTab} onValueChange={(v) => setAdminTab(v as AdminTab)}>
+            <TabsList className="flex w-full flex-wrap gap-1 sm:w-auto">
+              <TabsTrigger value="directory">Directory</TabsTrigger>
+              <TabsTrigger value="pending">
+                Pending hires ({provisioningRows.length})
+              </TabsTrigger>
+              <TabsTrigger value="access">
+                Access requests ({accessRows.length})
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="directory" className="mt-6 space-y-6">
+              <StaffDirectory
+                staffMembers={staffMembers}
+                filteredStaff={filteredStaff}
+                search={search}
+                selectedRole={selectedRole}
+                selectedBranch={selectedBranch}
+                selectedStatus={selectedStatus}
+                onSearchChange={setSearch}
+                onRoleChange={setSelectedRole}
+                onBranchChange={setSelectedBranch}
+                onStatusChange={setSelectedStatus}
+                onAddStaff={() => setIsCreateOpen(true)}
+                onView={setViewStaff}
+                onEdit={openEdit}
+                onResetPassword={(staff) => {
+                  setResetStaff(staff);
+                  setResetForm(defaultResetForm);
+                  setResetFormError("");
+                }}
+                onToggleStatus={toggleStaffStatus}
+                onOpenWorkspace={openWorkspace}
+              />
+            </TabsContent>
+
+            <TabsContent value="pending" className="mt-6">
+              <PendingHiresTable
+                rows={provisioningRows}
+                loading={loadingProvisioning}
+                onApprove={(id) => void handleProvisioningResolve(id, "approved")}
+                onReject={(id) => void handleProvisioningResolve(id, "rejected")}
+              />
+            </TabsContent>
+
+            <TabsContent value="access" className="mt-6">
+              <AccessRequestsTable
+                rows={accessRows}
+                loading={loadingAccess}
+                resolveStaffName={resolveStaffName}
+                onApprove={(id) => void handleAccessResolve(id, "approved")}
+                onReject={(id) => void handleAccessResolve(id, "rejected")}
+              />
+            </TabsContent>
+          </Tabs>
         </div>
       </main>
 
@@ -371,7 +464,7 @@ export function StaffManagementPage() {
             handleWorkspaceOpenChange(false);
           }}
           onToggleStatus={(s) => {
-            toggleStaffStatus(s);
+            void toggleStaffStatus(s);
           }}
         />
       ) : null}
@@ -380,9 +473,10 @@ export function StaffManagementPage() {
         createOpen={isCreateOpen}
         createForm={createForm}
         createFormError={createFormError}
+        provisioningHire
         onCreateOpenChange={setIsCreateOpen}
         onCreateFormChange={(updater) => setCreateForm((prev) => updater(prev))}
-        onCreateSubmit={handleCreateStaff}
+        onCreateSubmit={(e) => void handleCreateStaff(e)}
         onCreateCancel={closeCreate}
         viewStaff={viewStaff}
         onViewClose={() => setViewStaff(null)}
@@ -395,7 +489,7 @@ export function StaffManagementPage() {
           setEditFormError("");
         }}
         onEditFormChange={(updater) => setEditForm((prev) => (prev ? updater(prev) : prev))}
-        onEditSubmit={handleEditStaff}
+        onEditSubmit={(e) => void handleEditStaff(e)}
         resetStaff={resetStaff}
         resetForm={resetForm}
         resetFormError={resetFormError}
@@ -409,4 +503,11 @@ export function StaffManagementPage() {
       />
     </>
   );
+}
+
+export function StaffManagementPage() {
+  if (currentUser.role !== "super_admin") {
+    return <StaffManagementDenied />;
+  }
+  return <StaffManagementPageInner />;
 }

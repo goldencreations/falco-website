@@ -102,6 +102,8 @@ export interface Customer {
   // System
   branch_id: string;
   created_by: string;
+  /** Primary relationship manager / assigned loan officer (defaults to creator for legacy rows). */
+  assigned_loan_officer_id?: string;
   created_at: string;
   updated_at: string;
   is_active: boolean;

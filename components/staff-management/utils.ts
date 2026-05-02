@@ -1,4 +1,5 @@
 import { users } from "@/lib/mock-data";
+import type { StaffProvisioningRole } from "@/lib/staff-requests-types";
 import {
   PasswordResetState,
   StaffEditFormState,
@@ -20,6 +21,13 @@ export const STAFF_ROLE_OPTIONS: Array<{
   { label: "Credit Analyst", value: "credit_analyst", portalAccess: false },
   { label: "Collections Officer", value: "collections_officer", portalAccess: false },
 ];
+
+/** Branch-proposed and super-admin–queued hires: loan officer, credit, collections only. */
+export const PROVISIONING_STAFF_ROLE_OPTIONS = STAFF_ROLE_OPTIONS.filter((o) =>
+  (["loan_officer", "credit_analyst", "collections_officer"] as const).includes(
+    o.value as StaffProvisioningRole
+  )
+);
 
 const STAFF_ROLE_VALUES = new Set(STAFF_ROLE_OPTIONS.map((o) => o.value));
 
@@ -122,6 +130,28 @@ export function validateStaffForm(form: StaffFormState) {
     if (form.password !== form.confirmPassword) {
       return "Password confirmation does not match.";
     }
+  }
+  return "";
+}
+
+const PROVISIONING_ROLES: StaffProvisioningRole[] = [
+  "loan_officer",
+  "collections_officer",
+  "credit_analyst",
+];
+
+export function isProvisioningStaffRole(role: StaffRole): role is StaffProvisioningRole {
+  return PROVISIONING_ROLES.includes(role as StaffProvisioningRole);
+}
+
+/** Pending hire form: no password until an administrator approves provisioning. */
+export function validateProvisioningHireForm(form: StaffFormState) {
+  if (!form.full_name.trim()) return "Full name is required.";
+  if (!form.email.trim() || !form.email.includes("@")) return "A valid email is required.";
+  if (!form.phone.trim()) return "Phone is required.";
+  if (!form.branch_id) return "Branch assignment is required.";
+  if (!isProvisioningStaffRole(form.role)) {
+    return "Role must be loan officer, credit analyst, or collections officer.";
   }
   return "";
 }
