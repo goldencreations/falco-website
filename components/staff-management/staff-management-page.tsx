@@ -36,7 +36,7 @@ import {
   mapUserToStaff,
   roleHasPortalAccess,
   validatePasswordReset,
-  validateProvisioningHireForm,
+  validateStaffForm,
 } from "@/components/staff-management/utils";
 import { useBranchAssignment } from "@/components/branch-assignment-context";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -221,7 +221,7 @@ function StaffManagementPageInner() {
   const handleCreateStaff = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    const validationError = validateProvisioningHireForm(createForm);
+    const validationError = validateStaffForm(createForm);
     if (validationError) {
       setCreateFormError(validationError);
       return;
@@ -232,7 +232,7 @@ function StaffManagementPageInner() {
       return;
     }
 
-    const res = await fetch("/api/staff/provisioning", {
+    const res = await fetch("/api/staff/directory", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -241,6 +241,8 @@ function StaffManagementPageInner() {
         phone: createForm.phone.trim(),
         role: createForm.role,
         branch_id: createForm.branch_id,
+        password: createForm.password,
+        confirmPassword: createForm.confirmPassword,
       }),
     });
 
@@ -251,8 +253,7 @@ function StaffManagementPageInner() {
     }
 
     closeCreate();
-    await loadProvisioning();
-    setAdminTab("pending");
+    await refreshDirectory();
   };
 
   const openEdit = (staff: StaffRecord) => {
@@ -380,7 +381,7 @@ function StaffManagementPageInner() {
     <>
       <DashboardHeader
         title="Staff Management"
-        description="Directory, pending hires, and branch manager access requests."
+        description="Directory and live user creation for admins; pending hires and access requests from branches."
       />
       <main className="flex-1 overflow-auto p-4 lg:p-6">
         <div className="mx-auto max-w-7xl space-y-6">
@@ -473,7 +474,6 @@ function StaffManagementPageInner() {
         createOpen={isCreateOpen}
         createForm={createForm}
         createFormError={createFormError}
-        provisioningHire
         onCreateOpenChange={setIsCreateOpen}
         onCreateFormChange={(updater) => setCreateForm((prev) => updater(prev))}
         onCreateSubmit={(e) => void handleCreateStaff(e)}

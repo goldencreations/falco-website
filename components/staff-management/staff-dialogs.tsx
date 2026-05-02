@@ -48,6 +48,7 @@ import {
   roleLabel,
   STAFF_ROLE_OPTIONS,
 } from "@/components/staff-management/utils";
+import { cn } from "@/lib/utils";
 
 interface StaffDialogsProps {
   createOpen: boolean;
@@ -126,14 +127,157 @@ export function StaffFormFields({
   onChange,
   provisioningHire,
   lockedBranchId,
+  recordLayout,
 }: {
   form: StaffFormState;
   onChange: (updater: (prev: StaffFormState) => StaffFormState) => void;
   provisioningHire?: boolean;
   /** When set (e.g. branch manager), branch is fixed and not editable. */
   lockedBranchId?: string;
+  /** Disbursement-record style: two-column sections, grouped password box, no helper blurbs. */
+  recordLayout?: boolean;
 }) {
   const portal = !provisioningHire && roleHasPortalAccess(form.role);
+
+  const sectionLabel = "text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground";
+
+  if (recordLayout) {
+    return (
+      <div className="space-y-6">
+        <div className="grid gap-8 md:grid-cols-2 md:gap-10">
+          <div className="space-y-4">
+            <h4 className={sectionLabel}>Identity & contact</h4>
+            <div className="grid gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="staff-full-name" className="text-muted-foreground">
+                  Full name
+                </Label>
+                <Input
+                  id="staff-full-name"
+                  value={form.full_name}
+                  onChange={(event) => onChange((prev) => ({ ...prev, full_name: event.target.value }))}
+                  placeholder="e.g. Neema Chuwa"
+                  className="border-border/80 bg-background"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="staff-email" className="text-muted-foreground">
+                  Work email
+                </Label>
+                <Input
+                  id="staff-email"
+                  type="email"
+                  value={form.email}
+                  onChange={(event) => onChange((prev) => ({ ...prev, email: event.target.value }))}
+                  placeholder="name@falcofinancial.co.tz"
+                  className="border-border/80 bg-background"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="staff-phone" className="text-muted-foreground">
+                  Phone
+                </Label>
+                <Input
+                  id="staff-phone"
+                  value={form.phone}
+                  onChange={(event) => onChange((prev) => ({ ...prev, phone: event.target.value }))}
+                  placeholder="+255 7XX XXX XXX"
+                  className="border-border/80 bg-background"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <h4 className={sectionLabel}>Role & branch</h4>
+            <dl className="grid gap-4 rounded-xl border border-border/60 bg-muted/25 p-4 shadow-inner dark:bg-muted/15">
+              <div className="space-y-2">
+                <Label className="text-muted-foreground">Role</Label>
+                <Select
+                  value={form.role}
+                  onValueChange={(value) =>
+                    onChange((prev) => ({
+                      ...prev,
+                      role: value as StaffRole,
+                      password: "",
+                      confirmPassword: "",
+                    }))
+                  }
+                >
+                  <SelectTrigger className="w-full min-w-0 border-border/80 bg-background">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent align="start" className="min-w-[var(--radix-select-trigger-width)]">
+                    <StaffRoleSelectContent variant={provisioningHire ? "provisioning" : "all"} />
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-muted-foreground">Branch</Label>
+                {lockedBranchId ? (
+                  <p className="rounded-lg border border-border/70 bg-background px-3 py-2.5 text-sm font-medium">
+                    {branches.find((b) => b.id === lockedBranchId)?.name ?? lockedBranchId}
+                  </p>
+                ) : (
+                  <Select
+                    value={form.branch_id}
+                    onValueChange={(value) => onChange((prev) => ({ ...prev, branch_id: value }))}
+                  >
+                    <SelectTrigger className="w-full min-w-0 border-border/80 bg-background">
+                      <SelectValue placeholder="Select branch" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {branches.map((branch) => (
+                        <SelectItem key={branch.id} value={branch.id}>
+                          {branch.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            </dl>
+          </div>
+        </div>
+
+        {portal ? (
+          <div className="space-y-3">
+            <h4 className={sectionLabel}>Portal credentials</h4>
+            <div className="grid gap-4 rounded-xl border border-border/60 bg-muted/30 p-4 sm:grid-cols-2 dark:bg-muted/20">
+              <div className="space-y-2">
+                <Label htmlFor="staff-password" className="text-muted-foreground">
+                  Password
+                </Label>
+                <Input
+                  id="staff-password"
+                  type="password"
+                  autoComplete="new-password"
+                  value={form.password}
+                  onChange={(event) => onChange((prev) => ({ ...prev, password: event.target.value }))}
+                  className="border-border/80 bg-background"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="staff-confirm-password" className="text-muted-foreground">
+                  Confirm password
+                </Label>
+                <Input
+                  id="staff-confirm-password"
+                  type="password"
+                  autoComplete="new-password"
+                  value={form.confirmPassword}
+                  onChange={(event) =>
+                    onChange((prev) => ({ ...prev, confirmPassword: event.target.value }))
+                  }
+                  className="border-border/80 bg-background"
+                />
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -282,32 +426,55 @@ export function StaffDialogs(props: StaffDialogsProps) {
   const isMobile = useIsMobile();
 
   const createTitle = props.provisioningHire ? "Propose new hire" : "Add staff member";
-  const createDescription = props.provisioningHire
-    ? "Submit name, contact, branch, and role. The profile stays pending until it is approved in the Pending hires queue."
-    : "Create a staff record with the correct role and branch. Portal passwords are only required for roles that sign in to the system.";
+  const headerEyebrow = props.provisioningHire ? "Pending hire request" : "Staff directory";
+  const createDescriptionSr = props.provisioningHire
+    ? "Form to propose a new hire for approval."
+    : "Form to add a staff member to the directory.";
+
+  const headerWatermark = (
+    <p className="pointer-events-none absolute bottom-2 right-12 hidden rotate-[-9deg] select-none border border-white/20 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.22em] text-white/25 sm:block">
+      Falco Financial
+    </p>
+  );
+
+  const dialogCloseClass =
+    "[&_[data-slot=dialog-close]]:absolute [&_[data-slot=dialog-close]]:top-4 [&_[data-slot=dialog-close]]:right-4 [&_[data-slot=dialog-close]]:z-30 [&_[data-slot=dialog-close]]:text-emerald-100 [&_[data-slot=dialog-close]]:opacity-90 [&_[data-slot=dialog-close]]:hover:bg-white/10 [&_[data-slot=dialog-close]]:hover:opacity-100 [&_[data-slot=dialog-close]]:focus:ring-emerald-400";
 
   return (
     <>
       {isMobile ? (
         <Sheet open={props.createOpen} onOpenChange={props.onCreateOpenChange}>
-          <SheetContent side="bottom" className="h-[92vh] overflow-hidden">
-            <SheetHeader className="text-left">
-              <SheetTitle>{createTitle}</SheetTitle>
-              <SheetDescription>{createDescription}</SheetDescription>
-            </SheetHeader>
-            <form className="flex flex-1 flex-col gap-4 overflow-auto px-4 pb-4" onSubmit={props.onCreateSubmit}>
-              <StaffFormFields
-                form={props.createForm}
-                onChange={props.onCreateFormChange}
-                provisioningHire={props.provisioningHire}
-                lockedBranchId={props.createLockedBranchId}
-              />
-              {props.createFormError ? <p className="text-sm text-destructive">{props.createFormError}</p> : null}
-              <SheetFooter className="mt-auto flex-row gap-2 px-0 pt-2">
-                <Button type="button" variant="outline" className="flex-1" onClick={props.onCreateCancel}>
+          <SheetContent side="bottom" className="flex h-[92vh] flex-col gap-0 overflow-hidden border-border/80 p-0">
+            <div className="relative border-b border-emerald-950/40 bg-gradient-to-r from-emerald-950/95 via-emerald-900 to-emerald-950 text-primary-foreground">
+              <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(255,255,255,0.08),transparent_55%)]" />
+              <SheetHeader className="relative space-y-1 border-0 bg-transparent px-5 pb-5 pt-6 text-left sm:px-6 sm:pb-6 sm:pt-7">
+                <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-emerald-100/90">{headerEyebrow}</p>
+                <SheetTitle className="text-left text-xl font-semibold tracking-tight text-white">{createTitle}</SheetTitle>
+                <SheetDescription className="sr-only">{createDescriptionSr}</SheetDescription>
+              </SheetHeader>
+              {headerWatermark}
+            </div>
+            <form className="flex min-h-0 flex-1 flex-col" onSubmit={props.onCreateSubmit}>
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
+                <StaffFormFields
+                  form={props.createForm}
+                  onChange={props.onCreateFormChange}
+                  provisioningHire={props.provisioningHire}
+                  lockedBranchId={props.createLockedBranchId}
+                  recordLayout
+                />
+                {props.createFormError ? (
+                  <p className="mt-4 text-sm text-destructive">{props.createFormError}</p>
+                ) : null}
+              </div>
+              <SheetFooter className="mt-auto flex-shrink-0 flex-col-reverse gap-2 border-t border-border/60 bg-muted/25 px-4 py-4 dark:bg-muted/15 sm:flex-row sm:justify-end">
+                <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={props.onCreateCancel}>
                   Cancel
                 </Button>
-                <Button type="submit" className="flex-1">
+                <Button
+                  type="submit"
+                  className="w-full gap-2 bg-emerald-700 text-white hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-700 sm:w-auto"
+                >
                   {props.provisioningHire ? "Submit for approval" : "Create staff"}
                 </Button>
               </SheetFooter>
@@ -316,27 +483,45 @@ export function StaffDialogs(props: StaffDialogsProps) {
         </Sheet>
       ) : (
         <Dialog open={props.createOpen} onOpenChange={props.onCreateOpenChange}>
-          <DialogContent className="max-h-[min(90vh,720px)] gap-0 overflow-y-auto sm:max-w-xl">
-            <DialogHeader className="space-y-2 pb-2">
-              <DialogTitle>{createTitle}</DialogTitle>
-              <DialogDescription className="text-pretty">{createDescription}</DialogDescription>
-            </DialogHeader>
-            <form className="grid gap-5 py-2" onSubmit={props.onCreateSubmit}>
-              <StaffFormFields
-                form={props.createForm}
-                onChange={props.onCreateFormChange}
-                provisioningHire={props.provisioningHire}
-                lockedBranchId={props.createLockedBranchId}
-              />
-              {props.createFormError ? <p className="text-sm text-destructive">{props.createFormError}</p> : null}
-              <DialogFooter className="gap-2 sm:gap-0">
+          <DialogContent
+            className={cn(
+              "flex max-h-[min(92vh,760px)] min-h-0 flex-col gap-0 overflow-hidden border-border/80 p-0 sm:max-w-2xl",
+              dialogCloseClass
+            )}
+          >
+            <div className="relative border-b border-emerald-950/40 bg-gradient-to-r from-emerald-950/95 via-emerald-900 to-emerald-950 text-primary-foreground">
+              <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(255,255,255,0.08),transparent_55%)]" />
+              <DialogHeader className="relative space-y-1 border-0 bg-transparent px-5 pb-6 pt-7 text-left sm:px-6">
+                <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-emerald-100/90">{headerEyebrow}</p>
+                <DialogTitle className="text-left text-xl font-semibold tracking-tight text-white">{createTitle}</DialogTitle>
+                <DialogDescription className="sr-only">{createDescriptionSr}</DialogDescription>
+              </DialogHeader>
+              {headerWatermark}
+            </div>
+            <form className="flex min-h-0 flex-1 flex-col" onSubmit={props.onCreateSubmit}>
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6">
+                <StaffFormFields
+                  form={props.createForm}
+                  onChange={props.onCreateFormChange}
+                  provisioningHire={props.provisioningHire}
+                  lockedBranchId={props.createLockedBranchId}
+                  recordLayout
+                />
+                {props.createFormError ? (
+                  <p className="mt-4 text-sm text-destructive">{props.createFormError}</p>
+                ) : null}
+              </div>
+              <div className="flex flex-col-reverse gap-2 border-t border-border/60 bg-muted/25 px-5 py-4 dark:bg-muted/15 sm:flex-row sm:justify-end sm:gap-3 sm:px-6">
                 <Button type="button" variant="outline" onClick={props.onCreateCancel}>
                   Cancel
                 </Button>
-                <Button type="submit">
+                <Button
+                  type="submit"
+                  className="gap-2 bg-emerald-700 text-white hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-700"
+                >
                   {props.provisioningHire ? "Submit for approval" : "Create staff"}
                 </Button>
-              </DialogFooter>
+              </div>
             </form>
           </DialogContent>
         </Dialog>

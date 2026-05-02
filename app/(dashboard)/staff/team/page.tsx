@@ -633,27 +633,37 @@ export default function StaffTeamPage() {
       />
 
       <Dialog open={hireOpen} onOpenChange={setHireOpen}>
-        <DialogContent className="max-h-[min(90vh,720px)] gap-0 overflow-y-auto sm:max-w-xl">
-          <DialogHeader>
-            <DialogTitle>Propose new hire</DialogTitle>
-            <DialogDescription>
-              Same workflow as Staff Management: submits a pending hire. The person cannot sign in until a Super Admin
-              approves in Pending hires.
-            </DialogDescription>
-          </DialogHeader>
-          <form className="grid gap-4 py-2" onSubmit={handleProposeHire}>
+        <DialogContent className="max-h-[min(92vh,760px)] gap-0 overflow-y-auto border-border/80 p-0 sm:max-w-2xl">
+          <div className="relative border-b border-emerald-950/40 bg-gradient-to-r from-emerald-950/95 via-emerald-900 to-emerald-950 px-5 pb-6 pt-7 text-primary-foreground sm:px-6">
+            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(255,255,255,0.08),transparent_55%)]" />
+            <DialogHeader className="relative space-y-1 border-0 bg-transparent p-0 text-left">
+              <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-emerald-100/90">
+                Pending hire request
+              </p>
+              <DialogTitle className="text-xl font-semibold tracking-tight text-white">Propose new hire</DialogTitle>
+              <DialogDescription className="sr-only">
+                Submit a hire request for super administrator approval.
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+          <form className="grid gap-0 px-5 py-5 sm:px-6" onSubmit={handleProposeHire}>
             <StaffFormFields
               form={hireForm}
               onChange={(updater) => setHireForm((prev) => updater(prev))}
               provisioningHire
               lockedBranchId={lockHireBranch ? branchId : undefined}
+              recordLayout
             />
-            {hireError ? <p className="text-sm text-destructive">{hireError}</p> : null}
-            <DialogFooter className="gap-2 sm:gap-0">
+            {hireError ? <p className="mt-4 text-sm text-destructive">{hireError}</p> : null}
+            <DialogFooter className="mt-4 gap-2 border-t border-border/60 bg-muted/25 px-5 py-4 dark:bg-muted/15 sm:gap-3 sm:px-6">
               <Button type="button" variant="outline" onClick={() => setHireOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={hireSaving}>
+              <Button
+                type="submit"
+                disabled={hireSaving}
+                className="gap-2 bg-emerald-700 text-white hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-700"
+              >
                 {hireSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                 Submit for approval
               </Button>
