@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import {
   Plus,
   Search,
@@ -60,7 +59,9 @@ import {
   formatCurrency,
   formatDateTime,
 } from "@/lib/mock-data";
-import type { PaymentMethod, PaymentStatus } from "@/lib/types";
+import type { Payment, PaymentMethod, PaymentStatus } from "@/lib/types";
+
+type PaymentRow = Payment & { updated_at?: string };
 
 type ReconciliationStatus = "matched" | "underpaid" | "overpaid" | "manual_review" | "unmatched";
 
@@ -96,6 +97,12 @@ export default function PaymentsPage() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("mobile_money");
   const [requestedLoanId, setRequestedLoanId] = useState<string | null>(null);
   const [openPaymentForm, setOpenPaymentForm] = useState<string | null>(null);
+  const [recordedPayments, setRecordedPayments] = useState<PaymentRow[]>(() => [...payments]);
+  const [referenceNumber, setReferenceNumber] = useState("");
+  const [collectionChannel, setCollectionChannel] = useState<"system" | "manual_collection">("system");
+  const [selectedPaymentId, setSelectedPaymentId] = useState("");
+  const [selectedBankRecordId, setSelectedBankRecordId] = useState("");
+  const [reconciliationNote, setReconciliationNote] = useState("");
 
   const bankRecords: BankRecord[] = [
     {
@@ -162,7 +169,7 @@ export default function PaymentsPage() {
     .reduce((sum, p) => sum + p.amount, 0);
 
   const getReconciliationStatus = (
-    payment: (typeof recordedPayments)[number]
+    payment: PaymentRow
   ): {
     status: ReconciliationStatus;
     variance: number;
@@ -361,7 +368,7 @@ export default function PaymentsPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{payments.length}</div>
+                <div className="text-2xl font-bold">{recordedPayments.length}</div>
               </CardContent>
             </Card>
             <Card>
