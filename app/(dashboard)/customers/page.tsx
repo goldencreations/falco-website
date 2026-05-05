@@ -13,7 +13,6 @@ import {
   Building2,
   User,
   AlertTriangle,
-  Sparkles,
 } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Button } from "@/components/ui/button";
@@ -96,10 +95,6 @@ export default function CustomersPage() {
                   Search, filter and review customer profiles with branch-ready insights.
                 </p>
               </div>
-              <Badge className="w-fit shrink-0 border-emerald-200 bg-emerald-100 text-emerald-800 hover:bg-emerald-100">
-                <Sparkles className="mr-1 h-3 w-3" />
-                Professional View
-              </Badge>
             </div>
           </div>
 

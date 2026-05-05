@@ -1,76 +1,59 @@
 "use client";
 
+import Image from "next/image";
 import { useState } from "react";
-import {
-  Users,
-  TrendingUp,
-  AlertTriangle,
-  ArrowUpRight,
-  ArrowDownRight,
-  FileText,
-  CreditCard,
-} from "lucide-react";
+import { TrendingUp, ArrowUpRight, ArrowDownRight } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { dashboardMetrics, formatCurrency } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 
-/** Activity-oriented labels — avoids duplicating “total portfolio” from the hero strip. */
+/** Activity-oriented labels — avoids duplicating "total portfolio" from the hero strip. */
 const kpiData = [
   {
     title: "Cash collected today",
     value: formatCurrency(dashboardMetrics.collections_today),
     change: `${dashboardMetrics.collection_rate}%`,
     changeType: "positive" as const,
-    icon: CreditCard,
     description: `of ${formatCurrency(dashboardMetrics.expected_collections_today)} expected`,
     colorClass: "bg-kpi-collections",
-    iconBgClass: "bg-kpi-collections/10",
-    iconClass: "text-kpi-collections",
+    illustration: "/illustrations/Investment data-bro.png",
   },
   {
     title: "At-risk exposure (PAR)",
     value: formatCurrency(dashboardMetrics.par_over_90 + dashboardMetrics.par_31_90),
     change: `${dashboardMetrics.npl_ratio}% NPL`,
     changeType: "negative" as const,
-    icon: AlertTriangle,
     description: "non-performing vs book",
     colorClass: "bg-kpi-risk",
-    iconBgClass: "bg-kpi-risk/10",
-    iconClass: "text-kpi-risk",
+    illustration: "/illustrations/Warning-rafiki.png",
   },
   {
     title: "Applications in pipeline",
     value: dashboardMetrics.pending_applications.toString(),
     change: "2 new",
     changeType: "neutral" as const,
-    icon: FileText,
     description: "awaiting decision",
     colorClass: "bg-kpi-applications",
-    iconBgClass: "bg-kpi-applications/10",
-    iconClass: "text-kpi-applications",
+    illustration: "/illustrations/Documents-bro.png",
   },
   {
     title: "Registered customers",
     value: dashboardMetrics.total_customers.toString(),
     change: "+3",
     changeType: "positive" as const,
-    icon: Users,
     description: "active relationships",
     colorClass: "bg-kpi-customers",
-    iconBgClass: "bg-kpi-customers/10",
-    iconClass: "text-kpi-customers",
+    illustration: "/illustrations/Team spirit-bro.png",
   },
   {
     title: "Disbursements (MTD)",
     value: formatCurrency(dashboardMetrics.disbursements_this_month),
     change: "+8.2%",
     changeType: "positive" as const,
-    icon: TrendingUp,
     description: "vs prior month",
     colorClass: "bg-kpi-disbursements",
-    iconBgClass: "bg-kpi-disbursements/10",
-    iconClass: "text-kpi-disbursements",
+    illustration: "/illustrations/Investment data-amico.png",
   },
 ];
 
@@ -160,13 +143,6 @@ export function KPICards() {
                           : "border-border/60"
                       )}
                     >
-                      <kpi.icon
-                        className={cn(
-                          "h-5 w-5 shrink-0",
-                          isAlert ? "text-destructive" : kpi.iconClass
-                        )}
-                        aria-hidden
-                      />
                       <p
                         className={cn(
                           "mx-auto mt-2 block w-full max-w-full min-w-0 whitespace-nowrap px-0.5 text-center font-bold tabular-nums leading-none text-[clamp(0.875rem,calc(13cqw+0.45rem),1.125rem)]",
@@ -199,16 +175,28 @@ export function KPICards() {
         {kpiData.map((kpi) => (
           <Card
             key={kpi.title}
-            className="group @container relative overflow-visible border border-border/70 bg-card/95 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+            className="group @container relative overflow-hidden border border-border/70 bg-card/95 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
           >
+            {/* Top color bar */}
             <div className={cn("absolute left-0 right-0 top-0 h-1.5 rounded-t-xl", kpi.colorClass)} />
+            {/* Subtle color tint */}
             <div
               className={cn(
                 "pointer-events-none absolute inset-0 rounded-xl opacity-[0.03] transition-opacity group-hover:opacity-[0.06]",
                 kpi.colorClass
               )}
             />
-            <CardContent className="overflow-visible pt-5 pb-4">
+            {/* Bottom-right illustration */}
+            <div className="pointer-events-none absolute bottom-0 right-0 h-36 w-36 opacity-20 transition-opacity group-hover:opacity-30">
+              <Image
+                src={kpi.illustration}
+                alt=""
+                fill
+                className="object-contain object-bottom"
+                sizes="144px"
+              />
+            </div>
+            <CardContent className="relative overflow-visible pt-5 pb-4">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1 space-y-1">
                   <p className="text-[10px] font-normal uppercase leading-tight tracking-[0.12em] text-muted-foreground">
@@ -218,16 +206,8 @@ export function KPICards() {
                     {kpi.value}
                   </p>
                 </div>
-                <div
-                  className={cn(
-                    "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ring-1 ring-border/40",
-                    kpi.iconBgClass
-                  )}
-                >
-                  <kpi.icon className={cn("h-5 w-5", kpi.iconClass)} />
-                </div>
               </div>
-              <div className="mt-3 flex flex-wrap items-baseline gap-x-1.5 gap-y-1 text-xs leading-snug">
+              <div className="mt-3 flex flex-col gap-0.5 text-xs leading-snug">
                 {kpi.changeType === "positive" ? (
                   <span className="flex shrink-0 items-center gap-0.5 font-medium text-success">
                     <ArrowUpRight className="h-3 w-3" />

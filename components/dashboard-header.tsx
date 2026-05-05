@@ -1,13 +1,13 @@
 "use client";
 
-import { Bell, Search, MapPin } from "lucide-react";
+import { useState } from "react";
+import { Bell, Search, MapPin, Check, X, CheckCheck } from "lucide-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -16,6 +16,42 @@ import { Badge } from "@/components/ui/badge";
 import { branches, currentUser } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 
+interface Notification {
+  id: string;
+  title: string;
+  message: string;
+  time: string;
+  dotClass: string;
+  read: boolean;
+}
+
+const INITIAL_NOTIFICATIONS: Notification[] = [
+  {
+    id: "1",
+    title: "New loan application",
+    message: "Charles Mwenda submitted a TZS 5,000,000 loan application",
+    time: "2 hours ago",
+    dotClass: "bg-info",
+    read: false,
+  },
+  {
+    id: "2",
+    title: "Payment received",
+    message: "Emmanuel Mwakyusa paid TZS 793,334 via M-Pesa",
+    time: "5 hours ago",
+    dotClass: "bg-success",
+    read: false,
+  },
+  {
+    id: "3",
+    title: "Loan overdue alert",
+    message: "Robert Mtei\u2019s loan is now 35 days overdue",
+    time: "1 day ago",
+    dotClass: "bg-destructive",
+    read: false,
+  },
+];
+
 interface DashboardHeaderProps {
   title: string;
   description?: string;
@@ -23,6 +59,20 @@ interface DashboardHeaderProps {
 
 export function DashboardHeader({ title, description }: DashboardHeaderProps) {
   const currentBranch = branches.find((b) => b.id === currentUser.branch_id);
+  const [notifications, setNotifications] = useState<Notification[]>(INITIAL_NOTIFICATIONS);
+
+  const unreadCount = notifications.filter((n) => !n.read).length;
+
+  const markAsRead = (id: string) =>
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
+    );
+
+  const deleteNotification = (id: string) =>
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+
+  const markAllAsRead = () =>
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
 
   return (
     <header className="flex h-16 shrink-0 items-center justify-between border-b border-border bg-card px-4 lg:px-6">
@@ -55,53 +105,88 @@ export function DashboardHeader({ title, description }: DashboardHeaderProps) {
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="relative">
               <Bell className="h-5 w-5" />
-              <span className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground animate-pulse">
-                3
-              </span>
+              {unreadCount > 0 && (
+                <span className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground animate-pulse">
+                  {unreadCount}
+                </span>
+              )}
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-80">
+          <DropdownMenuContent align="end" className="w-80" onCloseAutoFocus={(e) => e.preventDefault()}>
             <DropdownMenuLabel className="flex items-center justify-between">
-              Notifications
-              <Badge variant="secondary" className="text-[10px]">3 new</Badge>
+              <span>Notifications</span>
+              <div className="flex items-center gap-2">
+                {unreadCount > 0 && (
+                  <Badge variant="secondary" className="text-[10px]">{unreadCount} new</Badge>
+                )}
+                {unreadCount > 0 && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); markAllAsRead(); }}
+                    className="flex items-center gap-1 text-[10px] font-normal text-muted-foreground hover:text-primary transition-colors"
+                    title="Mark all as read"
+                  >
+                    <CheckCheck className="h-3 w-3" />
+                    All read
+                  </button>
+                )}
+              </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="flex flex-col items-start gap-1 py-3 cursor-pointer">
-              <div className="flex items-center gap-2">
-                <div className="h-2 w-2 rounded-full bg-info" />
-                <span className="font-medium">New loan application</span>
+
+            {notifications.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 py-6 text-muted-foreground">
+                <Bell className="h-8 w-8 opacity-30" />
+                <p className="text-sm">No notifications</p>
               </div>
-              <span className="text-sm text-muted-foreground pl-4">
-                Charles Mwenda submitted a TZS 5,000,000 loan application
-              </span>
-              <span className="text-xs text-muted-foreground/70 pl-4">2 hours ago</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem className="flex flex-col items-start gap-1 py-3 cursor-pointer">
-              <div className="flex items-center gap-2">
-                <div className="h-2 w-2 rounded-full bg-success" />
-                <span className="font-medium">Payment received</span>
-              </div>
-              <span className="text-sm text-muted-foreground pl-4">
-                Emmanuel Mwakyusa paid TZS 793,334 via M-Pesa
-              </span>
-              <span className="text-xs text-muted-foreground/70 pl-4">5 hours ago</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem className="flex flex-col items-start gap-1 py-3 cursor-pointer">
-              <div className="flex items-center gap-2">
-                <div className="h-2 w-2 rounded-full bg-destructive" />
-                <span className="font-medium">Loan overdue alert</span>
-              </div>
-              <span className="text-sm text-muted-foreground pl-4">
-                Robert Mtei&apos;s loan is now 35 days overdue
-              </span>
-              <span className="text-xs text-muted-foreground/70 pl-4">1 day ago</span>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem className={cn(
-              "justify-center font-medium text-primary hover:text-primary cursor-pointer"
-            )}>
-              View all notifications
-            </DropdownMenuItem>
+            ) : (
+              notifications.map((n) => (
+                <div
+                  key={n.id}
+                  className={cn(
+                    "group relative flex flex-col gap-1 px-3 py-3 text-sm transition-colors hover:bg-accent/50",
+                    n.read && "opacity-60"
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className={cn("h-2 w-2 shrink-0 rounded-full", n.read ? "bg-muted-foreground/40" : n.dotClass)} />
+                      <span className={cn("font-medium leading-tight", n.read && "font-normal")}>{n.title}</span>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                      {!n.read && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); markAsRead(n.id); }}
+                          title="Mark as read"
+                          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-primary/10 hover:text-primary transition-colors"
+                        >
+                          <Check className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); deleteNotification(n.id); }}
+                        title="Delete"
+                        className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                  <span className="pl-4 text-muted-foreground">{n.message}</span>
+                  <span className="pl-4 text-xs text-muted-foreground/70">{n.time}</span>
+                </div>
+              ))
+            )}
+
+            {notifications.length > 0 && (
+              <>
+                <DropdownMenuSeparator />
+                <div className="flex items-center justify-center py-2">
+                  <button className="text-sm font-medium text-primary hover:underline">
+                    View all notifications
+                  </button>
+                </div>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

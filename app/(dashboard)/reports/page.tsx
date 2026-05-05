@@ -376,13 +376,14 @@ export default function ReportsPage() {
                           <Tooltip
                             formatter={(value: number) => formatCurrency(value)}
                             contentStyle={{
-                              backgroundColor: "hsl(var(--card))",
-                              border: "1px solid hsl(var(--border))",
+                              backgroundColor: "var(--card)",
+                              border: "1px solid var(--border)",
+                              color: "var(--card-foreground)",
                             }}
                           />
                           <Legend />
-                          <Bar dataKey="disbursements" name="Disbursements" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-                          <Bar dataKey="collections" name="Collections" fill="hsl(var(--accent))" radius={[4, 4, 0, 0]} />
+                          <Bar dataKey="disbursements" name="Disbursements" fill="hsl(185 55% 45%)" radius={[4, 4, 0, 0]} />
+                          <Bar dataKey="collections" name="Collections" fill="hsl(152 55% 42%)" radius={[4, 4, 0, 0]} />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
@@ -410,8 +411,9 @@ export default function ReportsPage() {
                           <Tooltip
                             formatter={(value: number) => formatCurrency(value)}
                             contentStyle={{
-                              backgroundColor: "hsl(var(--card))",
-                              border: "1px solid hsl(var(--border))",
+                              backgroundColor: "var(--card)",
+                              border: "1px solid var(--border)",
+                              color: "var(--card-foreground)",
                             }}
                           />
                           <Area
@@ -499,8 +501,9 @@ export default function ReportsPage() {
                           <Tooltip
                             formatter={(value: number) => formatCurrency(value)}
                             contentStyle={{
-                              backgroundColor: "hsl(var(--card))",
-                              border: "1px solid hsl(var(--border))",
+                              backgroundColor: "var(--card)",
+                              border: "1px solid var(--border)",
+                              color: "var(--card-foreground)",
                             }}
                           />
                           <Legend

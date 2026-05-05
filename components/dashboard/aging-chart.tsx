@@ -1,6 +1,6 @@
 "use client";
 
-import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
+import { Cell, Label, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCurrency, branches } from "@/lib/mock-data";
 import { getAgingBucketsForScope, type DashboardBranchScope } from "@/lib/dashboard-analytics";
@@ -36,10 +36,11 @@ const SEGMENT_STYLES: Record<
 };
 
 const tipStyle = {
-  backgroundColor: "hsl(var(--card))",
-  border: "1px solid hsl(var(--border))",
+  backgroundColor: "var(--card)",
+  border: "1px solid var(--border)",
   borderRadius: "8px",
-  boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+  boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+  color: "var(--card-foreground)",
 };
 
 export function AgingChart({ branchScope }: { branchScope: DashboardBranchScope }) {
@@ -96,25 +97,34 @@ export function AgingChart({ branchScope }: { branchScope: DashboardBranchScope 
                       };
                       return <Cell key={entry.classification} fill={s.fill} stroke={s.stroke} />;
                     })}
+                    <Label
+                      content={({ viewBox }) => {
+                        const { cx, cy } = viewBox as { cx: number; cy: number };
+                        return (
+                          <g>
+                            <text
+                              x={cx}
+                              y={cy - 9}
+                              textAnchor="middle"
+                              dominantBaseline="middle"
+                              style={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                            >
+                              Total exposure
+                            </text>
+                            <text
+                              x={cx}
+                              y={cy + 10}
+                              textAnchor="middle"
+                              dominantBaseline="middle"
+                              style={{ fontSize: 14, fontWeight: 600, fill: "var(--foreground)" }}
+                            >
+                              {formatCurrency(totalOutstanding)}
+                            </text>
+                          </g>
+                        );
+                      }}
+                    />
                   </Pie>
-                  <text
-                    x="50%"
-                    y="44%"
-                    textAnchor="middle"
-                    dominantBaseline="middle"
-                    className="fill-muted-foreground text-[11px]"
-                  >
-                    Total exposure
-                  </text>
-                  <text
-                    x="50%"
-                    y="54%"
-                    textAnchor="middle"
-                    dominantBaseline="middle"
-                    className="fill-foreground text-sm font-semibold"
-                  >
-                    {formatCurrency(totalOutstanding)}
-                  </text>
                   <Tooltip
                     formatter={(value: number) => formatCurrency(value)}
                     contentStyle={tipStyle}

@@ -161,17 +161,18 @@ export default function LeadsPage() {
                 </Button>
               </div>
             </CardHeader>
-            <CardContent className="p-0">
+            <CardContent className="px-6 pb-6 pt-0">
+              <div className="overflow-hidden rounded-lg border border-border/60">
               <Table>
                 <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
+                  <TableRow className="bg-muted/40">
+                    <TableHead className="pl-4">Name</TableHead>
                     <TableHead>Phone</TableHead>
                     <TableHead>Location</TableHead>
                     <TableHead>Coordinates</TableHead>
                     <TableHead>Follow-up</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Notes</TableHead>
+                    <TableHead className="pr-4">Notes</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -181,7 +182,7 @@ export default function LeadsPage() {
                       className="cursor-pointer"
                       onClick={() => setSelectedLeadId(lead.id)}
                     >
-                      <TableCell className="font-medium">{lead.fullName}</TableCell>
+                      <TableCell className="pl-4 font-medium">{lead.fullName}</TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-1">
                           <span className="inline-flex items-center gap-1">
@@ -210,11 +211,12 @@ export default function LeadsPage() {
                       <TableCell>
                         <Badge variant="outline">{statusLabel[lead.status]}</Badge>
                       </TableCell>
-                      <TableCell className="max-w-[280px] truncate">{lead.notes || "-"}</TableCell>
+                      <TableCell className="max-w-[280px] truncate pr-4">{lead.notes || "-"}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
+              </div>
             </CardContent>
           </Card>
 
