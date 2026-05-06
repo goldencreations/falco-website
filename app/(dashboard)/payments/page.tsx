@@ -57,6 +57,7 @@ import {
   formatDateTime,
 } from "@/lib/mock-data";
 import type { PaymentMethod, PaymentStatus } from "@/lib/types";
+import { useSessionUser } from "@/lib/use-session-user";
 
 const methodConfig: Record<PaymentMethod, { label: string; icon: typeof CreditCard }> = {
   cash: { label: "Cash", icon: Banknote },
@@ -73,6 +74,9 @@ const statusConfig: Record<PaymentStatus, { label: string; variant: "default" | 
 };
 
 export default function PaymentsPage() {
+  const { user } = useSessionUser();
+  const isOfficerView = user?.role === "loan_officer";
+  const scopeBranchId = user?.role === "branch_manager" || user?.role === "loan_officer" ? user.branch_id : null;
   const [searchQuery, setSearchQuery] = useState("");
   const [methodFilter, setMethodFilter] = useState<string>("all");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -82,7 +86,19 @@ export default function PaymentsPage() {
   const [requestedLoanId, setRequestedLoanId] = useState<string | null>(null);
   const [openPaymentForm, setOpenPaymentForm] = useState<string | null>(null);
 
-  const filteredPayments = payments.filter((payment) => {
+  const visibleLoans = scopeBranchId
+    ? loans.filter((loan) => {
+        if (loan.branch_id !== scopeBranchId) return false;
+        if (!isOfficerView || !user) return true;
+        return loan.loan_officer_id === user.id;
+      })
+    : loans;
+  const visibleLoanIds = new Set(visibleLoans.map((loan) => loan.id));
+  const visiblePayments = scopeBranchId
+    ? payments.filter((payment) => visibleLoanIds.has(payment.loan_id))
+    : payments;
+
+  const filteredPayments = visiblePayments.filter((payment) => {
     const customer = getCustomerById(payment.customer_id);
     const matchesSearch =
       searchQuery === "" ||
@@ -96,11 +112,11 @@ export default function PaymentsPage() {
     return matchesSearch && matchesMethod;
   });
 
-  const totalCollected = payments
+  const totalCollected = visiblePayments
     .filter((p) => p.status === "completed")
     .reduce((sum, p) => sum + p.amount, 0);
 
-  const todayCollections = payments
+  const todayCollections = visiblePayments
     .filter((p) => {
       const paymentDate = new Date(p.payment_date).toDateString();
       const today = new Date().toDateString();
@@ -108,18 +124,18 @@ export default function PaymentsPage() {
     })
     .reduce((sum, p) => sum + p.amount, 0);
 
-  const activeLoans = loans.filter(
+  const activeLoans = visibleLoans.filter(
     (l) => l.status === "active" || l.status === "in_arrears"
   );
   const selectedLoanDetails = selectedLoan
-    ? loans.find((loan) => loan.id === selectedLoan)
+    ? visibleLoans.find((loan) => loan.id === selectedLoan)
     : undefined;
   const selectedCustomer = selectedLoanDetails
     ? getCustomerById(selectedLoanDetails.customer_id)
     : undefined;
   const preselectedLoan = useMemo(
-    () => (requestedLoanId ? loans.find((loan) => loan.id === requestedLoanId) : undefined),
-    [requestedLoanId]
+    () => (requestedLoanId ? visibleLoans.find((loan) => loan.id === requestedLoanId) : undefined),
+    [requestedLoanId, visibleLoans]
   );
 
   useEffect(() => {
@@ -169,7 +185,7 @@ export default function PaymentsPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{payments.length}</div>
+                <div className="text-2xl font-bold">{visiblePayments.length}</div>
               </CardContent>
             </Card>
             <Card>
@@ -204,7 +220,7 @@ export default function PaymentsPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-warning">
-                  {payments.filter((p) => p.status === "pending").length}
+                  {visiblePayments.filter((p) => p.status === "pending").length}
                 </div>
               </CardContent>
             </Card>
@@ -345,7 +361,7 @@ export default function PaymentsPage() {
                   ) : (
                     filteredPayments.map((payment) => {
                       const customer = getCustomerById(payment.customer_id);
-                      const loan = loans.find((l) => l.id === payment.loan_id);
+                      const loan = visibleLoans.find((l) => l.id === payment.loan_id);
                       const method = methodConfig[payment.payment_method];
                       const status = statusConfig[payment.status];
                       const MethodIcon = method.icon;

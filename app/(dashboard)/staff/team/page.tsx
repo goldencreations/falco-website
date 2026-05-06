@@ -65,10 +65,12 @@ import {
   validateProvisioningHireForm,
 } from "@/components/staff-management/utils";
 import type { StaffFormState } from "@/components/staff-management/types";
+import { useSessionUser } from "@/lib/use-session-user";
 
 const TEAM_ROLES: User["role"][] = ["loan_officer", "collections_officer"];
 
 export default function StaffTeamPage() {
+  const { user: sessionUser } = useSessionUser();
   const [users, setUsers] = useState<User[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -87,8 +89,9 @@ export default function StaffTeamPage() {
   const [hireError, setHireError] = useState("");
   const [hireSaving, setHireSaving] = useState(false);
 
-  const branchId = currentUser.branch_id;
-  const lockHireBranch = currentUser.role === "branch_manager";
+  const effectiveRole = sessionUser?.role ?? currentUser.role;
+  const branchId = sessionUser?.branch_id ?? currentUser.branch_id;
+  const lockHireBranch = effectiveRole === "branch_manager";
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -253,7 +256,7 @@ export default function StaffTeamPage() {
     }
   };
 
-  if (currentUser.role !== "branch_manager" && currentUser.role !== "super_admin") {
+  if (effectiveRole !== "branch_manager" && effectiveRole !== "super_admin") {
     return (
       <>
         <DashboardHeader title="Team & assignments" description="" />

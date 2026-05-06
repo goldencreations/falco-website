@@ -1,21 +1,24 @@
 import { NextResponse } from "next/server";
-import { currentUser } from "@/lib/mock-data";
 import {
   createProvisioningRequest,
   listProvisioningRequests,
 } from "@/lib/mock-staff-requests";
 import type { StaffProvisioningRole } from "@/lib/staff-requests-types";
+import { requireApiUser } from "@/lib/authorization";
 
 const ROLES: StaffProvisioningRole[] = ["loan_officer", "collections_officer", "credit_analyst"];
 
 export async function GET(request: Request) {
+  const auth = requireApiUser(request, ["branch_manager", "super_admin"]);
+  if ("response" in auth) return auth.response;
+  const user = auth.user;
   const { searchParams } = new URL(request.url);
   const status = searchParams.get("status") as "pending" | "approved" | "rejected" | null;
   const branch_id = searchParams.get("branch_id") ?? undefined;
-  if (currentUser.role === "branch_manager") {
+  if (user.role === "branch_manager") {
     const list = listProvisioningRequests({
       status: status ?? undefined,
-      branch_id: currentUser.branch_id,
+      branch_id: user.branch_id,
     });
     return NextResponse.json({ requests: list });
   }
@@ -27,9 +30,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  if (currentUser.role !== "branch_manager" && currentUser.role !== "super_admin") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const auth = requireApiUser(request, ["branch_manager", "super_admin"]);
+  if ("response" in auth) return auth.response;
+  const user = auth.user;
 
   const body = (await request.json()) as {
     full_name?: string;
@@ -47,13 +50,13 @@ export async function POST(request: Request) {
   }
 
   let branchId = body.branch_id;
-  if (currentUser.role === "branch_manager") {
-    branchId = currentUser.branch_id;
-    if (body.branch_id && body.branch_id !== currentUser.branch_id) {
+  if (user.role === "branch_manager") {
+    branchId = user.branch_id;
+    if (body.branch_id && body.branch_id !== user.branch_id) {
       return NextResponse.json({ error: "Cannot propose hires for another branch" }, { status: 403 });
     }
   }
-  if (currentUser.role === "super_admin" && !branchId) {
+  if (user.role === "super_admin" && !branchId) {
     return NextResponse.json({ error: "branch_id required" }, { status: 400 });
   }
 
@@ -63,7 +66,7 @@ export async function POST(request: Request) {
     phone: body.phone,
     role: body.role,
     branch_id: branchId!,
-    requested_by: currentUser.id,
+    requested_by: user.id,
   });
 
   return NextResponse.json({ request: row });

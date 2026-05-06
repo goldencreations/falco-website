@@ -54,7 +54,7 @@ import {
   formatDate,
 } from "@/lib/mock-data";
 import type { Loan, LoanStatus, RiskClassification } from "@/lib/types";
-import { useBranchAssignment } from "@/components/branch-assignment-context";
+import { useSessionUser } from "@/lib/use-session-user";
 
 const statusConfig: Record<
   LoanStatus,
@@ -78,12 +78,22 @@ const riskConfig: Record<RiskClassification, { label: string; color: string }> =
 };
 
 export default function LoansPage() {
-  const { users: managedUsers, branches: managedBranches } = useBranchAssignment();
+  const { user } = useSessionUser();
+  const isOfficerView = user?.role === "loan_officer";
+  const scopeBranchId = user?.role === "branch_manager" || user?.role === "loan_officer" ? user.branch_id : null;
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [viewLoan, setViewLoan] = useState<Loan | null>(null);
 
-  const filteredLoans = loans.filter((loan) => {
+  const visibleLoans = scopeBranchId
+    ? loans.filter((loan) => {
+        if (loan.branch_id !== scopeBranchId) return false;
+        if (!isOfficerView || !user) return true;
+        return loan.loan_officer_id === user.id;
+      })
+    : loans;
+
+  const filteredLoans = visibleLoans.filter((loan) => {
     const customer = getCustomerById(loan.customer_id);
     const matchesSearch =
       searchQuery === "" ||
@@ -96,20 +106,15 @@ export default function LoansPage() {
     return matchesSearch && matchesStatus;
   });
 
-  const totalOutstanding = loans.reduce((sum, l) => sum + l.total_outstanding, 0);
-  const totalPrincipal = loans.reduce((sum, l) => sum + l.principal_amount, 0);
-  const activeLoans = loans.filter((l) => l.status === "active").length;
-  const inArrearsLoans = loans.filter((l) => l.status === "in_arrears").length;
+  const totalOutstanding = visibleLoans.reduce((sum, l) => sum + l.total_outstanding, 0);
+  const totalPrincipal = visibleLoans.reduce((sum, l) => sum + l.principal_amount, 0);
+  const activeLoans = visibleLoans.filter((l) => l.status === "active").length;
+  const inArrearsLoans = visibleLoans.filter((l) => l.status === "in_arrears").length;
   const recoveryRate = ((1 - totalOutstanding / totalPrincipal) * 100).toFixed(1);
   const viewCustomer = viewLoan ? getCustomerById(viewLoan.customer_id) : null;
   const viewProduct = viewLoan ? getProductById(viewLoan.product_id) : null;
-  const viewBranch = viewLoan
-    ? managedBranches.find((branch) => branch.id === viewLoan.branch_id) ?? getBranchById(viewLoan.branch_id)
-    : null;
-  const viewOfficer = viewLoan
-    ? managedUsers.find((user) => user.id === (viewLoan.loan_officer_id ?? viewLoan.disbursed_by)) ??
-      getUserById(viewLoan.loan_officer_id ?? viewLoan.disbursed_by)
-    : null;
+  const viewBranch = viewLoan ? getBranchById(viewLoan.branch_id) : null;
+  const viewOfficer = viewLoan ? getUserById(viewLoan.loan_officer_id ?? viewLoan.disbursed_by) : null;
   const viewPayments = viewLoan ? getPaymentsByLoanId(viewLoan.id).filter((p) => p.status === "completed") : [];
   const viewSchedule = viewLoan ? getScheduleByLoanId(viewLoan.id) : [];
   const viewCollections = viewLoan ? getCollectionsByLoanId(viewLoan.id) : [];
@@ -144,7 +149,7 @@ export default function LoansPage() {
               <div className="grid grid-cols-2 gap-2">
                 <div className="rounded-lg border border-emerald-200/70 bg-emerald-100/60 p-3 dark:border-emerald-900/40 dark:bg-emerald-950/15">
                   <p className="text-[11px] text-muted-foreground">Loans</p>
-                  <p className="text-lg font-semibold">{loans.length}</p>
+                  <p className="text-lg font-semibold">{visibleLoans.length}</p>
                 </div>
                 <div className="rounded-lg border border-emerald-200/70 bg-emerald-100/60 p-3 dark:border-emerald-900/40 dark:bg-emerald-950/15">
                   <p className="text-[11px] text-muted-foreground">Recovery</p>
@@ -173,7 +178,7 @@ export default function LoansPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{loans.length}</div>
+                <div className="text-2xl font-bold">{visibleLoans.length}</div>
                 <p className="text-sm text-muted-foreground">
                   {activeLoans} active, {inArrearsLoans} in arrears
                 </p>

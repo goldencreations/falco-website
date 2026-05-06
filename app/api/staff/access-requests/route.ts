@@ -1,16 +1,19 @@
 import { NextResponse } from "next/server";
-import { currentUser } from "@/lib/mock-data";
 import { createAccessRequest, listAccessRequests } from "@/lib/mock-staff-requests";
 import { getDirectoryUserById } from "@/lib/mock-user-directory";
+import { requireApiUser } from "@/lib/authorization";
 
-export async function GET() {
-  if (currentUser.role === "super_admin") {
+export async function GET(request: Request) {
+  const auth = requireApiUser(request, ["branch_manager", "super_admin"]);
+  if ("response" in auth) return auth.response;
+  const user = auth.user;
+  if (user.role === "super_admin") {
     return NextResponse.json({ requests: listAccessRequests() });
   }
-  if (currentUser.role === "branch_manager") {
+  if (user.role === "branch_manager") {
     return NextResponse.json({
       requests: listAccessRequests({ status: "pending" }).filter(
-        (r) => r.requested_by === currentUser.id
+        (r) => r.requested_by === user.id
       ),
     });
   }
@@ -18,9 +21,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  if (currentUser.role !== "branch_manager") {
-    return NextResponse.json({ error: "Only branch managers can request access changes" }, { status: 403 });
-  }
+  const auth = requireApiUser(request, ["branch_manager"]);
+  if ("response" in auth) return auth.response;
+  const user = auth.user;
 
   const body = (await request.json()) as {
     type?: "suspend" | "reinstate";
@@ -36,7 +39,7 @@ export async function POST(request: Request) {
   if (!target) {
     return NextResponse.json({ error: "Staff not found" }, { status: 404 });
   }
-  if (target.branch_id !== currentUser.branch_id) {
+  if (target.branch_id !== user.branch_id) {
     return NextResponse.json({ error: "Staff is not in your branch" }, { status: 403 });
   }
   if (target.role === "branch_manager" || target.role === "super_admin") {
@@ -46,7 +49,7 @@ export async function POST(request: Request) {
   const row = createAccessRequest({
     type: body.type,
     staff_id: body.staff_id,
-    requested_by: currentUser.id,
+    requested_by: user.id,
     reason: body.reason ?? null,
   });
 

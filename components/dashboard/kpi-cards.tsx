@@ -292,7 +292,7 @@ export function KPICards() {
       </Card>
 
       {/* Desktop / tablet: richer cards — no flat white */}
-      <div className="hidden gap-4 md:grid md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+      <div className="hidden gap-4 md:grid md:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
         {kpiData.map((kpi) => (
           <Card
             key={kpi.title}
@@ -315,7 +315,7 @@ export function KPICards() {
                   <p className="text-[10px] font-semibold uppercase leading-tight tracking-[0.14em] text-muted-foreground">
                     {kpi.title}
                   </p>
-                  <p className="mt-1 whitespace-nowrap text-[clamp(1.125rem,calc(4.5cqw+0.45rem),1.875rem)] font-bold tabular-nums leading-none tracking-tight text-foreground">
+                  <p className="mt-1 break-words text-[clamp(1rem,calc(3.8cqw+0.45rem),1.75rem)] font-bold tabular-nums leading-tight tracking-tight text-foreground">
                     {kpi.value}
                   </p>
                 </div>

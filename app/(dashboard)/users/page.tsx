@@ -1,9 +1,10 @@
 import { redirect } from "next/navigation";
-import { currentUser } from "@/lib/mock-data";
+import { getServerSessionUser } from "@/lib/auth";
 import { StaffManagementPage } from "@/components/staff-management/staff-management-page";
 
-export default function UsersPage() {
-  if (currentUser.role !== "super_admin") {
+export default async function UsersPage() {
+  const user = await getServerSessionUser();
+  if (!user || user.role !== "super_admin") {
     redirect("/dashboard");
   }
   return <StaffManagementPage />;

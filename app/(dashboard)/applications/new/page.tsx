@@ -38,9 +38,20 @@ import {
   formatCurrency,
 } from "@/lib/mock-data";
 import type { Customer, LoanProduct } from "@/lib/types";
+import { useSessionUser } from "@/lib/use-session-user";
 
 export default function NewApplicationPage() {
   const router = useRouter();
+  const { user } = useSessionUser();
+  const effectiveRole = user?.role ?? "super_admin";
+  const isScopedRole = effectiveRole === "branch_manager" || effectiveRole === "loan_officer";
+  const scopeBranchId = isScopedRole ? user?.branch_id : null;
+  const applicationsBasePath =
+    effectiveRole === "branch_manager"
+      ? "/manager/applications"
+      : effectiveRole === "loan_officer"
+        ? "/officer/applications"
+        : "/applications";
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<LoanProduct | null>(null);
   const [customerSearch, setCustomerSearch] = useState("");
@@ -76,7 +87,11 @@ export default function NewApplicationPage() {
     longitude: "",
   });
 
-  const filteredCustomers = customers.filter(
+  const visibleCustomers = scopeBranchId
+    ? customers.filter((customer) => customer.branch_id === scopeBranchId)
+    : customers;
+
+  const filteredCustomers = visibleCustomers.filter(
     (c) =>
       c.is_active &&
       !c.is_blacklisted &&
@@ -212,7 +227,7 @@ export default function NewApplicationPage() {
       generalAttachments: generalAttachments ? Array.from(generalAttachments).map((f) => f.name) : [],
       isDraft,
     });
-    router.push("/applications");
+    router.push(applicationsBasePath);
   };
 
   return (
@@ -224,7 +239,7 @@ export default function NewApplicationPage() {
       <main className="flex-1 overflow-auto p-4 lg:p-6">
         <div className="mx-auto max-w-5xl space-y-6">
           <Button variant="ghost" size="sm" asChild>
-            <Link href="/applications">
+            <Link href={applicationsBasePath}>
               <ArrowLeft className="mr-2 h-4 w-4" />
               Back to Applications
             </Link>

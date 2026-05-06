@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
-
-const SUPER_ADMIN_EMAIL = "superadmin@falco.com";
-const SUPER_ADMIN_PASSWORD = "SuperAdmin@123";
+import { AUTH_COOKIE_NAME, authenticateByEmailPassword, buildSessionToken } from "@/lib/auth";
 
 export async function POST(request: Request) {
   const body = (await request.json()) as {
@@ -10,17 +8,28 @@ export async function POST(request: Request) {
     rememberMe?: boolean;
   };
 
-  const isValidLogin =
-    body.email?.toLowerCase() === SUPER_ADMIN_EMAIL &&
-    body.password === SUPER_ADMIN_PASSWORD;
-
-  if (!isValidLogin) {
-    return NextResponse.json({ message: "Invalid super admin credentials." }, { status: 401 });
+  const user = authenticateByEmailPassword({ email: body.email, password: body.password });
+  if (!user) {
+    return NextResponse.json(
+      { message: "Invalid credentials. Use configured Super Admin, Branch Manager, or Loan Officer accounts." },
+      { status: 401 }
+    );
   }
 
-  const response = NextResponse.json({ ok: true });
+  const redirectTo =
+    user.role === "branch_manager"
+      ? "/manager/dashboard"
+      : user.role === "loan_officer"
+        ? "/officer/dashboard"
+        : "/dashboard";
 
-  response.cookies.set("falco_auth", "super_admin", {
+  const response = NextResponse.json({
+    ok: true,
+    role: user.role,
+    redirectTo,
+  });
+
+  response.cookies.set(AUTH_COOKIE_NAME, buildSessionToken(user), {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",

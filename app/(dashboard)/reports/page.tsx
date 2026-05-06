@@ -50,11 +50,17 @@ import {
   loans,
   loanProducts,
   branches,
-  agingReport,
-  dashboardMetrics,
+  customers,
+  loanApplications,
+  collectionActivities,
+  formatDateTime,
+  getCustomerById,
+  getProductById,
   formatCurrency,
 } from "@/lib/mock-data";
 import type { RiskClassification } from "@/lib/types";
+import { useSessionUser } from "@/lib/use-session-user";
+import { exportBranchReportPdf } from "@/lib/branch-report-pdf";
 
 // Mock data for reports
 const monthlyData = [
@@ -65,36 +71,6 @@ const monthlyData = [
   { month: "Dec", disbursements: 42000000, collections: 48000000, newLoans: 25, closedLoans: 30 },
   { month: "Jan", disbursements: 15866000, collections: 12500000, newLoans: 6, closedLoans: 4 },
 ];
-
-const productPerformance = loanProducts.map((product) => {
-  const productLoans = loans.filter((l) => l.product_id === product.id);
-  const outstanding = productLoans.reduce((sum, l) => sum + l.total_outstanding, 0);
-  const par = productLoans.filter((l) => l.days_in_arrears > 30).reduce((sum, l) => sum + l.total_outstanding, 0);
-  return {
-    name: product.name,
-    code: product.code,
-    loanCount: productLoans.length,
-    outstanding,
-    par,
-    parRate: outstanding > 0 ? (par / outstanding) * 100 : 0,
-  };
-});
-
-const branchPerformance = branches.map((branch) => {
-  const branchLoans = loans.filter((l) => l.branch_id === branch.id);
-  const outstanding = branchLoans.reduce((sum, l) => sum + l.total_outstanding, 0);
-  const collected = branchLoans.reduce((sum, l) => sum + l.total_paid, 0);
-  const disbursed = branchLoans.reduce((sum, l) => sum + l.principal_amount, 0);
-  return {
-    name: branch.name,
-    code: branch.code,
-    loanCount: branchLoans.length,
-    outstanding,
-    collected,
-    disbursed,
-    collectionRate: disbursed > 0 ? (collected / disbursed) * 100 : 0,
-  };
-});
 
 const riskConfig: Record<RiskClassification, { label: string; color: string }> = {
   current: { label: "Current", color: "#22c55e" },
@@ -118,16 +94,210 @@ function formatYAxis(value: number) {
   return value.toString();
 }
 
-export default function ReportsPage() {
-  const [period, setPeriod] = useState("6m");
+function getPeriodStartDate(period: string): Date {
+  const now = new Date();
+  const start = new Date(now);
+  if (period === "1m") start.setMonth(now.getMonth() - 1);
+  if (period === "3m") start.setMonth(now.getMonth() - 3);
+  if (period === "6m") start.setMonth(now.getMonth() - 6);
+  if (period === "1y") start.setFullYear(now.getFullYear() - 1);
+  return start;
+}
 
-  const totalPortfolio = loans.reduce((sum, l) => sum + l.total_outstanding, 0);
-  const totalPAR = loans
+function inRange(value: string | undefined, startDate: Date): boolean {
+  if (!value) return false;
+  const parsed = new Date(value);
+  return !Number.isNaN(parsed.getTime()) && parsed >= startDate;
+}
+
+export default function ReportsPage() {
+  const { user } = useSessionUser();
+  const isManagerView = user?.role === "branch_manager";
+  const isOfficerView = user?.role === "loan_officer";
+  const scopeBranchId = user?.role === "branch_manager" || user?.role === "loan_officer" ? user.branch_id : null;
+  const [period, setPeriod] = useState("6m");
+  const periodLabelMap: Record<string, string> = {
+    "1m": "Last Month",
+    "3m": "Last 3 Months",
+    "6m": "Last 6 Months",
+    "1y": "Last Year",
+  };
+  const startDate = getPeriodStartDate(period);
+
+  const visibleLoans = scopeBranchId
+    ? loans.filter((loan) => {
+        if (loan.branch_id !== scopeBranchId) return false;
+        if (!isOfficerView || !user) return true;
+        return loan.loan_officer_id === user.id;
+      })
+    : loans;
+  const visibleBranches = scopeBranchId
+    ? branches.filter((branch) => branch.id === scopeBranchId)
+    : branches;
+  const totalPortfolio = visibleLoans.reduce((sum, l) => sum + l.total_outstanding, 0);
+  const totalPAR = visibleLoans
     .filter((l) => l.days_in_arrears > 30)
     .reduce((sum, l) => sum + l.total_outstanding, 0);
-  const parRatio = (totalPAR / totalPortfolio) * 100;
+  const parRatio = totalPortfolio > 0 ? (totalPAR / totalPortfolio) * 100 : 0;
+  const nplRatio = totalPortfolio > 0
+    ? (
+        visibleLoans
+          .filter((loan) => loan.status === "defaulted" || loan.status === "written_off")
+          .reduce((sum, loan) => sum + loan.total_outstanding, 0) / totalPortfolio
+      ) * 100
+    : 0;
 
-  const totalProvision = agingReport.reduce((sum, a) => sum + a.provision_amount, 0);
+  const productPerformance = loanProducts.map((product) => {
+    const productLoans = visibleLoans.filter((l) => l.product_id === product.id);
+    const outstanding = productLoans.reduce((sum, l) => sum + l.total_outstanding, 0);
+    const par = productLoans
+      .filter((l) => l.days_in_arrears > 30)
+      .reduce((sum, l) => sum + l.total_outstanding, 0);
+    return {
+      name: product.name,
+      code: product.code,
+      loanCount: productLoans.length,
+      outstanding,
+      par,
+      parRate: outstanding > 0 ? (par / outstanding) * 100 : 0,
+    };
+  });
+
+  const branchPerformance = visibleBranches.map((branch) => {
+    const branchLoans = visibleLoans.filter((l) => l.branch_id === branch.id);
+    const outstanding = branchLoans.reduce((sum, l) => sum + l.total_outstanding, 0);
+    const collected = branchLoans.reduce((sum, l) => sum + l.total_paid, 0);
+    const disbursed = branchLoans.reduce((sum, l) => sum + l.principal_amount, 0);
+    return {
+      name: branch.name,
+      code: branch.code,
+      loanCount: branchLoans.length,
+      outstanding,
+      collected,
+      disbursed,
+      collectionRate: disbursed > 0 ? (collected / disbursed) * 100 : 0,
+    };
+  });
+
+  const scopedAgingReport = (Object.keys(riskConfig) as RiskClassification[]).map((classification) => {
+    const bucketLoans = visibleLoans.filter((loan) => loan.risk_classification === classification);
+    const outstanding_amount = bucketLoans.reduce((sum, loan) => sum + loan.total_outstanding, 0);
+    const provision_amount = outstanding_amount * (provisionRates[classification] / 100);
+    return {
+      classification,
+      loan_count: bucketLoans.length,
+      outstanding_amount,
+      provision_amount,
+      percentage: totalPortfolio > 0 ? (outstanding_amount / totalPortfolio) * 100 : 0,
+    };
+  });
+
+  const totalProvision = scopedAgingReport.reduce((sum, a) => sum + a.provision_amount, 0);
+  const visibleApplications = (scopeBranchId
+    ? loanApplications.filter((item) => {
+        if (item.branch_id !== scopeBranchId) return false;
+        if (!isOfficerView || !user) return true;
+        return item.created_by === user.id;
+      })
+    : loanApplications
+  ).filter((item) => inRange(item.created_at, startDate));
+  const visibleCustomers = (scopeBranchId
+    ? customers.filter((item) => {
+        if (item.branch_id !== scopeBranchId) return false;
+        if (!isOfficerView || !user) return true;
+        return item.assigned_loan_officer_id === user.id || item.created_by === user.id;
+      })
+    : customers
+  ).filter((item) => inRange(item.created_at, startDate));
+  const visibleCollections = (scopeBranchId
+    ? collectionActivities.filter((activity) =>
+        visibleLoans.some((loan) => loan.id === activity.loan_id)
+      )
+    : collectionActivities
+  ).filter((item) => inRange(item.performed_at, startDate));
+  const periodLoans = visibleLoans.filter((loan) => inRange(loan.disbursement_date, startDate));
+  const reportBranchName = scopeBranchId
+    ? branches.find((branch) => branch.id === scopeBranchId)?.name ?? scopeBranchId
+    : "All Branches";
+
+  const exportDetailedReport = () => {
+    exportBranchReportPdf({
+      branchName: reportBranchName,
+      periodLabel: periodLabelMap[period] ?? "Selected Period",
+      generatedAt: formatDateTime(new Date().toISOString()),
+      summary: {
+        totalPortfolio,
+        totalPar: totalPAR,
+        parRatio,
+        nplRatio,
+        requiredProvision: totalProvision,
+      },
+      productPerformance: productPerformance.map((product) => ({
+        name: product.name,
+        loanCount: product.loanCount,
+        outstanding: product.outstanding,
+        par: product.par,
+        parRate: product.parRate,
+      })),
+      agingReport: scopedAgingReport.map((item) => ({
+        classificationLabel: riskConfig[item.classification].label,
+        outstanding: item.outstanding_amount,
+        provision: item.provision_amount,
+        rate: provisionRates[item.classification],
+      })),
+      branchPerformance: branchPerformance.map((branch) => ({
+        name: branch.name,
+        loanCount: branch.loanCount,
+        disbursed: branch.disbursed,
+        collected: branch.collected,
+        outstanding: branch.outstanding,
+        collectionRate: branch.collectionRate,
+      })),
+      applications: visibleApplications.map((app) => {
+        const customer = getCustomerById(app.customer_id);
+        return {
+          application_number: app.application_number,
+          customer_name: customer ? `${customer.first_name} ${customer.last_name}` : app.customer_id,
+          status: app.status,
+          amount: app.requested_amount,
+          created_at: formatDateTime(app.created_at),
+        };
+      }),
+      customers: visibleCustomers.map((customer) => ({
+        customer_number: customer.customer_number,
+        customer_name: `${customer.first_name} ${customer.last_name}`,
+        phone: customer.phone_primary,
+        region: customer.region,
+        district: customer.district,
+      })),
+      loans: periodLoans.map((loan) => {
+        const customer = getCustomerById(loan.customer_id);
+        const product = getProductById(loan.product_id);
+        return {
+          loan_number: loan.loan_number,
+          customer_name: customer ? `${customer.first_name} ${customer.last_name}` : loan.customer_id,
+          product_name: product?.name ?? loan.product_id,
+          principal: loan.principal_amount,
+          outstanding: loan.total_outstanding,
+          status: loan.status,
+        };
+      }),
+      collections: visibleCollections.map((item) => {
+        const customer = getCustomerById(item.customer_id);
+        return {
+          action: item.action,
+          customer_name: customer ? `${customer.first_name} ${customer.last_name}` : item.customer_id,
+          notes: item.notes,
+          performed_at: formatDateTime(item.performed_at),
+        };
+      }),
+    });
+  };
+  const officerPendingApplications = visibleApplications.filter(
+    (item) => item.status === "submitted" || item.status === "under_review"
+  ).length;
+  const officerAtRiskLoans = visibleLoans.filter((loan) => loan.days_in_arrears > 0).length;
+  const officerCollectionOutcome = visibleLoans.reduce((sum, loan) => sum + loan.total_paid, 0);
 
   return (
     <>
@@ -153,9 +323,9 @@ export default function ReportsPage() {
                 </SelectContent>
               </Select>
             </div>
-            <Button variant="outline">
+            <Button variant="outline" onClick={exportDetailedReport}>
               <Download className="mr-2 h-4 w-4" />
-              Export Reports
+              Export Reports PDF
             </Button>
           </div>
 
@@ -198,7 +368,7 @@ export default function ReportsPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{dashboardMetrics.npl_ratio}%</div>
+                <div className="text-2xl font-bold">{nplRatio.toFixed(1)}%</div>
                 <p className="text-sm text-muted-foreground">Non-performing loans</p>
               </CardContent>
             </Card>
@@ -234,6 +404,12 @@ export default function ReportsPage() {
                 <BarChart3 className="h-4 w-4" />
                 Branches
               </TabsTrigger>
+              {isManagerView || isOfficerView ? (
+                <TabsTrigger value="operations" className="gap-2">
+                  <FileText className="h-4 w-4" />
+                  {isOfficerView ? "My Operations" : "Operations Data"}
+                </TabsTrigger>
+              ) : null}
             </TabsList>
 
             {/* Portfolio Tab */}
@@ -358,7 +534,7 @@ export default function ReportsPage() {
                       <ResponsiveContainer width="100%" height="100%">
                         <RechartsPieChart>
                           <Pie
-                            data={agingReport.filter((a) => a.outstanding_amount > 0)}
+                            data={scopedAgingReport.filter((a) => a.outstanding_amount > 0)}
                             cx="50%"
                             cy="50%"
                             innerRadius={60}
@@ -367,7 +543,7 @@ export default function ReportsPage() {
                             dataKey="outstanding_amount"
                             nameKey="classification"
                           >
-                            {agingReport.map((entry) => (
+                            {scopedAgingReport.map((entry) => (
                               <Cell
                                 key={entry.classification}
                                 fill={riskConfig[entry.classification].color}
@@ -406,7 +582,7 @@ export default function ReportsPage() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {agingReport.map((item) => (
+                        {scopedAgingReport.map((item) => (
                           <TableRow key={item.classification}>
                             <TableCell>
                               <div className="flex items-center gap-2">
@@ -425,11 +601,11 @@ export default function ReportsPage() {
                         <TableRow className="font-bold">
                           <TableCell>Total</TableCell>
                           <TableCell className="text-right">
-                            {formatCurrency(agingReport.reduce((s, a) => s + a.outstanding_amount, 0))}
+                            {formatCurrency(scopedAgingReport.reduce((s, a) => s + a.outstanding_amount, 0))}
                           </TableCell>
                           <TableCell />
                           <TableCell className="text-right text-warning">
-                            {formatCurrency(agingReport.reduce((s, a) => s + a.provision_amount, 0))}
+                            {formatCurrency(scopedAgingReport.reduce((s, a) => s + a.provision_amount, 0))}
                           </TableCell>
                         </TableRow>
                       </TableBody>
@@ -526,6 +702,203 @@ export default function ReportsPage() {
                 </CardContent>
               </Card>
             </TabsContent>
+
+            {isManagerView || isOfficerView ? (
+              <TabsContent value="operations" className="space-y-6">
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium text-muted-foreground">Applications</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-2xl font-bold">{visibleApplications.length}</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium text-muted-foreground">Customers</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-2xl font-bold">{visibleCustomers.length}</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium text-muted-foreground">Loans</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-2xl font-bold">{periodLoans.length}</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium text-muted-foreground">Collections</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-2xl font-bold">{visibleCollections.length}</p>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {isOfficerView ? (
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm font-medium text-muted-foreground">Pending Reviews</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-2xl font-bold">{officerPendingApplications}</p>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm font-medium text-muted-foreground">At-risk Loans</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-2xl font-bold">{officerAtRiskLoans}</p>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm font-medium text-muted-foreground">Collection Outcome</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-2xl font-bold">{formatCurrency(officerCollectionOutcome)}</p>
+                      </CardContent>
+                    </Card>
+                  </div>
+                ) : null}
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Loan Applications List</CardTitle>
+                    <CardDescription>Application status and amounts for selected period</CardDescription>
+                  </CardHeader>
+                  <CardContent className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Application #</TableHead>
+                          <TableHead>Customer</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead className="text-right">Amount</TableHead>
+                          <TableHead>Created</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {visibleApplications.map((app) => {
+                          const customer = getCustomerById(app.customer_id);
+                          return (
+                            <TableRow key={app.id}>
+                              <TableCell className="font-mono">{app.application_number}</TableCell>
+                              <TableCell>{customer ? `${customer.first_name} ${customer.last_name}` : app.customer_id}</TableCell>
+                              <TableCell className="capitalize">{app.status.replace(/_/g, " ")}</TableCell>
+                              <TableCell className="text-right">{formatCurrency(app.requested_amount)}</TableCell>
+                              <TableCell>{formatDateTime(app.created_at)}</TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Customers Details</CardTitle>
+                    <CardDescription>Customer roster and location contacts</CardDescription>
+                  </CardHeader>
+                  <CardContent className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Customer #</TableHead>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Phone</TableHead>
+                          <TableHead>Region</TableHead>
+                          <TableHead>District</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {visibleCustomers.map((customer) => (
+                          <TableRow key={customer.id}>
+                            <TableCell className="font-mono">{customer.customer_number}</TableCell>
+                            <TableCell>{customer.first_name} {customer.last_name}</TableCell>
+                            <TableCell>{customer.phone_primary}</TableCell>
+                            <TableCell>{customer.region}</TableCell>
+                            <TableCell>{customer.district}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+
+                <div className="grid gap-6 lg:grid-cols-2">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Loans</CardTitle>
+                      <CardDescription>Disbursed loans in selected period</CardDescription>
+                    </CardHeader>
+                    <CardContent className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Loan #</TableHead>
+                            <TableHead>Customer</TableHead>
+                            <TableHead className="text-right">Principal</TableHead>
+                            <TableHead className="text-right">Outstanding</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {periodLoans.map((loan) => {
+                            const customer = getCustomerById(loan.customer_id);
+                            return (
+                              <TableRow key={loan.id}>
+                                <TableCell className="font-mono">{loan.loan_number}</TableCell>
+                                <TableCell>{customer ? `${customer.first_name} ${customer.last_name}` : loan.customer_id}</TableCell>
+                                <TableCell className="text-right">{formatCurrency(loan.principal_amount)}</TableCell>
+                                <TableCell className="text-right">{formatCurrency(loan.total_outstanding)}</TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Collections</CardTitle>
+                      <CardDescription>Collection actions logged in selected period</CardDescription>
+                    </CardHeader>
+                    <CardContent className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Action</TableHead>
+                            <TableHead>Customer</TableHead>
+                            <TableHead>Performed</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {visibleCollections.map((item) => {
+                            const customer = getCustomerById(item.customer_id);
+                            return (
+                              <TableRow key={item.id}>
+                                <TableCell className="capitalize">{item.action.replace(/_/g, " ")}</TableCell>
+                                <TableCell>{customer ? `${customer.first_name} ${customer.last_name}` : item.customer_id}</TableCell>
+                                <TableCell>{formatDateTime(item.performed_at)}</TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
+                </div>
+              </TabsContent>
+            ) : null}
           </Tabs>
         </div>
       </main>
