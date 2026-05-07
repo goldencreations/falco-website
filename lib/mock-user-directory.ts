@@ -10,27 +10,33 @@ const userPatches = new Map<string, Partial<User>>();
 const addedUsers: User[] = [];
 
 export function listDirectoryUsers(): User[] {
-  const merged = seedUsers.map((u) => ({ ...u, ...userPatches.get(u.id) }));
-  return [...merged, ...addedUsers];
+ const merged = seedUsers.map((u) => ({ ...u, ...userPatches.get(u.id) }));
+ return [...merged, ...addedUsers];
 }
 
 export function getDirectoryUserById(id: string): User | undefined {
-  return listDirectoryUsers().find((u) => u.id === id);
+ return listDirectoryUsers().find((u) => u.id === id);
 }
 
 export function patchDirectoryUser(id: string, patch: Partial<User>): User | undefined {
-  if (seedUsers.some((u) => u.id === id)) {
-    userPatches.set(id, { ...userPatches.get(id), ...patch });
-    return listDirectoryUsers().find((u) => u.id === id);
-  }
-  const idx = addedUsers.findIndex((u) => u.id === id);
-  if (idx >= 0) {
-    addedUsers[idx] = { ...addedUsers[idx], ...patch };
-    return addedUsers[idx];
-  }
-  return undefined;
+ if (seedUsers.some((u) => u.id === id)) {
+ userPatches.set(id, { ...userPatches.get(id), ...patch });
+ return listDirectoryUsers().find((u) => u.id === id);
+ }
+ const idx = addedUsers.findIndex((u) => u.id === id);
+ if (idx >= 0) {
+ addedUsers[idx] = { ...addedUsers[idx], ...patch };
+ return addedUsers[idx];
+ }
+ return undefined;
 }
 
 export function addDirectoryUser(user: User): void {
-  addedUsers.push(user);
+ addedUsers.push(user);
+}
+
+/** Next EMP-### id based on current directory size (aligned with provisioning mocks). */
+export function nextDirectoryEmployeeId(): string {
+ const n = listDirectoryUsers().length + 104;
+ return `EMP-${String(n).padStart(3, "0")}`;
 }

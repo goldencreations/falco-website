@@ -5,5 +5,5 @@ import { redirect } from "next/navigation";
  * a second report implementation until a dedicated report API exists.
  */
 export default function DisbursementReportPage() {
-  redirect("/disbursements");
+ redirect("/disbursements");
 }
