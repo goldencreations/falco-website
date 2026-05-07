@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { Analytics } from '@vercel/analytics/next'
+import { Toaster } from '@/components/ui/sonner'
 import './globals.css'
 import { LANGUAGE_STORAGE_KEY, THEME_STORAGE_KEY } from '@/lib/preferences'
 
@@ -49,6 +50,7 @@ export default function RootLayout({
       <body className="font-sans antialiased">
         <script dangerouslySetInnerHTML={{ __html: preferenceBootScript }} />
         {children}
+        <Toaster position="top-center" richColors expand closeButton />
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>

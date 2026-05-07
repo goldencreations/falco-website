@@ -110,6 +110,11 @@ const navigation: { title: string; items: SidebarNavItem[] }[] = [
         href: "/disbursements",
         icon: CreditCard,
       },
+      {
+        title: "Vikundi / Group Loans",
+        href: "/groups",
+        icon: Users,
+      },
     ],
   },
   {

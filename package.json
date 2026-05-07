@@ -4,7 +4,8 @@
   "private": true,
   "packageManager": "pnpm@10.18.1",
   "scripts": {
-    "dev": "next dev",
+    "dev": "NODE_OPTIONS='--max-old-space-size=1536' NEXT_TELEMETRY_DISABLED=1 next dev",
+    "dev:webpack": "NODE_OPTIONS='--max-old-space-size=1536' NEXT_TELEMETRY_DISABLED=1 next dev --turbopack=false",
     "build": "next build",
     "start": "next start",
     "start:3001": "next start --port 3001",

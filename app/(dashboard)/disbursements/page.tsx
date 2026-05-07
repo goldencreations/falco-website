@@ -563,7 +563,7 @@ export default function DisbursementsPage() {
                           domain={[0, (max: number) => Math.max(Math.ceil(max * 1.25), 1)]}
                         />
                         <Tooltip
-                          cursor={{ fill: "hsl(var(--muted) / 0.25)" }}
+                          cursor={{ fill: "rgba(0,0,0,0.05)" }}
                           content={({ active, payload }) => {
                             if (!active || !payload?.length) return null;
                             const p = payload[0].payload as (typeof chartData)[0];

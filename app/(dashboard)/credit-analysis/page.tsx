@@ -29,6 +29,7 @@ import {
   formatCurrency,
   formatDate,
   getCustomerById,
+  getLoansByCustomerId,
   getProductById,
   loanApplications,
 } from "@/lib/mock-data";
@@ -57,6 +58,7 @@ function CreditAnalysisPageContent() {
   const selectedCustomer = selectedApplication
     ? getCustomerById(selectedApplication.customer_id)
     : undefined;
+  const selectedCustomerLoans = selectedCustomer ? getLoansByCustomerId(selectedCustomer.id) : [];
 
   const [creditScore, setCreditScore] = useState("");
   const [cashFlow, setCashFlow] = useState({
@@ -147,6 +149,51 @@ function CreditAnalysisPageContent() {
         : amountApproved > amountRequested
           ? "Approved > Requested"
           : "Approved = Requested";
+
+  const activeLoanCount = selectedCustomerLoans.filter(
+    (loan) => loan.status === "active" || loan.status === "in_arrears"
+  ).length;
+  const totalOutstandingBalance = selectedCustomerLoans.reduce(
+    (total, loan) => total + loan.total_outstanding,
+    0
+  );
+  const customerIncomeEstimate =
+    (selectedCustomer?.monthly_income ?? 0) + (selectedCustomer?.other_income ?? 0);
+  const indebtednessRatio =
+    customerIncomeEstimate > 0 ? totalOutstandingBalance / customerIncomeEstimate : 0;
+
+  const recommendationChecks = {
+    repaymentCapacity: repaymentCapacity > 0,
+    debtService: proposedInstallment > 0 && dsr <= 1,
+    creditScore: !creditScore || Number(creditScore) >= 600,
+    leverage: leverageRatio <= 3,
+    liquidity: liquidityRatio >= 1,
+    riskGrade: selectedCustomer ? ["A", "B", "C"].includes(selectedCustomer.risk_grade) : false,
+    delinquency: activeLoanCount <= 2,
+  };
+
+  const failedRecommendationChecks = [
+    !recommendationChecks.repaymentCapacity && "No repayment capacity from current cash flow",
+    !recommendationChecks.debtService &&
+      "Proposed installment exceeds repayment capacity (DSR above threshold)",
+    !recommendationChecks.creditScore && "Credit score is below the minimum benchmark (600)",
+    !recommendationChecks.leverage && "Leverage ratio is above acceptable range",
+    !recommendationChecks.liquidity && "Liquidity ratio is below 1.0",
+    !recommendationChecks.riskGrade && "Customer risk grade is outside policy threshold",
+    !recommendationChecks.delinquency &&
+      "Customer has too many active/in-arrears loans to approve safely",
+  ].filter(Boolean) as string[];
+
+  const recommendationScore =
+    Object.values(recommendationChecks).filter((check) => check).length /
+    Object.values(recommendationChecks).length;
+
+  const recommendationDecision =
+    failedRecommendationChecks.length === 0
+      ? "Approve"
+      : failedRecommendationChecks.length <= 2
+        ? "Approve with Conditions"
+        : "Decline";
 
   const committeeVoteStats = committeeVotes.reduce(
     (acc, vote) => {
@@ -290,6 +337,98 @@ function CreditAnalysisPageContent() {
               </div>
             </CardContent>
           </Card>
+
+          {selectedApplication && selectedCustomer && (
+            <div className="grid gap-6 lg:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Customer Review Snapshot</CardTitle>
+                  <CardDescription>
+                    Quick profile view to support loan officer analysis
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Customer Number</span>
+                    <span>{selectedCustomer.customer_number}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Customer Type</span>
+                    <span className="capitalize">{selectedCustomer.customer_type}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Risk Grade</span>
+                    <span>{selectedCustomer.risk_grade}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Credit Score</span>
+                    <span>{selectedCustomer.credit_score ?? "N/A"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Estimated Monthly Income</span>
+                    <span>{formatCurrency(customerIncomeEstimate)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Active / In-Arrears Loans</span>
+                    <span>{activeLoanCount}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Total Outstanding Balance</span>
+                    <span>{formatCurrency(totalOutstandingBalance)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Indebtedness Ratio</span>
+                    <span>{indebtednessRatio.toFixed(2)}</span>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Loan Decision Recommendation</CardTitle>
+                  <CardDescription>
+                    Generated from cash flow, ratios, customer profile, and repayment assumptions
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between rounded-lg border border-border p-3">
+                    <span className="text-sm text-muted-foreground">Recommendation</span>
+                    <Badge
+                      variant={
+                        recommendationDecision === "Approve"
+                          ? "default"
+                          : recommendationDecision === "Approve with Conditions"
+                            ? "secondary"
+                            : "destructive"
+                      }
+                    >
+                      {recommendationDecision}
+                    </Badge>
+                  </div>
+                  <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm">
+                    <p className="font-medium">Confidence Score</p>
+                    <p className="mt-1 text-muted-foreground">
+                      {(recommendationScore * 100).toFixed(0)}% checks passed
+                    </p>
+                  </div>
+                  {failedRecommendationChecks.length > 0 ? (
+                    <div className="rounded-lg border border-border p-3">
+                      <p className="mb-2 text-sm font-medium">Key Risk Flags</p>
+                      <ul className="space-y-1 text-sm text-muted-foreground">
+                        {failedRecommendationChecks.map((issue) => (
+                          <li key={issue}>- {issue}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-border p-3 text-sm text-muted-foreground">
+                      All key risk checks passed for the current analysis values.
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          )}
 
           <Card>
             <CardHeader>

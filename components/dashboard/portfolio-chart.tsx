@@ -39,10 +39,11 @@ const tzs = (value: number) =>
   }).format(value);
 
 const tipStyle = {
-  backgroundColor: "hsl(var(--card))",
-  border: "1px solid hsl(var(--border))",
+  backgroundColor: "var(--card)",
+  border: "1px solid var(--border)",
   borderRadius: "8px",
-  boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+  boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+  color: "var(--card-foreground)",
 };
 
 function MiniSparkBars({
