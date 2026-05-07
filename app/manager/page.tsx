@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
 
 export default function ManagerIndexPage() {
-  redirect("/manager/dashboard");
+ redirect("/manager/dashboard");
 }
