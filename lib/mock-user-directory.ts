@@ -34,3 +34,9 @@ export function patchDirectoryUser(id: string, patch: Partial<User>): User | und
 export function addDirectoryUser(user: User): void {
   addedUsers.push(user);
 }
+
+/** Next EMP-### id based on current directory size (aligned with provisioning mocks). */
+export function nextDirectoryEmployeeId(): string {
+  const n = listDirectoryUsers().length + 104;
+  return `EMP-${String(n).padStart(3, "0")}`;
+}

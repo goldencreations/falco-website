@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { Analytics } from '@vercel/analytics/next'
 import { Toaster } from '@/components/ui/sonner'
 import './globals.css'
+import { LANGUAGE_STORAGE_KEY, THEME_STORAGE_KEY } from '@/lib/preferences'
 
 export const metadata: Metadata = {
   title: 'Falco Financial Services - Loan Management System',
@@ -31,9 +32,23 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  const preferenceBootScript = `
+    (function () {
+      try {
+        var themeMode = localStorage.getItem('${THEME_STORAGE_KEY}');
+        var language = localStorage.getItem('${LANGUAGE_STORAGE_KEY}');
+        var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        var resolved = themeMode === 'dark' || (themeMode !== 'light' && prefersDark);
+        document.documentElement.classList.toggle('dark', resolved);
+        document.documentElement.setAttribute('lang', language === 'sw' ? 'sw' : 'en');
+      } catch (e) {}
+    })();
+  `;
+
   return (
     <html lang="en" className="bg-background">
       <body className="font-sans antialiased">
+        <script dangerouslySetInnerHTML={{ __html: preferenceBootScript }} />
         {children}
         <Toaster position="top-center" richColors expand closeButton />
         {process.env.NODE_ENV === 'production' && <Analytics />}

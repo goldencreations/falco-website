@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
-import { currentUser } from "@/lib/mock-data";
 import { getCustomersWithAssignments, setCustomerLoanOfficer } from "@/lib/mock-customer-assignment";
 import { getDirectoryUserById } from "@/lib/mock-user-directory";
+import { requireApiUser } from "@/lib/authorization";
 
 export async function PATCH(
   request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
   const { id: customerId } = await context.params;
-  if (currentUser.role !== "branch_manager" && currentUser.role !== "super_admin") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const auth = requireApiUser(request, ["branch_manager", "super_admin"]);
+  if ("response" in auth) return auth.response;
+  const user = auth.user;
 
   const body = (await request.json()) as { assigned_loan_officer_id?: string };
   if (!body.assigned_loan_officer_id) {
@@ -31,11 +31,11 @@ export async function PATCH(
     return NextResponse.json({ error: "Customer not found" }, { status: 404 });
   }
 
-  if (currentUser.role === "branch_manager") {
-    if (customer.branch_id !== currentUser.branch_id) {
+  if (user.role === "branch_manager") {
+    if (customer.branch_id !== user.branch_id) {
       return NextResponse.json({ error: "Customer not in your branch" }, { status: 403 });
     }
-    if (officer.branch_id !== currentUser.branch_id) {
+    if (officer.branch_id !== user.branch_id) {
       return NextResponse.json({ error: "Officer not in your branch" }, { status: 403 });
     }
   }

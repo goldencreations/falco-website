@@ -21,6 +21,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { branches, currentUser, users } from "@/lib/mock-data";
+import { useSessionUser } from "@/lib/use-session-user";
 
 type CustomerStatus =
   | "pending_registration_fee"
@@ -140,6 +141,14 @@ const defaultForm: CustomerCreateForm = {
 
 export default function NewCustomerPage() {
   const router = useRouter();
+  const { user } = useSessionUser();
+  const effectiveUserId = user?.id ?? currentUser.id;
+  const isManagerView = user?.role === "branch_manager";
+  const isOfficerView = user?.role === "loan_officer";
+  const isScopedRole = isManagerView || isOfficerView;
+  const lockedBranchId = isScopedRole ? user?.branch_id ?? "" : "";
+  const lockedOfficerId = isOfficerView ? effectiveUserId : "";
+  const customersBasePath = isManagerView ? "/manager/customers" : isOfficerView ? "/officer/customers" : "/customers";
   const [form, setForm] = useState<CustomerCreateForm>(defaultForm);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -150,7 +159,22 @@ export default function NewCustomerPage() {
   const [activePlaceSuggestionIndex, setActivePlaceSuggestionIndex] = useState(-1);
   const [activeStreetSuggestionIndex, setActiveStreetSuggestionIndex] = useState(-1);
 
-  const branchOptions = useMemo(() => branches.filter((branch) => branch.is_active), []);
+  useEffect(() => {
+    setForm((prev) => ({
+      ...prev,
+      created_by: effectiveUserId,
+      branch_id: lockedBranchId || prev.branch_id,
+      loan_officer_id: lockedOfficerId || prev.loan_officer_id,
+    }));
+  }, [effectiveUserId, lockedBranchId, lockedOfficerId]);
+
+  const branchOptions = useMemo(
+    () =>
+      branches.filter(
+        (branch) => branch.is_active && (!lockedBranchId || branch.id === lockedBranchId)
+      ),
+    [lockedBranchId]
+  );
   const loanOfficerOptions = useMemo(
     () =>
       users.filter(
@@ -376,7 +400,7 @@ export default function NewCustomerPage() {
         throw new Error(`Customer create failed with status ${response.status}`);
       }
 
-      router.push("/customers");
+      router.push(customersBasePath);
     } catch (submitError) {
       console.error("create customer request", payload, submitError);
       setError(
@@ -403,7 +427,7 @@ export default function NewCustomerPage() {
               </p>
             </div>
             <Button variant="outline" asChild>
-              <Link href="/customers">
+              <Link href={customersBasePath}>
                 <ArrowLeft className="mr-2 h-4 w-4" />
                 Back to Customers
               </Link>
@@ -425,7 +449,7 @@ export default function NewCustomerPage() {
                       <div className="space-y-2">
                         <Label htmlFor="branch">Branch</Label>
                         <Select value={form.branch_id} onValueChange={(value) => updateField("branch_id", value)}>
-                          <SelectTrigger id="branch">
+                          <SelectTrigger id="branch" disabled={Boolean(lockedBranchId)}>
                             <SelectValue placeholder="Select branch" />
                           </SelectTrigger>
                           <SelectContent>
@@ -442,7 +466,7 @@ export default function NewCustomerPage() {
                         <Select
                           value={form.loan_officer_id}
                           onValueChange={(value) => updateField("loan_officer_id", value)}
-                          disabled={!form.branch_id}
+                          disabled={!form.branch_id || Boolean(lockedOfficerId)}
                         >
                           <SelectTrigger id="loan-officer">
                             <SelectValue
@@ -908,7 +932,19 @@ export default function NewCustomerPage() {
                       <UserPlus className="mr-2 h-4 w-4" />
                       {submitting ? "Submitting..." : "Create Customer"}
                     </Button>
-                    <Button type="button" variant="outline" className="w-full" onClick={() => setForm(defaultForm)}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full"
+                      onClick={() =>
+                        setForm({
+                          ...defaultForm,
+                          created_by: effectiveUserId,
+                          branch_id: lockedBranchId,
+                          loan_officer_id: lockedOfficerId,
+                        })
+                      }
+                    >
                       <Save className="mr-2 h-4 w-4" />
                       Reset Form
                     </Button>

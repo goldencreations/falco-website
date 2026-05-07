@@ -7,12 +7,18 @@ import {
   loans,
   payments,
 } from "@/lib/mock-data";
+import { ensureBranchAccess, requireApiUser } from "@/lib/authorization";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = requireApiUser(request, ["branch_manager", "super_admin"]);
+  if ("response" in auth) return auth.response;
+  const user = auth.user;
   const { id } = await params;
+  const branchGuard = ensureBranchAccess(user, id);
+  if (branchGuard) return branchGuard;
   const branch = branches.find((item) => item.id === id);
   if (!branch) {
     return NextResponse.json({ message: "Branch not found" }, { status: 404 });

@@ -42,6 +42,7 @@ import {
   formatDate,
 } from "@/lib/mock-data";
 import type { RiskGrade } from "@/lib/types";
+import { useSessionUser } from "@/lib/use-session-user";
 
 const riskGradeConfig: Record<RiskGrade, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
   A: { label: "Grade A", variant: "default" },
@@ -52,11 +53,23 @@ const riskGradeConfig: Record<RiskGrade, { label: string; variant: "default" | "
 };
 
 export default function CustomersPage() {
+  const { user } = useSessionUser();
+  const isManagerView = user?.role === "branch_manager";
+  const isOfficerView = user?.role === "loan_officer";
+  const scopeBranchId = isManagerView || isOfficerView ? user?.branch_id : null;
+  const customersBasePath = isManagerView ? "/manager/customers" : isOfficerView ? "/officer/customers" : "/customers";
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [riskFilter, setRiskFilter] = useState<string>("all");
+  const visibleCustomers = scopeBranchId
+    ? customers.filter((customer) => {
+        if (customer.branch_id !== scopeBranchId) return false;
+        if (!isOfficerView || !user) return true;
+        return customer.assigned_loan_officer_id === user.id || customer.created_by === user.id;
+      })
+    : customers;
 
-  const filteredCustomers = customers.filter((customer) => {
+  const filteredCustomers = visibleCustomers.filter((customer) => {
     const matchesSearch =
       searchQuery === "" ||
       customer.first_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -71,10 +84,10 @@ export default function CustomersPage() {
     return matchesSearch && matchesType && matchesRisk;
   });
 
-  const totalCustomers = customers.length;
-  const individualCount = customers.filter((c) => c.customer_type === "individual").length;
-  const businessCount = customers.filter((c) => c.customer_type === "business").length;
-  const blacklistedCount = customers.filter((c) => c.is_blacklisted).length;
+  const totalCustomers = visibleCustomers.length;
+  const individualCount = visibleCustomers.filter((c) => c.customer_type === "individual").length;
+  const businessCount = visibleCustomers.filter((c) => c.customer_type === "business").length;
+  const blacklistedCount = visibleCustomers.filter((c) => c.is_blacklisted).length;
 
   return (
     <>
@@ -99,10 +112,10 @@ export default function CustomersPage() {
           </div>
 
           {/* Summary Cards */}
-          <Card className="sm:hidden border-emerald-100 bg-emerald-50/60">
+          <Card className="border-emerald-100 bg-emerald-50/60 sm:hidden">
             <CardContent className="p-4">
               <p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">Customer Summary</p>
-              <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+              <div className="mt-3 grid grid-cols-1 gap-3 text-sm min-[430px]:grid-cols-2">
                 <div className="rounded-lg border bg-background p-3">
                   <p className="text-xs text-muted-foreground">Total</p>
                   <p className="text-lg font-semibold">{totalCustomers}</p>
@@ -123,48 +136,48 @@ export default function CustomersPage() {
             </CardContent>
           </Card>
 
-          <div className="hidden gap-4 sm:grid sm:grid-cols-2 lg:grid-cols-4">
+          <div className="hidden gap-4 sm:grid sm:grid-cols-2 xl:grid-cols-4">
             <Card className="border-emerald-100 bg-emerald-50/40">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">
+              <CardHeader className="min-h-16 pb-2">
+                <CardTitle className="text-sm font-medium leading-snug text-muted-foreground">
                   Total Customers
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{totalCustomers}</div>
+                <div className="text-xl font-bold lg:text-2xl">{totalCustomers}</div>
               </CardContent>
             </Card>
             <Card className="border-emerald-100 bg-emerald-50/30">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              <CardHeader className="min-h-16 pb-2">
+                <CardTitle className="flex items-center gap-2 text-sm font-medium leading-snug text-muted-foreground">
                   <User className="h-4 w-4 text-emerald-700" />
                   Individual
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{individualCount}</div>
+                <div className="text-xl font-bold lg:text-2xl">{individualCount}</div>
               </CardContent>
             </Card>
             <Card className="border-emerald-100 bg-emerald-50/30">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              <CardHeader className="min-h-16 pb-2">
+                <CardTitle className="flex items-center gap-2 text-sm font-medium leading-snug text-muted-foreground">
                   <Building2 className="h-4 w-4 text-emerald-700" />
                   Business
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{businessCount}</div>
+                <div className="text-xl font-bold lg:text-2xl">{businessCount}</div>
               </CardContent>
             </Card>
             <Card className="border-destructive/20 bg-destructive/5">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              <CardHeader className="min-h-16 pb-2">
+                <CardTitle className="flex items-center gap-2 text-sm font-medium leading-snug text-muted-foreground">
                   <AlertTriangle className="h-4 w-4" />
                   Blacklisted
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-destructive">{blacklistedCount}</div>
+                <div className="text-xl font-bold text-destructive lg:text-2xl">{blacklistedCount}</div>
               </CardContent>
             </Card>
           </div>
@@ -172,47 +185,47 @@ export default function CustomersPage() {
           {/* Filters and Actions */}
           <Card className="border-emerald-100">
             <CardContent className="p-4">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:flex-wrap">
-              <div className="relative min-w-0 flex-1 sm:min-w-[200px] sm:max-w-sm">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder="Search customers..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9"
-                />
-              </div>
-              <Select value={typeFilter} onValueChange={setTypeFilter}>
-                <SelectTrigger className="w-full sm:w-36">
-                  <Filter className="mr-2 h-4 w-4" />
-                  <SelectValue placeholder="Type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Types</SelectItem>
-                  <SelectItem value="individual">Individual</SelectItem>
-                  <SelectItem value="business">Business</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={riskFilter} onValueChange={setRiskFilter}>
-                <SelectTrigger className="w-full sm:w-36">
-                  <SelectValue placeholder="Risk Grade" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Grades</SelectItem>
-                  <SelectItem value="A">Grade A</SelectItem>
-                  <SelectItem value="B">Grade B</SelectItem>
-                  <SelectItem value="C">Grade C</SelectItem>
-                  <SelectItem value="D">Grade D</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <Button asChild className="w-full shrink-0 sm:w-auto">
-              <Link href="/customers/new">
-                <Plus className="mr-2 h-4 w-4" />
-                New Customer
-              </Link>
-            </Button>
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:flex-wrap">
+                  <div className="relative min-w-0 flex-1 sm:min-w-[200px] sm:max-w-sm">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      placeholder="Search customers..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="pl-9"
+                    />
+                  </div>
+                  <Select value={typeFilter} onValueChange={setTypeFilter}>
+                    <SelectTrigger className="w-full min-[420px]:w-44 sm:w-36">
+                      <Filter className="mr-2 h-4 w-4" />
+                      <SelectValue placeholder="Type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Types</SelectItem>
+                      <SelectItem value="individual">Individual</SelectItem>
+                      <SelectItem value="business">Business</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={riskFilter} onValueChange={setRiskFilter}>
+                    <SelectTrigger className="w-full min-[420px]:w-44 sm:w-36">
+                      <SelectValue placeholder="Risk Grade" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Grades</SelectItem>
+                      <SelectItem value="A">Grade A</SelectItem>
+                      <SelectItem value="B">Grade B</SelectItem>
+                      <SelectItem value="C">Grade C</SelectItem>
+                      <SelectItem value="D">Grade D</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button asChild className="w-full shrink-0 md:w-auto">
+                  <Link href={`${customersBasePath}/new`}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    New Customer
+                  </Link>
+                </Button>
               </div>
             </CardContent>
           </Card>
@@ -221,7 +234,7 @@ export default function CustomersPage() {
           <Card className="overflow-hidden border-emerald-100">
             <CardContent className="p-0">
               <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0 [touch-action:pan-x]">
-                <Table className="min-w-[980px]">
+                <Table className="min-w-[860px] lg:min-w-[980px]">
                 <TableHeader>
                   <TableRow className="bg-emerald-50/70 hover:bg-emerald-50/70">
                     <TableHead>Customer</TableHead>
@@ -337,7 +350,7 @@ export default function CustomersPage() {
                           </TableCell>
                           <TableCell className="text-right">
                             <Button variant="ghost" size="sm" asChild>
-                              <Link href={`/customers/${customer.id}`}>
+                              <Link href={`${customersBasePath}/${customer.id}`}>
                                 <Eye className="h-4 w-4" />
                               </Link>
                             </Button>

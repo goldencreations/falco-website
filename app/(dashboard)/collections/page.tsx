@@ -60,6 +60,7 @@ import {
   formatDateTime,
 } from "@/lib/mock-data";
 import type { CollectionAction, RiskClassification } from "@/lib/types";
+import { useSessionUser } from "@/lib/use-session-user";
 
 const riskConfig: Record<RiskClassification, { label: string; color: string; priority: number }> = {
   current: { label: "Current", color: "bg-accent", priority: 0 },
@@ -80,6 +81,8 @@ const actionConfig: Record<CollectionAction, { label: string; icon: typeof Phone
 };
 
 export default function CollectionsPage() {
+  const { user } = useSessionUser();
+  const scopeBranchId = user?.role === "branch_manager" ? user.branch_id : null;
   const [searchQuery, setSearchQuery] = useState("");
   const [classificationFilter, setClassificationFilter] = useState<string>("all");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -88,7 +91,15 @@ export default function CollectionsPage() {
   const [activityNotes, setActivityNotes] = useState("");
 
   // Get loans that need collection attention (in arrears or worse)
-  const delinquentLoans = loans.filter(
+  const visibleLoans = scopeBranchId
+    ? loans.filter((loan) => loan.branch_id === scopeBranchId)
+    : loans;
+  const visibleLoanIds = new Set(visibleLoans.map((loan) => loan.id));
+  const visibleCollectionActivities = scopeBranchId
+    ? collectionActivities.filter((activity) => visibleLoanIds.has(activity.loan_id))
+    : collectionActivities;
+
+  const delinquentLoans = visibleLoans.filter(
     (loan) => loan.risk_classification !== "current"
   ).sort((a, b) => b.days_in_arrears - a.days_in_arrears);
 
@@ -191,7 +202,7 @@ export default function CollectionsPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {collectionActivities.filter((a) => {
+                  {visibleCollectionActivities.filter((a) => {
                     const actDate = new Date(a.performed_at).toDateString();
                     const today = new Date().toDateString();
                     return actDate === today;
@@ -342,7 +353,7 @@ export default function CollectionsPage() {
                           const customer = getCustomerById(loan.customer_id);
                           const product = getProductById(loan.product_id);
                           const risk = riskConfig[loan.risk_classification];
-                          const loanActivities = collectionActivities.filter(
+                          const loanActivities = visibleCollectionActivities.filter(
                             (a) => a.loan_id === loan.id
                           );
                           const lastActivity = loanActivities[loanActivities.length - 1];
@@ -427,9 +438,9 @@ export default function CollectionsPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    {collectionActivities.map((activity) => {
+                    {visibleCollectionActivities.map((activity) => {
                       const customer = getCustomerById(activity.customer_id);
-                      const loan = loans.find((l) => l.id === activity.loan_id);
+                      const loan = visibleLoans.find((l) => l.id === activity.loan_id);
                       const action = actionConfig[activity.action];
                       const ActionIcon = action.icon;
 
