@@ -1,8 +1,6 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 
-@custom-variant dark (&:is(.dark *));
-
 /* Falco Financial Services - Vibrant Finance Theme */
 :root {
   /* Core - Clean white/gray base */
@@ -71,56 +69,6 @@
   --sidebar-ring: oklch(0.70 0.15 185);
 }
 
-.dark {
-  --background: oklch(0.12 0.02 200);
-  --foreground: oklch(0.95 0.01 200);
-  --card: oklch(0.16 0.025 200);
-  --card-foreground: oklch(0.95 0.01 200);
-  --popover: oklch(0.16 0.025 200);
-  --popover-foreground: oklch(0.95 0.01 200);
-  --primary: oklch(0.70 0.15 185);
-  --primary-foreground: oklch(0.12 0.02 200);
-  --secondary: oklch(0.22 0.03 200);
-  --secondary-foreground: oklch(0.95 0.01 200);
-  --muted: oklch(0.22 0.03 200);
-  --muted-foreground: oklch(0.65 0.02 200);
-  --accent: oklch(0.78 0.16 75);
-  --accent-foreground: oklch(0.15 0.03 75);
-  --destructive: oklch(0.60 0.22 25);
-  --destructive-foreground: oklch(0.98 0 0);
-  --border: oklch(0.28 0.03 200);
-  --input: oklch(0.22 0.03 200);
-  --ring: oklch(0.70 0.15 185);
-  
-  --success: oklch(0.68 0.18 145);
-  --success-foreground: oklch(0.12 0.02 200);
-  --warning: oklch(0.78 0.16 75);
-  --warning-foreground: oklch(0.15 0.03 75);
-  --info: oklch(0.65 0.15 250);
-  --info-foreground: oklch(0.98 0 0);
-  
-  --kpi-portfolio: oklch(0.65 0.15 185);
-  --kpi-collections: oklch(0.68 0.18 145);
-  --kpi-risk: oklch(0.60 0.22 25);
-  --kpi-applications: oklch(0.65 0.15 250);
-  --kpi-customers: oklch(0.70 0.16 300);
-  --kpi-disbursements: oklch(0.78 0.16 75);
-  
-  --chart-1: oklch(0.65 0.15 185);
-  --chart-2: oklch(0.68 0.18 145);
-  --chart-3: oklch(0.78 0.16 75);
-  --chart-4: oklch(0.60 0.22 25);
-  --chart-5: oklch(0.70 0.16 300);
-  
-  --sidebar: oklch(0.12 0.025 200);
-  --sidebar-foreground: oklch(0.95 0.01 200);
-  --sidebar-primary: oklch(0.70 0.15 185);
-  --sidebar-primary-foreground: oklch(0.12 0.025 200);
-  --sidebar-accent: oklch(0.22 0.03 200);
-  --sidebar-accent-foreground: oklch(0.95 0.01 200);
-  --sidebar-border: oklch(0.28 0.03 200);
-  --sidebar-ring: oklch(0.70 0.15 185);
-}
 
 @theme inline {
   --font-sans: 'Geist', 'Geist Fallback', system-ui, sans-serif;
