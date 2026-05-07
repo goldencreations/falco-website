@@ -7,56 +7,67 @@ import { dashboardMetrics, formatCurrency } from "@/lib/mock-data";
 import { ArrowUpRight, ShieldCheck, WalletCards } from "lucide-react";
 
 export default function DashboardPage() {
-  return (
-    <>
-      <DashboardHeader
-        title="Dashboard"
-        description="Overview of loan portfolio and key metrics"
-      />
-      <main className="flex-1 overflow-auto p-4 lg:p-6">
-        <div className="mx-auto max-w-7xl space-y-6">
-          <section className="rounded-2xl border border-border/60 bg-gradient-to-r from-primary/10 via-background to-success/10 p-4 shadow-sm lg:p-5">
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="rounded-xl border border-border/50 bg-background/80 p-3">
-                <p className="text-[10px] font-normal uppercase tracking-[0.12em] text-muted-foreground">Net Position</p>
-                <p className="mt-1 break-words text-2xl font-bold tabular-nums leading-tight tracking-tight">
-                  {formatCurrency(dashboardMetrics.collections_today - dashboardMetrics.expected_collections_today)}
-                </p>
-                <p className="mt-1 flex items-center gap-1 text-xs text-success">
-                  <ArrowUpRight className="h-3.5 w-3.5" />
-                  Daily collection variance
-                </p>
-              </div>
-              <div className="rounded-xl border border-border/50 bg-background/80 p-3">
-                <p className="text-[10px] font-normal uppercase tracking-[0.12em] text-muted-foreground">Portfolio Health</p>
-                <p className="mt-1 text-2xl font-bold tabular-nums tracking-tight">{dashboardMetrics.npl_ratio}% NPL</p>
-                <p className="mt-1 flex items-center gap-1 text-xs text-info">
-                  <ShieldCheck className="h-3.5 w-3.5" />
-                  PAR monitored by risk class
-                </p>
-              </div>
-              <div className="rounded-xl border border-border/50 bg-background/80 p-3">
-                <p className="text-[10px] font-normal uppercase tracking-[0.12em] text-muted-foreground">Outstanding book</p>
-                <p className="mt-1 break-words text-2xl font-bold tabular-nums leading-tight tracking-tight">
-                  {formatCurrency(dashboardMetrics.total_portfolio)}
-                </p>
-                <p className="mt-1 flex items-center gap-1 text-xs text-primary">
-                  <WalletCards className="h-3.5 w-3.5 shrink-0" />
-                  {dashboardMetrics.active_loans} active loans
-                </p>
-              </div>
-            </div>
-          </section>
+ return (
+ <>
+ <DashboardHeader
+ title="Dashboard"
+ description="Overview of loan portfolio and key metrics"
+ />
+ <main className="flex-1 overflow-auto p-4 lg:p-6">
+ <div className="mx-auto max-w-7xl space-y-6">
+ <section className="overflow-hidden rounded-2xl border border-emerald-950/10 bg-gradient-to-br from-slate-900/[0.04] via-primary/[0.06] to-emerald-600/[0.08] p-1 shadow-md ring-1 ring-emerald-950/5 ">
+ <div className="grid gap-2 rounded-[0.875rem] bg-card/40 p-3 backdrop-blur-[2px] sm:grid-cols-2 sm:gap-3 md:grid-cols-3 lg:p-4 ">
+ <div className="group relative overflow-hidden rounded-xl border border-border/50 bg-gradient-to-br from-emerald-50/90 via-card to-card p-3.5 shadow-sm ring-1 ring-emerald-600/10 transition-shadow hover:shadow-md ">
+ <div className="absolute right-0 top-0 h-16 w-16 translate-x-1/3 -translate-y-1/3 rounded-full bg-emerald-500/10 blur-2xl" />
+ <p className="relative text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+ Net position
+ </p>
+ <p className="relative mt-1.5 break-words text-xl font-bold tabular-nums leading-tight tracking-tight text-foreground sm:text-2xl">
+ {formatCurrency(dashboardMetrics.collections_today - dashboardMetrics.expected_collections_today)}
+ </p>
+ <p className="relative mt-2 flex items-center gap-1 text-xs font-medium text-emerald-700 ">
+ <ArrowUpRight className="h-3.5 w-3.5" />
+ Daily collection variance
+ </p>
+ </div>
+ <div className="group relative overflow-hidden rounded-xl border border-border/50 bg-gradient-to-br from-sky-50/80 via-card to-card p-3.5 shadow-sm ring-1 ring-sky-500/10 transition-shadow hover:shadow-md ">
+ <div className="absolute right-0 top-0 h-16 w-16 translate-x-1/3 -translate-y-1/3 rounded-full bg-sky-500/10 blur-2xl" />
+ <p className="relative text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+ Portfolio health
+ </p>
+ <p className="relative mt-1.5 break-words text-xl font-bold tabular-nums tracking-tight text-foreground sm:text-2xl">
+ {dashboardMetrics.npl_ratio}% NPL
+ </p>
+ <p className="relative mt-2 flex items-center gap-1 text-xs font-medium text-sky-700 ">
+ <ShieldCheck className="h-3.5 w-3.5" />
+ PAR monitored by risk class
+ </p>
+ </div>
+ <div className="group relative overflow-hidden rounded-xl border border-border/50 bg-gradient-to-br from-teal-50/85 via-card to-card p-3.5 shadow-sm ring-1 ring-teal-500/10 transition-shadow hover:shadow-md sm:col-span-1">
+ <div className="absolute right-0 top-0 h-16 w-16 translate-x-1/3 -translate-y-1/3 rounded-full bg-teal-500/10 blur-2xl" />
+ <p className="relative text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+ Outstanding book
+ </p>
+ <p className="relative mt-1.5 break-words text-xl font-bold tabular-nums leading-tight tracking-tight text-foreground sm:text-2xl">
+ {formatCurrency(dashboardMetrics.total_portfolio)}
+ </p>
+ <p className="relative mt-2 flex items-center gap-1 text-xs font-medium text-teal-800 ">
+ <WalletCards className="h-3.5 w-3.5 shrink-0" />
+ {dashboardMetrics.active_loans} active loans
+ </p>
+ </div>
+ </div>
+ </section>
 
-          <KPICards />
+ <KPICards />
 
-          <DashboardChartsPanel />
+ <DashboardChartsPanel />
 
-          <RecentActivity />
+ <RecentActivity />
 
-          <LoansAtRisk />
-        </div>
-      </main>
-    </>
-  );
+ <LoansAtRisk />
+ </div>
+ </main>
+ </>
+ );
 }
