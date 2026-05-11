@@ -30,6 +30,7 @@ import {
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import {
  Select,
  SelectContent,
@@ -110,19 +111,38 @@ function inRange(value: string | undefined, startDate: Date): boolean {
  return !Number.isNaN(parsed.getTime()) && parsed >= startDate;
 }
 
+function inDateRange(value: string | undefined, startDate?: Date, endDate?: Date): boolean {
+ if (!value) return false;
+ const parsed = new Date(value);
+ if (Number.isNaN(parsed.getTime())) return false;
+ if (startDate && parsed < startDate) return false;
+ if (endDate && parsed > endDate) return false;
+ return true;
+}
+
+function toInputDate(value: Date): string {
+ return value.toISOString().slice(0, 10);
+}
+
 export default function ReportsPage() {
  const { user } = useSessionUser();
  const isManagerView = user?.role === "branch_manager";
  const isOfficerView = user?.role === "loan_officer";
  const scopeBranchId = user?.role === "branch_manager" || user?.role === "loan_officer" ? user.branch_id : null;
  const [period, setPeriod] = useState("6m");
+ const [startDateFilter, setStartDateFilter] = useState<string>("");
+ const [endDateFilter, setEndDateFilter] = useState<string>("");
+ const [exportOption, setExportOption] = useState<"pdf" | "csv" | "json">("pdf");
  const periodLabelMap: Record<string, string> = {
  "1m": "Last Month",
  "3m": "Last 3 Months",
  "6m": "Last 6 Months",
  "1y": "Last Year",
  };
- const startDate = getPeriodStartDate(period);
+ const presetStartDate = getPeriodStartDate(period);
+ const startDate = startDateFilter ? new Date(`${startDateFilter}T00:00:00`) : presetStartDate;
+ const endDate = endDateFilter ? new Date(`${endDateFilter}T23:59:59.999`) : undefined;
+ const dateRangeLabel = `${toInputDate(startDate)}${endDate ? ` to ${toInputDate(endDate)}` : " to now"}`;
 
  const visibleLoans = scopeBranchId
  ? loans.filter((loan) => {
@@ -200,7 +220,7 @@ export default function ReportsPage() {
  return item.created_by === user.id;
  })
  : loanApplications
- ).filter((item) => inRange(item.created_at, startDate));
+ ).filter((item) => inDateRange(item.created_at, startDate, endDate));
  const visibleCustomers = (scopeBranchId
  ? customers.filter((item) => {
  if (item.branch_id !== scopeBranchId) return false;
@@ -208,22 +228,21 @@ export default function ReportsPage() {
  return item.assigned_loan_officer_id === user.id || item.created_by === user.id;
  })
  : customers
- ).filter((item) => inRange(item.created_at, startDate));
+ ).filter((item) => inDateRange(item.created_at, startDate, endDate));
  const visibleCollections = (scopeBranchId
  ? collectionActivities.filter((activity) =>
  visibleLoans.some((loan) => loan.id === activity.loan_id)
  )
  : collectionActivities
- ).filter((item) => inRange(item.performed_at, startDate));
- const periodLoans = visibleLoans.filter((loan) => inRange(loan.disbursement_date, startDate));
+ ).filter((item) => inDateRange(item.performed_at, startDate, endDate));
+ const periodLoans = visibleLoans.filter((loan) => inDateRange(loan.disbursement_date, startDate, endDate));
  const reportBranchName = scopeBranchId
  ? branches.find((branch) => branch.id === scopeBranchId)?.name ?? scopeBranchId
  : "All Branches";
 
- const exportDetailedReport = () => {
- exportBranchReportPdf({
+ const reportPayload = {
  branchName: reportBranchName,
- periodLabel: periodLabelMap[period] ?? "Selected Period",
+ periodLabel: endDate || startDateFilter ? `Custom (${dateRangeLabel})` : periodLabelMap[period] ?? "Selected Period",
  generatedAt: formatDateTime(new Date().toISOString()),
  summary: {
  totalPortfolio,
@@ -291,6 +310,56 @@ export default function ReportsPage() {
  performed_at: formatDateTime(item.performed_at),
  };
  }),
+ };
+
+ const downloadTextFile = (filename: string, content: string, mimeType: string) => {
+ const blob = new Blob([content], { type: mimeType });
+ const url = URL.createObjectURL(blob);
+ const anchor = document.createElement("a");
+ anchor.href = url;
+ anchor.download = filename;
+ document.body.appendChild(anchor);
+ anchor.click();
+ anchor.remove();
+ URL.revokeObjectURL(url);
+ };
+
+ const exportDetailedReport = () => {
+ if (exportOption === "json") {
+ downloadTextFile(
+ `reports-${new Date().toISOString().slice(0, 10)}.json`,
+ JSON.stringify(reportPayload, null, 2),
+ "application/json"
+ );
+ return;
+ }
+ if (exportOption === "csv") {
+ const rows = [
+ ["section", "key", "value"],
+ ["summary", "branch", reportPayload.branchName],
+ ["summary", "period", reportPayload.periodLabel],
+ ["summary", "totalPortfolio", String(reportPayload.summary.totalPortfolio)],
+ ["summary", "totalPar", String(reportPayload.summary.totalPar)],
+ ["summary", "parRatio", reportPayload.summary.parRatio.toFixed(2)],
+ ["summary", "nplRatio", reportPayload.summary.nplRatio.toFixed(2)],
+ ["summary", "requiredProvision", String(reportPayload.summary.requiredProvision)],
+ ];
+ const csv = rows
+ .map((row) =>
+ row
+ .map((cell) => `"${String(cell).replaceAll(`"`, `""`)}"`)
+ .join(",")
+ )
+ .join("\n");
+ downloadTextFile(
+ `reports-${new Date().toISOString().slice(0, 10)}.csv`,
+ csv,
+ "text/csv"
+ );
+ return;
+ }
+ exportBranchReportPdf({
+ ...reportPayload,
  });
  };
  const officerPendingApplications = visibleApplications.filter(
@@ -309,7 +378,7 @@ export default function ReportsPage() {
  <div className="mx-auto max-w-7xl space-y-6">
  {/* Header Actions */}
  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
- <div className="flex items-center gap-3">
+ <div className="flex flex-wrap items-center gap-3">
  <Select value={period} onValueChange={setPeriod}>
  <SelectTrigger className="w-36">
  <Calendar className="mr-2 h-4 w-4" />
@@ -322,11 +391,45 @@ export default function ReportsPage() {
  <SelectItem value="1y">Last Year</SelectItem>
  </SelectContent>
  </Select>
+ <Input
+ type="date"
+ value={startDateFilter}
+ onChange={(e) => setStartDateFilter(e.target.value)}
+ className="w-[170px]"
+ />
+ <Input
+ type="date"
+ value={endDateFilter}
+ onChange={(e) => setEndDateFilter(e.target.value)}
+ className="w-[170px]"
+ />
+ <Button
+ variant="ghost"
+ size="sm"
+ onClick={() => {
+ setStartDateFilter("");
+ setEndDateFilter("");
+ }}
+ >
+ Clear Dates
+ </Button>
  </div>
+ <div className="flex items-center gap-2">
+ <Select value={exportOption} onValueChange={(v) => setExportOption(v as "pdf" | "csv" | "json")}>
+ <SelectTrigger className="w-[130px]">
+ <SelectValue />
+ </SelectTrigger>
+ <SelectContent>
+ <SelectItem value="pdf">PDF</SelectItem>
+ <SelectItem value="csv">CSV</SelectItem>
+ <SelectItem value="json">JSON</SelectItem>
+ </SelectContent>
+ </Select>
  <Button variant="outline" onClick={exportDetailedReport}>
  <Download className="mr-2 h-4 w-4" />
- Export Reports PDF
+ Export Report
  </Button>
+ </div>
  </div>
 
  {/* Summary Cards */}
