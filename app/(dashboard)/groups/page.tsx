@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Users, UserCheck, MapPin, Wallet } from "lucide-react";
+import { Users, UserCheck, MapPin, Wallet, Plus } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -38,6 +38,14 @@ export default function GroupsPage() {
  />
  <main className="flex-1 overflow-auto p-4 lg:p-6">
  <div className="mx-auto max-w-7xl space-y-6">
+<div className="flex justify-end">
+<Button asChild>
+<Link href="/applications/new">
+<Plus className="mr-2 h-4 w-4" />
+Add New Kikundi
+</Link>
+</Button>
+</div>
  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
  <Card>
  <CardHeader className="pb-2">

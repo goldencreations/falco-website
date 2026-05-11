@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
  ArrowLeft,
@@ -33,11 +33,11 @@ import {
  FieldLabel,
 } from "@/components/ui/field";
 import {
- customers,
- loanProducts,
- formatCurrency,
+customers,
+loanProducts,
+formatCurrency,
 } from "@/lib/mock-data";
-import type { Customer, LoanProduct } from "@/lib/types";
+import type { Customer, LoanMode, LoanProduct } from "@/lib/types";
 import { useSessionUser } from "@/lib/use-session-user";
 
 export default function NewApplicationPage() {
@@ -54,6 +54,7 @@ export default function NewApplicationPage() {
  : "/applications";
  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
  const [selectedProduct, setSelectedProduct] = useState<LoanProduct | null>(null);
+ const [loanMode, setLoanMode] = useState<LoanMode>("individual");
  const [customerSearch, setCustomerSearch] = useState("");
 
  const [collaterals, setCollaterals] = useState([
@@ -148,6 +149,98 @@ export default function NewApplicationPage() {
  };
 
  const loanDetails = calculateLoanDetails();
+ const combinedIncome = selectedCustomer
+ ? selectedCustomer.monthly_income + (selectedCustomer.other_income || 0)
+ : 0;
+ const analysis = useMemo(() => {
+ if (!selectedCustomer || !selectedProduct) return null;
+
+ const blockers: string[] = [];
+ const cautions: string[] = [];
+ const strengths: string[] = [];
+
+ if (amount <= 0) {
+ cautions.push("Enter a requested amount to generate recommendation.");
+ }
+ if (!termDays) {
+ cautions.push("Enter a loan term to generate recommendation.");
+ }
+
+ if (amount && (amount < selectedProduct.min_amount || amount > selectedProduct.max_amount)) {
+ blockers.push(
+ `Requested amount must be between ${formatCurrency(selectedProduct.min_amount)} and ${formatCurrency(selectedProduct.max_amount)}.`
+ );
+ } else if (amount) {
+ strengths.push("Requested amount is within product policy.");
+ }
+
+ if (
+ termDays &&
+ (termDays < selectedProduct.min_term_days || termDays > selectedProduct.max_term_days)
+ ) {
+ blockers.push(
+ `Requested term must be between ${selectedProduct.min_term_days} and ${selectedProduct.max_term_days} days.`
+ );
+ } else if (termDays) {
+ strengths.push("Requested term is within product policy.");
+ }
+
+ if (!selectedProduct.allowed_risk_grades.includes(selectedCustomer.risk_grade)) {
+ blockers.push(`Risk grade ${selectedCustomer.risk_grade} is not allowed for this product.`);
+ } else {
+ strengths.push(`Risk grade ${selectedCustomer.risk_grade} is eligible for this product.`);
+ }
+
+ const minScore = selectedProduct.min_credit_score ?? 0;
+ if (selectedProduct.min_credit_score) {
+ if (!selectedCustomer.credit_score) {
+ cautions.push(`Credit score is required (minimum ${selectedProduct.min_credit_score}).`);
+ } else if (selectedCustomer.credit_score < selectedProduct.min_credit_score) {
+ blockers.push(
+ `Credit score ${selectedCustomer.credit_score} is below required ${selectedProduct.min_credit_score}.`
+ );
+ } else {
+ strengths.push(`Credit score ${selectedCustomer.credit_score} meets the minimum ${selectedProduct.min_credit_score}.`);
+ }
+ } else if (selectedCustomer.credit_score) {
+ strengths.push(`Credit score ${selectedCustomer.credit_score} recorded.`);
+ }
+
+ if (!selectedCustomer.income_verified) {
+ cautions.push("Income is not verified.");
+ } else {
+ strengths.push("Income is verified.");
+ }
+
+ const installment = loanDetails?.installmentAmount ?? 0;
+ const ratio = combinedIncome > 0 && installment > 0 ? installment / combinedIncome : null;
+ if (ratio !== null) {
+ if (ratio > 0.6) {
+ blockers.push("Estimated installment exceeds 60% of monthly income.");
+ } else if (ratio > 0.4) {
+ cautions.push("Estimated installment is above 40% of monthly income.");
+ } else {
+ strengths.push("Estimated installment appears affordable against monthly income.");
+ }
+ }
+
+ let decision: "approve" | "review" | "decline" = "approve";
+ if (blockers.length > 0) {
+ decision = "decline";
+ } else if (cautions.length > 0) {
+ decision = "review";
+ }
+
+ return {
+ decision,
+ blockers,
+ cautions,
+ strengths,
+ minScore,
+ installment,
+ ratio,
+ };
+ }, [selectedCustomer, selectedProduct, amount, termDays, loanDetails, combinedIncome]);
 
  const updateCollateral = (
  index: number,
@@ -257,6 +350,21 @@ export default function NewApplicationPage() {
  </CardDescription>
  </CardHeader>
  <CardContent className="space-y-4">
+<Field>
+<FieldLabel>Application Type</FieldLabel>
+<Select
+value={loanMode}
+onValueChange={(value) => setLoanMode(value as LoanMode)}
+>
+<SelectTrigger>
+<SelectValue placeholder="Select application type" />
+</SelectTrigger>
+<SelectContent>
+<SelectItem value="individual">Individual</SelectItem>
+<SelectItem value="group_based">Group</SelectItem>
+</SelectContent>
+</Select>
+</Field>
  {!selectedCustomer ? (
  <>
  <div className="relative">
@@ -867,6 +975,71 @@ export default function NewApplicationPage() {
  <CardTitle>Application Actions</CardTitle>
  </CardHeader>
  <CardContent className="space-y-4">
+              {selectedCustomer && selectedProduct && (
+                <div className="rounded-lg border border-border p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold">Customer Analysis Review</p>
+                    {analysis && (
+                      <Badge
+                        variant={
+                          analysis.decision === "approve"
+                            ? "default"
+                            : analysis.decision === "review"
+                              ? "secondary"
+                              : "destructive"
+                        }
+                      >
+                        {analysis.decision === "approve"
+                          ? "Recommend Approval"
+                          : analysis.decision === "review"
+                            ? "Manual Review"
+                            : "Do Not Recommend"}
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                    <div className="rounded-md bg-muted/50 p-2">
+                      <p>Risk Grade</p>
+                      <p className="font-medium text-foreground">{selectedCustomer.risk_grade}</p>
+                    </div>
+                    <div className="rounded-md bg-muted/50 p-2">
+                      <p>Credit Score</p>
+                      <p className="font-medium text-foreground">
+                        {selectedCustomer.credit_score ?? "Not set"}
+                      </p>
+                    </div>
+                    <div className="rounded-md bg-muted/50 p-2">
+                      <p>Monthly Income</p>
+                      <p className="font-medium text-foreground">{formatCurrency(combinedIncome)}</p>
+                    </div>
+                    <div className="rounded-md bg-muted/50 p-2">
+                      <p>Est. Installment</p>
+                      <p className="font-medium text-foreground">
+                        {analysis?.installment ? formatCurrency(analysis.installment) : "-"}
+                      </p>
+                    </div>
+                  </div>
+                  {analysis?.ratio !== null && analysis?.ratio !== undefined && (
+                    <p className="text-xs text-muted-foreground">
+                      Installment-to-income ratio: {(analysis.ratio * 100).toFixed(1)}%
+                    </p>
+                  )}
+                  {analysis?.blockers.length ? (
+                    <div className="text-xs text-destructive space-y-1">
+                      {analysis.blockers.map((item) => (
+                        <p key={item}>- {item}</p>
+                      ))}
+                    </div>
+                  ) : null}
+                  {analysis?.cautions.length ? (
+                    <div className="text-xs text-muted-foreground space-y-1">
+                      {analysis.cautions.map((item) => (
+                        <p key={item}>- {item}</p>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              )}
  {loanDetails && (
  <div className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
  Product-based estimate from selected product:{" "}

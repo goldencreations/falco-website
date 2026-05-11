@@ -56,6 +56,7 @@ import {
  Dialog,
  DialogContent,
  DialogDescription,
+  DialogFooter,
  DialogTitle,
 } from "@/components/ui/dialog";
 import {
@@ -69,6 +70,7 @@ import {
  formatDateTime,
 } from "@/lib/mock-data";
 import type { LoanApplicationStatus } from "@/lib/types";
+import type { PaymentMethod } from "@/lib/types";
 import { exportApplicationToPdf } from "@/lib/application-pdf";
 import { useSessionUser } from "@/lib/use-session-user";
 
@@ -90,6 +92,7 @@ export default function ApplicationsPage() {
  const effectiveRole = user?.role ?? currentUser.role;
  const isManagerView = effectiveRole === "branch_manager";
  const isOfficerView = effectiveRole === "loan_officer";
+ const isTopAdminView = effectiveRole === "super_admin";
  const isCompactOpsView = isManagerView || isOfficerView;
  const scopeBranchId = isManagerView || isOfficerView ? user?.branch_id : null;
  const applicationsNewPath =
@@ -98,11 +101,13 @@ export default function ApplicationsPage() {
  : effectiveRole === "loan_officer"
  ? "/officer/applications/new"
  : "/applications/new";
- const canDisburse = effectiveRole === "super_admin";
+ const canDisburse = isTopAdminView;
  const [searchQuery, setSearchQuery] = useState("");
  const [statusFilter, setStatusFilter] = useState<string>("all");
  const [applications, setApplications] = useState(loanApplications);
  const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(null);
+ const [disburseApplicationId, setDisburseApplicationId] = useState<string | null>(null);
+ const [disbursementMethod, setDisbursementMethod] = useState<PaymentMethod>("bank_transfer");
  const visibleApplications = scopeBranchId
  ? applications.filter((app) => {
  if (app.branch_id !== scopeBranchId) return false;
@@ -141,6 +146,27 @@ export default function ApplicationsPage() {
  const selectedAssignedOfficer = selectedCustomer
  ? getUserById(selectedCustomer.assigned_loan_officer_id ?? selectedCustomer.created_by)
  : null;
+ const disburseApplication = disburseApplicationId
+ ? visibleApplications.find((app) => app.id === disburseApplicationId) ?? null
+ : null;
+
+ const addWorkflowNote = (existing: string | undefined, nextNote: string) =>
+ [existing, nextNote].filter(Boolean).join("\n");
+
+ const updateApplicationStatus = (id: string, status: LoanApplicationStatus, extras?: Record<string, unknown>) => {
+ setApplications((prev) =>
+ prev.map((app) =>
+ app.id === id
+ ? {
+ ...app,
+ status,
+ updated_at: new Date().toISOString(),
+ ...(extras ?? {}),
+ }
+ : app
+ )
+ );
+ };
 
  const statusChartData = [
  { key: "draft", label: "Draft", count: statusCounts.draft || 0, fill: "#94a3b8" },
@@ -559,204 +585,331 @@ export default function ApplicationsPage() {
  Analyze
  </Link>
  </DropdownMenuItem>
+                  {isOfficerView && app.status === "draft" && (
+                    <DropdownMenuItem
+                      className="text-accent"
+                      onClick={() =>
+                        updateApplicationStatus(app.id, "submitted", {
+                          submitted_at: new Date().toISOString(),
+                          review_notes: addWorkflowNote(
+                            app.review_notes,
+                            `Loan Officer (${user?.full_name ?? "Officer"}) submitted application for manager review.`
+                          ),
+                        })
+                      }
+                    >
+                      Submit to Manager
+                    </DropdownMenuItem>
+                  )}
+                  {(isManagerView || isTopAdminView) && app.status === "submitted" && (
+                    <DropdownMenuItem
+                      className="text-accent"
+                      onClick={() =>
+                        updateApplicationStatus(app.id, "under_review", {
+                          reviewed_by: user?.id,
+                          reviewed_at: new Date().toISOString(),
+                          review_notes: addWorkflowNote(
+                            app.review_notes,
+                            `${isManagerView ? "Manager" : "Top Admin"} (${user?.full_name ?? "Approver"}) opened review.`
+                          ),
+                        })
+                      }
+                    >
+                      Start Review
+                    </DropdownMenuItem>
+                  )}
  {app.status === "under_review" && (
  <>
- <DropdownMenuItem className="text-accent">
- Approve
- </DropdownMenuItem>
- <DropdownMenuItem className="text-destructive">
- Reject
- </DropdownMenuItem>
- </>
- )}
- {app.status === "approved" && (
- <>
- {canDisburse ? (
- <DropdownMenuItem
- className="text-accent"
- onClick={() =>
- setApplications((prev) =>
- prev.map((current) =>
- current.id === app.id
- ? {
- ...current,
- status: "disbursed",
- updated_at: new Date().toISOString(),
- }
- : current
- )
- )
- }
- >
- Disburse (Top Admin)
- </DropdownMenuItem>
- ) : (
- <DropdownMenuItem disabled>
- Disburse (Top Admin only)
- </DropdownMenuItem>
- )}
- </>
- )}
- </DropdownMenuContent>
- </DropdownMenu>
- </TableCell>
- </TableRow>
- );
- })
- )}
- </TableBody>
- </Table>
- </div>
- </div>
- </CardContent>
- </Card>
- </div>
- </main>
+                      {(isManagerView || isTopAdminView) && (
+                        <DropdownMenuItem
+                          className="text-accent"
+                          onClick={() =>
+                            updateApplicationStatus(app.id, "approved", {
+                              approved_by: user?.id,
+                              approved_at: new Date().toISOString(),
+                              review_notes: addWorkflowNote(
+                                app.review_notes,
+                                `${isManagerView ? "Manager" : "Top Admin"} (${user?.full_name ?? "Approver"}) approved application.`
+                              ),
+                            })
+                          }
+                        >
+                          Approve
+                        </DropdownMenuItem>
+                      )}
+                      {(isManagerView || isTopAdminView) && (
+                        <DropdownMenuItem
+                          className="text-destructive"
+                          onClick={() =>
+                            updateApplicationStatus(app.id, "rejected", {
+                              reviewed_by: user?.id,
+                              reviewed_at: new Date().toISOString(),
+                              rejection_reason: `${isManagerView ? "Manager" : "Top Admin"} rejected application during review.`,
+                            })
+                          }
+                        >
+                          Reject
+                        </DropdownMenuItem>
+                      )}
+                    </>
+                  )}
+                  {(isTopAdminView && app.status === "submitted") && (
+                    <DropdownMenuItem
+                      className="text-accent"
+                      onClick={() =>
+                        updateApplicationStatus(app.id, "approved", {
+                          approved_by: user?.id,
+                          approved_at: new Date().toISOString(),
+                          review_notes: addWorkflowNote(
+                            app.review_notes,
+                            `Top Admin (${user?.full_name ?? "Top Admin"}) approved directly from submitted queue.`
+                          ),
+                        })
+                      }
+                    >
+                      Top Admin Approve
+                    </DropdownMenuItem>
+                  )}
+                  {(isTopAdminView && (app.status === "submitted" || app.status === "under_review")) && (
+                    <DropdownMenuItem
+                      className="text-destructive"
+                      onClick={() =>
+                        updateApplicationStatus(app.id, "rejected", {
+                          reviewed_by: user?.id,
+                          reviewed_at: new Date().toISOString(),
+                          rejection_reason: "Rejected by Top Admin.",
+                        })
+                      }
+                    >
+                      Top Admin Reject
+                    </DropdownMenuItem>
+                  )}
+                  {app.status === "approved" && (
+                    <>
+                      {canDisburse ? (
+                        <DropdownMenuItem
+                          className="text-accent"
+                          onClick={() => {
+                            setDisburseApplicationId(app.id);
+                            setDisbursementMethod("bank_transfer");
+                          }}
+                        >
+                          Disburse (Top Admin)
+                        </DropdownMenuItem>
+                      ) : (
+                        <DropdownMenuItem disabled>
+                          Disburse (Top Admin only)
+                        </DropdownMenuItem>
+                      )}
+                    </>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </TableCell>
+          </TableRow>
+        );
+      })
+    )}
+  </TableBody>
+</Table>
+</div>
+</div>
+</CardContent>
+</Card>
+</div>
+</main>
 
- <Dialog open={Boolean(selectedApplication)} onOpenChange={(open) => !open && setSelectedApplicationId(null)}>
- <DialogContent
- showCloseButton={false}
- className="flex max-h-[min(92vh,820px)] max-w-[calc(100vw-1.5rem)] flex-col gap-0 overflow-hidden border border-border/80 p-0 sm:max-w-3xl"
- >
- {selectedApplication && selectedCustomer && selectedProduct ? (
- <>
- <div className="relative border-b bg-gradient-to-r from-emerald-950/95 via-emerald-900 to-emerald-950 px-6 pb-6 pt-6 text-primary-foreground">
- <button
- type="button"
- onClick={() => setSelectedApplicationId(null)}
- className="absolute right-4 top-4 rounded-md p-1.5 text-emerald-100/90 transition-colors hover:bg-white/10 hover:text-white"
- aria-label="Close"
- >
- <X className="h-4 w-4" />
- </button>
- <div className="flex flex-col gap-3 pr-10 sm:flex-row sm:items-start sm:justify-between">
- <div className="space-y-1">
- <p className="font-mono text-[11px] uppercase tracking-widest text-emerald-100/90">
- Loan application record
- </p>
- <DialogTitle className="text-left text-xl font-semibold tracking-tight text-white">
- {selectedApplication.application_number}
- </DialogTitle>
- <DialogDescription className="text-left text-emerald-100/90">
- {selectedCustomer.first_name} {selectedCustomer.last_name} · {selectedProduct.name}
- </DialogDescription>
- </div>
- <Badge
- className="w-fit border-white/20 bg-white/15 text-white backdrop-blur-sm hover:bg-white/20"
- variant="outline"
- >
- {statusConfig[selectedApplication.status].label}
- </Badge>
- </div>
- <p className="pointer-events-none absolute bottom-2 right-6 hidden rotate-[-10deg] select-none border-2 border-white/20 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.25em] text-white/25 sm:block">
- Falco Financial
- </p>
- </div>
+<Dialog open={Boolean(selectedApplication)} onOpenChange={(open) => !open && setSelectedApplicationId(null)}>
+<DialogContent
+showCloseButton={false}
+className="flex max-h-[min(92vh,820px)] max-w-[calc(100vw-1.5rem)] flex-col gap-0 overflow-hidden border border-border/80 p-0 sm:max-w-3xl"
+>
+{selectedApplication && selectedCustomer && selectedProduct ? (
+<>
+<div className="relative border-b bg-gradient-to-r from-emerald-950/95 via-emerald-900 to-emerald-950 px-6 pb-6 pt-6 text-primary-foreground">
+<button
+type="button"
+onClick={() => setSelectedApplicationId(null)}
+className="absolute right-4 top-4 rounded-md p-1.5 text-emerald-100/90 transition-colors hover:bg-white/10 hover:text-white"
+aria-label="Close"
+>
+<X className="h-4 w-4" />
+</button>
+<div className="flex flex-col gap-3 pr-10 sm:flex-row sm:items-start sm:justify-between">
+<div className="space-y-1">
+<p className="font-mono text-[11px] uppercase tracking-widest text-emerald-100/90">
+Loan application record
+</p>
+<DialogTitle className="text-left text-xl font-semibold tracking-tight text-white">
+{selectedApplication.application_number}
+</DialogTitle>
+<DialogDescription className="text-left text-emerald-100/90">
+{selectedCustomer.first_name} {selectedCustomer.last_name} · {selectedProduct.name}
+</DialogDescription>
+</div>
+<Badge
+className="w-fit border-white/20 bg-white/15 text-white backdrop-blur-sm hover:bg-white/20"
+variant="outline"
+>
+{statusConfig[selectedApplication.status].label}
+</Badge>
+</div>
+<p className="pointer-events-none absolute bottom-2 right-6 hidden rotate-[-10deg] select-none border-2 border-white/20 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.25em] text-white/25 sm:block">
+Falco Financial
+</p>
+</div>
 
- <div className="max-h-[min(54vh,500px)] overflow-y-auto px-6 py-5">
- <div className="grid gap-6 md:grid-cols-2">
- <div className="space-y-4">
- <div>
- <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
- Amount & terms
- </h4>
- <p className="mt-1 text-2xl font-bold tabular-nums text-foreground">
- {formatCurrency(selectedApplication.requested_amount)}
- </p>
- <p className="mt-1 text-sm text-muted-foreground">
- Requested over {selectedApplication.term_days} days
- </p>
- </div>
- <Separator />
- <dl className="grid gap-2 text-sm">
- <div className="flex justify-between gap-4">
- <dt className="text-muted-foreground">Purpose</dt>
- <dd className="text-right font-medium">{selectedApplication.purpose}</dd>
- </div>
- <div className="flex justify-between gap-4">
- <dt className="text-muted-foreground">Collateral</dt>
- <dd className="text-right">{selectedApplication.collateral_type ?? "—"}</dd>
- </div>
- <div className="flex justify-between gap-4">
- <dt className="text-muted-foreground">Collateral value</dt>
- <dd className="text-right tabular-nums">
- {selectedApplication.collateral_value
- ? formatCurrency(selectedApplication.collateral_value)
- : "—"}
- </dd>
- </div>
- </dl>
- </div>
- <div className="space-y-4">
- <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
- Applicant & workflow
- </h4>
- <dl className="grid gap-3 rounded-xl border bg-muted/30 p-4 text-sm">
- <div>
- <dt className="text-muted-foreground">Customer</dt>
- <dd className="font-medium">
- {selectedCustomer.first_name} {selectedCustomer.last_name}
- </dd>
- <dd className="text-xs text-muted-foreground">{selectedCustomer.customer_number}</dd>
- </div>
- <div>
- <dt className="text-muted-foreground">Branch</dt>
- <dd>{selectedBranch?.name ?? selectedApplication.branch_id}</dd>
- </div>
- <div>
- <dt className="text-muted-foreground">Created by</dt>
- <dd>{selectedCreator?.full_name ?? selectedApplication.created_by}</dd>
- </div>
- <div>
- <dt className="text-muted-foreground">Assigned loan officer</dt>
- <dd>{selectedAssignedOfficer?.full_name ?? "Unassigned"}</dd>
- </div>
- <div>
- <dt className="text-muted-foreground">Created</dt>
- <dd>{formatDateTime(selectedApplication.created_at)}</dd>
- </div>
- </dl>
- </div>
- </div>
+<div className="max-h-[min(54vh,500px)] overflow-y-auto px-6 py-5">
+<div className="grid gap-6 md:grid-cols-2">
+<div className="space-y-4">
+<div>
+<h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+Amount & terms
+</h4>
+<p className="mt-1 text-2xl font-bold tabular-nums text-foreground">
+{formatCurrency(selectedApplication.requested_amount)}
+</p>
+<p className="mt-1 text-sm text-muted-foreground">
+Requested over {selectedApplication.term_days} days
+</p>
+</div>
+<Separator />
+<dl className="grid gap-2 text-sm">
+<div className="flex justify-between gap-4">
+<dt className="text-muted-foreground">Purpose</dt>
+<dd className="text-right font-medium">{selectedApplication.purpose}</dd>
+</div>
+<div className="flex justify-between gap-4">
+<dt className="text-muted-foreground">Collateral</dt>
+<dd className="text-right">{selectedApplication.collateral_type ?? "—"}</dd>
+</div>
+<div className="flex justify-between gap-4">
+<dt className="text-muted-foreground">Collateral value</dt>
+<dd className="text-right tabular-nums">
+{selectedApplication.collateral_value
+? formatCurrency(selectedApplication.collateral_value)
+: "—"}
+</dd>
+</div>
+</dl>
+</div>
+<div className="space-y-4">
+<h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+Applicant & workflow
+</h4>
+<dl className="grid gap-3 rounded-xl border bg-muted/30 p-4 text-sm">
+<div>
+<dt className="text-muted-foreground">Customer</dt>
+<dd className="font-medium">
+{selectedCustomer.first_name} {selectedCustomer.last_name}
+</dd>
+<dd className="text-xs text-muted-foreground">{selectedCustomer.customer_number}</dd>
+</div>
+<div>
+<dt className="text-muted-foreground">Branch</dt>
+<dd>{selectedBranch?.name ?? selectedApplication.branch_id}</dd>
+</div>
+<div>
+<dt className="text-muted-foreground">Created by</dt>
+<dd>{selectedCreator?.full_name ?? selectedApplication.created_by}</dd>
+</div>
+<div>
+<dt className="text-muted-foreground">Assigned loan officer</dt>
+<dd>{selectedAssignedOfficer?.full_name ?? "Unassigned"}</dd>
+</div>
+<div>
+<dt className="text-muted-foreground">Created</dt>
+<dd>{formatDateTime(selectedApplication.created_at)}</dd>
+</div>
+</dl>
+</div>
+</div>
 
- {(selectedApplication.review_notes || selectedApplication.rejection_reason) && (
- <>
- <Separator className="my-5" />
- <div className="space-y-3">
- {selectedApplication.review_notes && (
- <div className="rounded-lg border bg-background p-3">
- <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
- Review notes
- </p>
- <p className="mt-1 text-sm">{selectedApplication.review_notes}</p>
- </div>
- )}
- {selectedApplication.rejection_reason && (
- <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3">
- <p className="text-xs font-semibold uppercase tracking-wide text-destructive">
- Rejection reason
- </p>
- <p className="mt-1 text-sm text-destructive">{selectedApplication.rejection_reason}</p>
- </div>
- )}
- </div>
- </>
- )}
- </div>
+{(selectedApplication.review_notes || selectedApplication.rejection_reason) && (
+<>
+<Separator className="my-5" />
+<div className="space-y-3">
+{selectedApplication.review_notes && (
+<div className="rounded-lg border bg-background p-3">
+<p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+Review notes
+</p>
+<p className="mt-1 whitespace-pre-line text-sm">{selectedApplication.review_notes}</p>
+</div>
+)}
+{selectedApplication.rejection_reason && (
+<div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3">
+<p className="text-xs font-semibold uppercase tracking-wide text-destructive">
+Rejection reason
+</p>
+<p className="mt-1 text-sm text-destructive">{selectedApplication.rejection_reason}</p>
+</div>
+)}
+</div>
+</>
+)}
+</div>
 
- <div className="flex flex-col-reverse gap-2 border-t bg-muted/20 px-6 py-4 sm:flex-row sm:justify-end">
- <Button variant="outline" onClick={() => setSelectedApplicationId(null)}>
- Close
- </Button>
- <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={exportSelectedApplicationPdf}>
- <Download className="mr-2 h-4 w-4" />
- Export Professional PDF
- </Button>
- </div>
- </>
- ) : null}
- </DialogContent>
- </Dialog>
- </>
- );
+<div className="flex flex-col-reverse gap-2 border-t bg-muted/20 px-6 py-4 sm:flex-row sm:justify-end">
+<Button variant="outline" onClick={() => setSelectedApplicationId(null)}>
+Close
+</Button>
+<Button className="bg-emerald-600 hover:bg-emerald-700" onClick={exportSelectedApplicationPdf}>
+<Download className="mr-2 h-4 w-4" />
+Export Professional PDF
+</Button>
+</div>
+</>
+) : null}
+</DialogContent>
+</Dialog>
+
+<Dialog open={Boolean(disburseApplication)} onOpenChange={(open) => !open && setDisburseApplicationId(null)}>
+<DialogContent>
+  <DialogTitle>Confirm Loan Disbursement</DialogTitle>
+  <DialogDescription>
+    Top Admin action: choose a disbursement method and confirm to mark this approved application as disbursed.
+  </DialogDescription>
+  <div className="space-y-3 py-2">
+    <Select
+      value={disbursementMethod}
+      onValueChange={(value) => setDisbursementMethod(value as PaymentMethod)}
+    >
+      <SelectTrigger>
+        <SelectValue placeholder="Disbursement method" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+        <SelectItem value="mobile_money">Mobile Money</SelectItem>
+        <SelectItem value="cash">Cash</SelectItem>
+        <SelectItem value="cheque">Cheque</SelectItem>
+      </SelectContent>
+    </Select>
+  </div>
+  <DialogFooter>
+    <Button variant="outline" onClick={() => setDisburseApplicationId(null)}>
+      Cancel
+    </Button>
+    <Button
+      onClick={() => {
+        if (!disburseApplication) return;
+        updateApplicationStatus(disburseApplication.id, "disbursed", {
+          approved_by: disburseApplication.approved_by ?? user?.id,
+          approved_at: disburseApplication.approved_at ?? new Date().toISOString(),
+          review_notes: addWorkflowNote(
+            disburseApplication.review_notes,
+            `Disbursed by Top Admin (${user?.full_name ?? "Top Admin"}) via ${disbursementMethod.replace("_", " ")}.`
+          ),
+        });
+        setDisburseApplicationId(null);
+      }}
+      disabled={!disburseApplication}
+    >
+      Confirm Disbursement
+    </Button>
+  </DialogFooter>
+</DialogContent>
+</Dialog>
+</>
+);
 }
