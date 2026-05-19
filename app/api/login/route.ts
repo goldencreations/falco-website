@@ -1,41 +1,118 @@
 import { NextResponse } from "next/server";
-import { AUTH_COOKIE_NAME, authenticateByEmailPassword, buildSessionToken } from "@/lib/auth";
+import {
+ ACCESS_TOKEN_COOKIE_NAME,
+ APP_ROLE_COOKIE_NAME,
+ AUTH_COOKIE_NAME,
+} from "@/lib/auth";
+import { FalcoApiError, formatValidationDetails } from "@/lib/falco-api";
+import { postStaffLoginToApi, type StaffLoginApiResponse } from "@/lib/falco-staff-login";
+import { mapApiRoleToAppRole } from "@/lib/api-roles";
+import type { UserRole } from "@/lib/types";
 
-export async function POST(request: Request) {
- const body = (await request.json()) as {
+type LoginBody = {
  email?: string;
  password?: string;
  rememberMe?: boolean;
- };
+};
+function cookieMaxAgeSeconds(rememberMe: boolean, expiresIn?: number): number {
+ if (typeof expiresIn === "number" && expiresIn > 0) return expiresIn;
+ return rememberMe ? 60 * 60 * 24 * 30 : 60 * 60 * 24;
+}
 
- const user = authenticateByEmailPassword({ email: body.email, password: body.password });
- if (!user) {
- return NextResponse.json(
- { message: "Invalid credentials. Use configured Super Admin, Branch Manager, or Loan Officer accounts." },
- { status: 401 }
- );
+function redirectForRole(role: UserRole): string {
+ if (role === "branch_manager") return "/manager/dashboard";
+ if (role === "loan_officer") return "/officer/dashboard";
+ return "/dashboard";
+}
+
+export async function POST(request: Request) {
+ let body: LoginBody;
+ try {
+ body = (await request.json()) as LoginBody;
+ } catch {
+ return NextResponse.json({ message: "Invalid JSON body" }, { status: 400 });
  }
 
- const redirectTo =
- user.role === "branch_manager"
- ? "/manager/dashboard"
- : user.role === "loan_officer"
- ? "/officer/dashboard"
- : "/dashboard";
+ const email = body.email?.trim();
+ const password = body.password;
+ if (!email || !password) {
+ return NextResponse.json({ message: "Email and password are required" }, { status: 400 });
+ }
+
+ try {
+ const remote: StaffLoginApiResponse = await postStaffLoginToApi({
+ email,
+ password,
+ rememberMe: body.rememberMe === true,
+ });
+ const accessToken =
+ remote.access_token ?? remote.tokens?.access_token ?? null;
+ if (!accessToken || !remote.user) {
+ return NextResponse.json({ message: "Unexpected login response from server" }, { status: 502 });
+ }
+
+ const appRole = mapApiRoleToAppRole(remote.user.role);
+ if (!appRole) {
+ return NextResponse.json({ message: "Unknown account role" }, { status: 502 });
+ }
+
+ const maxAge = cookieMaxAgeSeconds(body.rememberMe === true, remote.tokens?.expires_in);
+ const secure = process.env.NODE_ENV === "production";
+ const cookieBase = {
+ httpOnly: true as const,
+ sameSite: "lax" as const,
+ secure,
+ path: "/",
+ maxAge,
+ };
 
  const response = NextResponse.json({
  ok: true,
- role: user.role,
- redirectTo,
+ role: appRole,
+ redirectTo: redirectForRole(appRole),
  });
 
- response.cookies.set(AUTH_COOKIE_NAME, buildSessionToken(user), {
+ response.cookies.set(ACCESS_TOKEN_COOKIE_NAME, accessToken, cookieBase);
+ response.cookies.set(APP_ROLE_COOKIE_NAME, appRole, cookieBase);
+
+ response.cookies.set(AUTH_COOKIE_NAME, "", {
  httpOnly: true,
  sameSite: "lax",
- secure: process.env.NODE_ENV === "production",
+ secure,
  path: "/",
- maxAge: body.rememberMe ? 60 * 60 * 24 * 7 : 60 * 60 * 8,
+ maxAge: 0,
  });
 
  return response;
+ } catch (e) {
+ if (e instanceof FalcoApiError) {
+ const extra = formatValidationDetails(e.details);
+ const message = extra ? `${e.message} (${extra})` : e.message;
+ const status =
+ e.status === 403
+ ? 403
+ : e.status === 422
+ ? 422
+ : e.status === 401
+ ? 401
+ : e.status === 404
+ ? 404
+ : e.status === 409
+ ? 409
+ : e.status === 429
+ ? 429
+ : e.status >= 500 && e.status < 600
+ ? e.status
+ : 401;
+ return NextResponse.json({ message }, { status });
+ }
+ const message = e instanceof Error ? e.message : "Login failed";
+ if (message.includes("FALCO_API_BASE_URL")) {
+ return NextResponse.json(
+ { message: "Server is not configured with FALCO_API_BASE_URL" },
+ { status: 500 }
+ );
+ }
+ return NextResponse.json({ message: "Unable to reach authentication service" }, { status: 502 });
+ }
 }

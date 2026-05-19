@@ -1,7 +1,8 @@
 "use client";
 
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Users, UserCheck, MapPin, Wallet, Plus } from "lucide-react";
+import { Users, UserCheck, MapPin, Wallet, Plus, Loader2 } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -14,21 +15,59 @@ import {
  TableHeader,
  TableRow,
 } from "@/components/ui/table";
-import {
- loanGroups,
- getBranchById,
- getCustomerById,
- getUserById,
- loans,
- formatCurrency,
- formatDate,
-} from "@/lib/mock-data";
+import { useBranchAssignment } from "@/components/branch-assignment-context";
+import { extractGroupsList } from "@/lib/group-adapters";
+import { formatDate } from "@/lib/formatters";
+import type { LoanGroup } from "@/lib/types";
+import { useSessionUser } from "@/lib/use-session-user";
 
 export default function GroupsPage() {
- const activeGroups = loanGroups.filter((group) => group.status === "active").length;
- const totalMembers = loanGroups.reduce((sum, group) => sum + group.member_customer_ids.length, 0);
- const groupLoans = loans.filter((loan) => loan.loan_mode === "group_based");
- const groupLoanValue = groupLoans.reduce((sum, loan) => sum + loan.total_outstanding, 0);
+ const { user } = useSessionUser();
+ const { branches, users } = useBranchAssignment();
+ const scopeBranchId =
+ user?.role === "branch_manager" || user?.role === "loan_officer" ? user.branch_id : null;
+
+ const [groups, setGroups] = useState<LoanGroup[]>([]);
+ const [loading, setLoading] = useState(true);
+ const [error, setError] = useState<string | null>(null);
+
+ const loadGroups = useCallback(async () => {
+ setLoading(true);
+ setError(null);
+ const params = new URLSearchParams({ page_size: "100" });
+ if (scopeBranchId) params.set("branch_id", scopeBranchId);
+ try {
+ const res = await fetch(`/api/groups?${params.toString()}`, { credentials: "include" });
+ const json = (await res.json()) as unknown;
+ if (!res.ok) {
+ const o = json as { message?: string };
+ setError(o.message ?? "Failed to load groups");
+ setGroups([]);
+ return;
+ }
+ setGroups(extractGroupsList(json));
+ } catch {
+ setError("Could not load vikundi. Check your connection.");
+ setGroups([]);
+ } finally {
+ setLoading(false);
+ }
+ }, [scopeBranchId]);
+
+ useEffect(() => {
+ void loadGroups();
+ }, [loadGroups]);
+
+ const visibleGroups = useMemo(() => {
+ if (!scopeBranchId || user?.role !== "loan_officer") return groups;
+ return groups.filter((g) => g.loan_officer_id === user.id);
+ }, [groups, scopeBranchId, user]);
+
+ const activeGroups = visibleGroups.filter((group) => group.status === "active").length;
+ const totalMembers = visibleGroups.reduce((sum, group) => sum + group.member_customer_ids.length, 0);
+
+ const officerName = (id: string) => users.find((u) => u.id === id)?.full_name ?? "—";
+ const branchName = (id: string) => branches.find((b) => b.id === id)?.name ?? "—";
 
  return (
  <>
@@ -38,21 +77,28 @@ export default function GroupsPage() {
  />
  <main className="flex-1 overflow-auto p-4 lg:p-6">
  <div className="mx-auto max-w-7xl space-y-6">
-<div className="flex justify-end">
-<Button asChild>
-<Link href="/applications/new">
-<Plus className="mr-2 h-4 w-4" />
-Add New Kikundi
-</Link>
-</Button>
-</div>
+ <div className="flex justify-end">
+ <Button asChild>
+ <Link href="/groups/new">
+ <Plus className="mr-2 h-4 w-4" />
+ Add New Kikundi
+ </Link>
+ </Button>
+ </div>
+
+ {error ? (
+ <Card className="border-destructive/40 bg-destructive/5">
+ <CardContent className="py-3 text-sm text-destructive">{error}</CardContent>
+ </Card>
+ ) : null}
+
  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
  <Card>
  <CardHeader className="pb-2">
  <CardTitle className="text-sm text-muted-foreground">Total Groups</CardTitle>
  </CardHeader>
  <CardContent>
- <p className="text-2xl font-bold">{loanGroups.length}</p>
+ <p className="text-2xl font-bold">{visibleGroups.length}</p>
  </CardContent>
  </Card>
  <Card>
@@ -73,16 +119,22 @@ Add New Kikundi
  </Card>
  <Card>
  <CardHeader className="pb-2">
- <CardTitle className="text-sm text-muted-foreground">Group Loan Outstanding</CardTitle>
+ <CardTitle className="text-sm text-muted-foreground">Data source</CardTitle>
  </CardHeader>
  <CardContent>
- <p className="text-2xl font-bold">{formatCurrency(groupLoanValue)}</p>
+ <p className="text-sm text-muted-foreground">Live LMS groups API</p>
  </CardContent>
  </Card>
  </div>
 
  <Card>
  <CardContent className="p-0">
+ {loading ? (
+ <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
+ <Loader2 className="h-5 w-5 animate-spin" />
+ Loading vikundi…
+ </div>
+ ) : (
  <Table>
  <TableHeader>
  <TableRow>
@@ -97,24 +149,28 @@ Add New Kikundi
  </TableRow>
  </TableHeader>
  <TableBody>
- {loanGroups.map((group) => {
- const officer = getUserById(group.loan_officer_id);
- const branch = getBranchById(group.branch_id);
- return (
+ {visibleGroups.length === 0 ? (
+ <TableRow>
+ <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
+ No vikundi found. Click &quot;Add New Kikundi&quot; to register a group.
+ </TableCell>
+ </TableRow>
+ ) : (
+ visibleGroups.map((group) => (
  <TableRow key={group.id}>
  <TableCell>
  <div>
  <p className="font-medium">{group.group_name}</p>
- <p className="text-xs text-muted-foreground font-mono">{group.group_code}</p>
+ <p className="font-mono text-xs text-muted-foreground">{group.group_code || group.id}</p>
  </div>
  </TableCell>
  <TableCell>
  <div className="flex items-center gap-2">
  <UserCheck className="h-4 w-4 text-muted-foreground" />
- <span>{officer?.full_name ?? "-"}</span>
+ <span>{officerName(group.loan_officer_id)}</span>
  </div>
  </TableCell>
- <TableCell>{branch?.name ?? "-"}</TableCell>
+ <TableCell>{branchName(group.branch_id)}</TableCell>
  <TableCell>
  <div className="flex items-center gap-2">
  <Users className="h-4 w-4 text-muted-foreground" />
@@ -124,7 +180,7 @@ Add New Kikundi
  <TableCell>
  <div className="text-sm">
  <p>{group.meeting_day}</p>
- <p className="text-xs text-muted-foreground flex items-center gap-1">
+ <p className="flex items-center gap-1 text-xs text-muted-foreground">
  <MapPin className="h-3 w-3" />
  {group.meeting_location}
  </p>
@@ -145,10 +201,11 @@ Add New Kikundi
  </Button>
  </TableCell>
  </TableRow>
- );
- })}
+ ))
+ )}
  </TableBody>
  </Table>
+ )}
  </CardContent>
  </Card>
  </div>

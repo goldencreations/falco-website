@@ -18,7 +18,8 @@ import {
  UserRoundMinus,
  Users2,
 } from "lucide-react";
-import { branches, formatDateTime } from "@/lib/mock-data";
+import { formatDateTime } from "@/lib/formatters";
+import type { Branch } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -47,6 +48,7 @@ import {
 } from "@/components/staff-management/utils";
 
 interface StaffDirectoryProps {
+ branches: Branch[];
  staffMembers: StaffRecord[];
  filteredStaff: StaffRecord[];
  search: string;
@@ -66,6 +68,7 @@ interface StaffDirectoryProps {
 }
 
 export function StaffDirectory({
+ branches,
  staffMembers,
  filteredStaff,
  search,

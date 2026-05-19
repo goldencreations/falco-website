@@ -11,7 +11,7 @@ import {
  YAxis,
 } from "recharts";
 import { FileText, KeyRound, LayoutGrid, UserCog, UserPen, UserRoundMinus, UserRoundCheck } from "lucide-react";
-import { formatCurrency, formatDateTime } from "@/lib/mock-data";
+import { formatCurrency, formatDateTime } from "@/lib/formatters";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";

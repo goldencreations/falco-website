@@ -1,7 +1,7 @@
-import { ManagerPageHeader } from "@/components/manager-page-header";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
  Activity,
  AlertCircle,
@@ -10,95 +10,175 @@ import {
  CheckCircle2,
  Clock3,
  CreditCard,
- FileCheck2,
+ Loader2,
  Target,
  UsersRound,
  Wallet,
 } from "lucide-react";
-import { getServerSessionUser } from "@/lib/auth";
-import { redirect } from "next/navigation";
-import { getBranchById, formatCurrency } from "@/lib/mock-data";
-import {
- getBranchApplications,
- getBranchCollections,
- getBranchCustomers,
- getBranchLoans,
- getBranchPayments,
- getBranchTeam,
-} from "@/lib/branch-scope";
+import { ManagerPageHeader } from "@/components/manager-page-header";
+import { useOptionalBranchAssignment } from "@/components/branch-assignment-context";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
+import { loadManagerBranchSnapshot, type ManagerBranchSnapshot } from "@/lib/manager-branch-load";
+import { useTranslations } from "@/lib/i18n/use-translations";
+import { formatCurrency } from "@/lib/formatters";
+import { useSessionUser } from "@/lib/use-session-user";
 
-export default async function ManagerDashboardPage() {
- const user = await getServerSessionUser();
- if (!user || user.role !== "branch_manager") redirect("/");
+const emptySnapshot: ManagerBranchSnapshot = {
+ metrics: null,
+ customers: [],
+ applications: [],
+ loans: [],
+ payments: [],
+ team: [],
+ collectionsToday: 0,
+};
 
- const branch = getBranchById(user.branch_id);
- const branchLabel = branch ? `${branch.name} (${branch.code})` : user.branch_id;
+export default function ManagerDashboardPage() {
+ const router = useRouter();
+ const { t } = useTranslations();
+ const { user, loaded } = useSessionUser();
+ const branchCtx = useOptionalBranchAssignment();
+ const [snapshot, setSnapshot] = useState<ManagerBranchSnapshot>(emptySnapshot);
+ const [loading, setLoading] = useState(true);
+ const [error, setError] = useState<string | null>(null);
 
- const branchCustomers = getBranchCustomers(user.branch_id);
- const branchLoans = getBranchLoans(user.branch_id);
- const branchPayments = getBranchPayments(user.branch_id);
- const branchApplications = getBranchApplications(user.branch_id);
- const branchTeam = getBranchTeam(user.branch_id);
- const branchCollections = getBranchCollections(user.branch_id);
+ const branchId = user?.branch_id?.trim() ?? "";
 
- const outstanding = branchLoans.reduce((sum, loan) => sum + loan.total_outstanding, 0);
- const principalDisbursed = branchLoans.reduce((sum, loan) => sum + loan.principal_amount, 0);
- const collected = branchPayments
+ const branchLabel = useMemo(() => {
+ if (!branchId) return "Branch";
+ const fromCtx = branchCtx?.branches.find((b) => b.id === branchId);
+ return fromCtx?.name ?? `Branch ${branchId}`;
+ }, [branchId, branchCtx?.branches]);
+
+ const load = useCallback(async () => {
+ if (!branchId) {
+ setError(t("manager.noBranchLinked"));
+ setSnapshot(emptySnapshot);
+ setLoading(false);
+ return;
+ }
+ setLoading(true);
+ setError(null);
+ try {
+ const data = await loadManagerBranchSnapshot(branchId);
+ setSnapshot(data);
+ if (!data.metrics && !data.loans.length && !data.customers.length) {
+ setError(t("manager.noBranchData"));
+ }
+ } catch {
+ setError(t("manager.loadFailed"));
+ setSnapshot(emptySnapshot);
+ } finally {
+ setLoading(false);
+ }
+ }, [branchId, t]);
+
+ useEffect(() => {
+ if (!loaded) return;
+ if (!user) {
+ router.replace("/");
+ return;
+ }
+ if (user.role !== "branch_manager") {
+ router.replace(user.role === "loan_officer" ? "/officer/dashboard" : "/dashboard");
+ return;
+ }
+ void load();
+ }, [loaded, user, router, load]);
+
+ const { customers, applications, loans, payments, team, collectionsToday, metrics } = snapshot;
+ const m = metrics?.metrics;
+
+ const outstanding = Number(m?.portfolio?.outstanding_amount ?? 0) ||
+ loans.reduce((sum, loan) => sum + loan.total_outstanding, 0);
+ const principalDisbursed = loans.reduce((sum, loan) => sum + loan.principal_amount, 0);
+ const collected =
+ Number(m?.collections?.amount ?? 0) ||
+ payments
  .filter((payment) => payment.status === "completed")
  .reduce((sum, payment) => sum + payment.amount, 0);
- const pendingReview = branchApplications.filter(
- (item) => item.status === "submitted" || item.status === "under_review"
- ).length;
- const approvedApps = branchApplications.filter((item) => item.status === "approved").length;
- const rejectedApps = branchApplications.filter((item) => item.status === "rejected").length;
- const collectionToday = branchCollections.filter((item) => {
- const today = new Date().toDateString();
- return new Date(item.performed_at).toDateString() === today;
- }).length;
- const inArrearsCount = branchLoans.filter((loan) => loan.days_in_arrears > 0).length;
- const completedLoans = branchLoans.filter((loan) => loan.status === "paid_off").length;
- const completionRate = branchLoans.length > 0 ? (completedLoans / branchLoans.length) * 100 : 0;
+
+ const pendingReview =
+ Number(m?.applications?.submitted ?? 0) + Number(m?.applications?.under_review ?? 0) ||
+ applications.filter((item) => item.status === "submitted" || item.status === "under_review").length;
+ const approvedApps =
+ Number(m?.applications?.approved ?? 0) ||
+ applications.filter((item) => item.status === "approved").length;
+ const rejectedApps =
+ Number(m?.applications?.rejected ?? 0) ||
+ applications.filter((item) => item.status === "rejected").length;
+
+ const inArrearsCount = loans.filter((loan) => loan.days_in_arrears > 0).length;
+ const completedLoans = loans.filter((loan) => loan.status === "paid_off").length;
+ const completionRate = loans.length > 0 ? (completedLoans / loans.length) * 100 : 0;
  const collectionRate = principalDisbursed > 0 ? (collected / principalDisbursed) * 100 : 0;
- const portfolioAtRiskAmount = branchLoans
+ const portfolioAtRiskAmount =
+ Number(m?.risk?.par_amount ?? 0) ||
+ loans
  .filter((loan) => loan.days_in_arrears > 30)
  .reduce((sum, loan) => sum + loan.total_outstanding, 0);
 
- const officerTeam = branchTeam.filter(
- (member) => member.role === "loan_officer" || member.role === "collections_officer"
+ const officerTeam = team.filter(
+ (member) =>
+ member.branch_id === branchId &&
+ (member.role === "loan_officer" || member.role === "collections_officer") &&
+ member.is_active
  );
+
  const pendingTasks = [
- { label: "Applications pending review", value: pendingReview, tone: "warning" as const },
- { label: "Loans in arrears follow-up", value: inArrearsCount, tone: "danger" as const },
- { label: "Collections activities today", value: collectionToday, tone: "neutral" as const },
+ { label: t("manager.taskPendingReview"), value: pendingReview, tone: "warning" as const },
+ { label: t("manager.taskArrears"), value: inArrearsCount, tone: "danger" as const },
+ { label: t("manager.taskCollectionsToday"), value: collectionsToday, tone: "neutral" as const },
  ];
+
+ if (!loaded || !user || user.role !== "branch_manager") {
+ return null;
+ }
 
  return (
  <>
  <ManagerPageHeader
- title="Branch Manager Dashboard"
- description="Branch-only portfolio oversight and operational controls"
+ title={t("manager.dashboardTitle")}
+ description={t("manager.dashboardDesc")}
  branchLabel={branchLabel}
  />
  <main className="flex-1 overflow-auto p-4 lg:p-6">
  <div className="mx-auto max-w-7xl space-y-5">
+ {error ? (
+ <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+ {error}
+ </div>
+ ) : null}
+
+ {loading ? (
+ <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
+ <Loader2 className="h-5 w-5 animate-spin" />
+ {t("manager.loadingBranch")}
+ </div>
+ ) : (
+ <>
  <div className="rounded-2xl border border-emerald-200/70 bg-gradient-to-r from-emerald-600 via-emerald-700 to-emerald-800 p-5 text-white shadow-sm">
- <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-100">Branch Command Desk</p>
- <h2 className="mt-1 text-2xl font-semibold tracking-tight">{branch?.name ?? "Assigned Branch"} Operations</h2>
- <p className="mt-1 text-sm text-emerald-100/90">
- Executive view for manager decisions: portfolio quality, review queues, field activity, and team execution.
+ <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-100">
+ {t("manager.commandDesk")}
  </p>
+ <h2 className="mt-1 text-2xl font-semibold tracking-tight">
+ {t("manager.operations", { branch: branchLabel })}
+ </h2>
+ <p className="mt-1 text-sm text-emerald-100/90">{t("manager.liveMetrics")}</p>
  <div className="mt-4 flex flex-wrap gap-2">
  <Badge className="border-white/30 bg-white/20 text-white hover:bg-white/20">
  <UsersRound className="mr-1 h-3.5 w-3.5" />
- {branchCustomers.length} customers
+ {t("common.customersCount", { count: customers.length })}
  </Badge>
  <Badge className="border-white/30 bg-white/20 text-white hover:bg-white/20">
  <BriefcaseBusiness className="mr-1 h-3.5 w-3.5" />
- {branchLoans.length} active loan records
+ {t("common.loanRecords", { count: loans.length })}
  </Badge>
  <Badge className="border-white/30 bg-white/20 text-white hover:bg-white/20">
  <Activity className="mr-1 h-3.5 w-3.5" />
- {officerTeam.length} field staff
+ {t("common.fieldStaff", { count: officerTeam.length })}
  </Badge>
  </div>
  </div>
@@ -106,51 +186,57 @@ export default async function ManagerDashboardPage() {
  <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
  <Card className="border-emerald-200/70 bg-emerald-50/50">
  <CardHeader className="pb-2">
- <CardDescription>Branch Portfolio</CardDescription>
+ <CardDescription>{t("manager.branchPortfolio")}</CardDescription>
  <CardTitle className="text-2xl">{formatCurrency(outstanding)}</CardTitle>
  </CardHeader>
- <CardContent className="text-xs text-muted-foreground">Current outstanding across branch loans</CardContent>
+ <CardContent className="text-xs text-muted-foreground">{t("manager.outstandingLive")}</CardContent>
  </Card>
  <Card>
  <CardHeader className="pb-2">
- <CardDescription>Total Collected</CardDescription>
+ <CardDescription>{t("manager.totalCollected")}</CardDescription>
  <CardTitle className="text-2xl">{formatCurrency(collected)}</CardTitle>
  </CardHeader>
- <CardContent className="text-xs text-muted-foreground">Completed payment collections to date</CardContent>
+ <CardContent className="text-xs text-muted-foreground">{t("manager.completedPayments")}</CardContent>
  </Card>
  <Card>
  <CardHeader className="pb-2">
- <CardDescription>Review Queue</CardDescription>
+ <CardDescription>{t("manager.reviewQueue")}</CardDescription>
  <CardTitle className="text-2xl">{pendingReview}</CardTitle>
  </CardHeader>
- <CardContent className="text-xs text-muted-foreground">Submitted and under-review applications</CardContent>
+ <CardContent className="text-xs text-muted-foreground">{t("manager.reviewQueueDesc")}</CardContent>
  </Card>
  <Card>
  <CardHeader className="pb-2">
- <CardDescription>Portfolio At Risk ({">"}30d)</CardDescription>
+ <CardDescription>{t("manager.parExposure")}</CardDescription>
  <CardTitle className="text-2xl">{formatCurrency(portfolioAtRiskAmount)}</CardTitle>
  </CardHeader>
- <CardContent className="text-xs text-muted-foreground">Exposure requiring urgent follow-up</CardContent>
+ <CardContent className="text-xs text-muted-foreground">{t("manager.parExposureDesc")}</CardContent>
  </Card>
  </div>
 
  <div className="grid gap-4 xl:grid-cols-12">
  <Card className="xl:col-span-4">
  <CardHeader className="pb-2">
- <CardTitle className="text-base">Application Pipeline</CardTitle>
- <CardDescription>Branch credit flow status</CardDescription>
+ <CardTitle className="text-base">{t("manager.applicationPipeline")}</CardTitle>
+ <CardDescription>{t("manager.creditFlow")}</CardDescription>
  </CardHeader>
  <CardContent className="space-y-3 text-sm">
  <div className="flex items-center justify-between rounded-lg border p-3">
- <span className="inline-flex items-center gap-2 text-muted-foreground"><Clock3 className="h-4 w-4" /> Pending review</span>
+ <span className="inline-flex items-center gap-2 text-muted-foreground">
+ <Clock3 className="h-4 w-4" /> {t("common.pendingReview")}
+ </span>
  <span className="font-semibold">{pendingReview}</span>
  </div>
  <div className="flex items-center justify-between rounded-lg border p-3">
- <span className="inline-flex items-center gap-2 text-muted-foreground"><CheckCircle2 className="h-4 w-4 text-emerald-600" /> Approved</span>
+ <span className="inline-flex items-center gap-2 text-muted-foreground">
+ <CheckCircle2 className="h-4 w-4 text-emerald-600" /> {t("common.approved")}
+ </span>
  <span className="font-semibold">{approvedApps}</span>
  </div>
  <div className="flex items-center justify-between rounded-lg border p-3">
- <span className="inline-flex items-center gap-2 text-muted-foreground"><AlertCircle className="h-4 w-4 text-rose-600" /> Rejected</span>
+ <span className="inline-flex items-center gap-2 text-muted-foreground">
+ <AlertCircle className="h-4 w-4 text-rose-600" /> {t("common.rejected")}
+ </span>
  <span className="font-semibold">{rejectedApps}</span>
  </div>
  </CardContent>
@@ -158,36 +244,40 @@ export default async function ManagerDashboardPage() {
 
  <Card className="xl:col-span-4">
  <CardHeader className="pb-2">
- <CardTitle className="text-base">Collection Efficiency</CardTitle>
- <CardDescription>Recovery against disbursed principal</CardDescription>
+ <CardTitle className="text-base">{t("manager.collectionEfficiency")}</CardTitle>
+ <CardDescription>{t("manager.recoveryVsPrincipal")}</CardDescription>
  </CardHeader>
  <CardContent className="space-y-4">
  <div className="rounded-xl border bg-muted/20 p-4">
  <p className="text-3xl font-bold tracking-tight">{collectionRate.toFixed(1)}%</p>
- <p className="text-xs text-muted-foreground">Collection rate</p>
+ <p className="text-xs text-muted-foreground">{t("manager.collectionRate")}</p>
  </div>
  <Progress value={Math.min(collectionRate, 100)} className="h-2.5" />
  <div className="flex items-center justify-between text-xs text-muted-foreground">
- <span className="inline-flex items-center gap-1"><Wallet className="h-3.5 w-3.5" /> Disbursed: {formatCurrency(principalDisbursed)}</span>
- <span className="inline-flex items-center gap-1"><CreditCard className="h-3.5 w-3.5" /> Collected: {formatCurrency(collected)}</span>
+ <span className="inline-flex items-center gap-1">
+ <Wallet className="h-3.5 w-3.5" /> {t("manager.disbursed", { amount: formatCurrency(principalDisbursed) })}
+ </span>
+ <span className="inline-flex items-center gap-1">
+ <CreditCard className="h-3.5 w-3.5" /> {t("manager.collected", { amount: formatCurrency(collected) })}
+ </span>
  </div>
  </CardContent>
  </Card>
 
  <Card className="xl:col-span-4">
  <CardHeader className="pb-2">
- <CardTitle className="text-base">Loan Completion</CardTitle>
- <CardDescription>Repayment maturity progress</CardDescription>
+ <CardTitle className="text-base">{t("manager.loanCompletion")}</CardTitle>
+ <CardDescription>{t("manager.repaymentProgress")}</CardDescription>
  </CardHeader>
  <CardContent className="space-y-4">
  <div className="rounded-xl border bg-muted/20 p-4">
  <p className="text-3xl font-bold tracking-tight">{completionRate.toFixed(1)}%</p>
- <p className="text-xs text-muted-foreground">Loans closed vs total loans</p>
+ <p className="text-xs text-muted-foreground">{t("manager.loansClosedVsTotal")}</p>
  </div>
  <Progress value={completionRate} className="h-2.5" />
  <div className="flex items-center justify-between text-xs text-muted-foreground">
- <span>{completedLoans} paid off</span>
- <span>{branchLoans.length - completedLoans} in progress</span>
+ <span>{t("manager.paidOff", { count: completedLoans })}</span>
+ <span>{t("manager.inProgress", { count: loans.length - completedLoans })}</span>
  </div>
  </CardContent>
  </Card>
@@ -196,27 +286,31 @@ export default async function ManagerDashboardPage() {
  <div className="grid gap-4 lg:grid-cols-3">
  <Card className="lg:col-span-2">
  <CardHeader className="pb-2">
- <CardTitle className="text-base">Team Workload Snapshot</CardTitle>
- <CardDescription>Branch team members and execution roles</CardDescription>
+ <CardTitle className="text-base">{t("manager.teamWorkload")}</CardTitle>
+ <CardDescription>{t("manager.teamFromApi")}</CardDescription>
  </CardHeader>
  <CardContent className="space-y-2">
- {branchTeam.slice(0, 7).map((member) => (
+ {officerTeam.length === 0 ? (
+ <p className="text-sm text-muted-foreground">{t("manager.noOfficers")}</p>
+ ) : (
+ officerTeam.slice(0, 7).map((member) => (
  <div key={member.id} className="flex items-center justify-between rounded-lg border p-3 text-sm">
  <div>
  <p className="font-medium">{member.full_name}</p>
- <p className="text-xs text-muted-foreground">{member.employee_id}</p>
+ <p className="text-xs text-muted-foreground">{member.employee_id || member.email}</p>
  </div>
  <Badge variant="outline" className="capitalize">
  {member.role.replace("_", " ")}
  </Badge>
  </div>
- ))}
+ ))
+ )}
  </CardContent>
  </Card>
  <Card>
  <CardHeader className="pb-2">
- <CardTitle className="text-base">Manager Priority Queue</CardTitle>
- <CardDescription>What needs action now</CardDescription>
+ <CardTitle className="text-base">{t("manager.priorityQueue")}</CardTitle>
+ <CardDescription>{t("manager.needsAction")}</CardDescription>
  </CardHeader>
  <CardContent className="space-y-3">
  {pendingTasks.map((task) => (
@@ -239,13 +333,15 @@ export default async function ManagerDashboardPage() {
  <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
  <p className="inline-flex items-center gap-1 font-medium text-foreground">
  <Target className="h-3.5 w-3.5 text-emerald-600" />
- Branch weekly focus
+ {t("manager.weeklyFocus")}
  </p>
- <p className="mt-1">Reduce PAR exposure by prioritizing accounts above 30 arrears days.</p>
+ <p className="mt-1">{t("manager.weeklyFocusBody")}</p>
  </div>
  </CardContent>
  </Card>
  </div>
+ </>
+ )}
  </div>
  </main>
  </>

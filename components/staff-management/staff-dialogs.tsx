@@ -1,7 +1,6 @@
-"use client";
-
-import { FormEvent } from "react";
-import { branches, formatDateTime } from "@/lib/mock-data";
+import { Loader2 } from "lucide-react";
+import { formatDateTime } from "@/lib/formatters";
+import type { Branch } from "@/lib/types";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -51,9 +50,12 @@ import {
 import { cn } from "@/lib/utils";
 
 interface StaffDialogsProps {
+ branches: Branch[];
  createOpen: boolean;
  createForm: StaffFormState;
  createFormError: string;
+ /** Disables create actions while POST /users is in flight. */
+ createSaving?: boolean;
  /** When true, creates a pending provisioning request (no password). */
  provisioningHire?: boolean;
  /** When set, create form branch field is read-only (e.g. branch manager). */
@@ -123,12 +125,14 @@ function StaffRoleSelectContent({ variant = "all" }: { variant?: "all" | "provis
 }
 
 export function StaffFormFields({
+ branches,
  form,
  onChange,
  provisioningHire,
  lockedBranchId,
  recordLayout,
 }: {
+ branches: Branch[];
  form: StaffFormState;
  onChange: (updater: (prev: StaffFormState) => StaffFormState) => void;
  provisioningHire?: boolean;
@@ -424,6 +428,7 @@ export function StaffFormFields({
 
 export function StaffDialogs(props: StaffDialogsProps) {
  const isMobile = useIsMobile();
+ const createSaving = props.createSaving ?? false;
 
  const createTitle = props.provisioningHire ? "Propose new hire" : "Add staff member";
  const headerEyebrow = props.provisioningHire ? "Pending hire request" : "Staff directory";
@@ -457,6 +462,7 @@ export function StaffDialogs(props: StaffDialogsProps) {
  <form className="flex min-h-0 flex-1 flex-col" onSubmit={props.onCreateSubmit}>
  <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
  <StaffFormFields
+ branches={props.branches}
  form={props.createForm}
  onChange={props.onCreateFormChange}
  provisioningHire={props.provisioningHire}
@@ -468,13 +474,15 @@ export function StaffDialogs(props: StaffDialogsProps) {
  ) : null}
  </div>
  <SheetFooter className="mt-auto flex-shrink-0 flex-col-reverse gap-2 border-t border-border/60 bg-muted/25 px-4 py-4 sm:flex-row sm:justify-end">
- <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={props.onCreateCancel}>
+ <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={props.onCreateCancel} disabled={createSaving}>
  Cancel
  </Button>
  <Button
  type="submit"
+ disabled={createSaving}
  className="w-full gap-2 bg-emerald-700 text-white hover:bg-emerald-800 sm:w-auto"
  >
+ {createSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
  {props.provisioningHire ? "Submit for approval" : "Create staff"}
  </Button>
  </SheetFooter>
@@ -501,6 +509,7 @@ export function StaffDialogs(props: StaffDialogsProps) {
  <form className="flex min-h-0 flex-1 flex-col" onSubmit={props.onCreateSubmit}>
  <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6">
  <StaffFormFields
+ branches={props.branches}
  form={props.createForm}
  onChange={props.onCreateFormChange}
  provisioningHire={props.provisioningHire}
@@ -512,13 +521,11 @@ export function StaffDialogs(props: StaffDialogsProps) {
  ) : null}
  </div>
  <div className="flex flex-col-reverse gap-2 border-t border-border/60 bg-muted/25 px-5 py-4 sm:flex-row sm:justify-end sm:gap-3 sm:px-6">
- <Button type="button" variant="outline" onClick={props.onCreateCancel}>
+ <Button type="button" variant="outline" onClick={props.onCreateCancel} disabled={createSaving}>
  Cancel
  </Button>
- <Button
- type="submit"
- className="gap-2 bg-emerald-700 text-white hover:bg-emerald-800 "
- >
+ <Button type="submit" disabled={createSaving} className="gap-2 bg-emerald-700 text-white hover:bg-emerald-800 ">
+ {createSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
  {props.provisioningHire ? "Submit for approval" : "Create staff"}
  </Button>
  </div>
@@ -577,7 +584,7 @@ export function StaffDialogs(props: StaffDialogsProps) {
  <div>
  <p className="text-xs text-muted-foreground">Branch</p>
  <p className="text-sm font-medium">
- {branches.find((branch) => branch.id === props.viewStaff.branch_id)?.name ?? "Unassigned"}
+ {props.branches.find((branch) => branch.id === props.viewStaff.branch_id)?.name ?? "Unassigned"}
  </p>
  </div>
  <div>
@@ -684,7 +691,7 @@ export function StaffDialogs(props: StaffDialogsProps) {
  <SelectValue />
  </SelectTrigger>
  <SelectContent>
- {branches.map((branch) => (
+ {props.branches.map((branch) => (
  <SelectItem key={branch.id} value={branch.id}>
  {branch.name}
  </SelectItem>

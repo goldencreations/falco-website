@@ -43,14 +43,16 @@ import {
  Building2,
  TrendingUp,
 } from "lucide-react";
-import {
- branches,
- formatCurrency,
- loanApplications,
- loans,
- payments,
- currentUser,
-} from "@/lib/mock-data";
+import { toast } from "sonner";
+import { formatCurrency } from "@/lib/formatters";
+import { extractApplicationsList } from "@/lib/application-adapters";
+import { extractCustomersList } from "@/lib/customer-adapters";
+import { extractLoansList } from "@/lib/loan-adapters";
+import { extractPaymentsPayload } from "@/lib/payment-adapters";
+import { extractUsersListPayload } from "@/lib/user-adapters";
+import { useOptionalBranchAssignment } from "@/components/branch-assignment-context";
+import type { LoanApplication, Payment } from "@/lib/types";
+import type { LoanListRow } from "@/lib/loan-adapters";
 import type { Customer, User } from "@/lib/types";
 import {
  computeOfficerPerformance,
@@ -64,15 +66,22 @@ import {
  defaultCreateForm,
  validateProvisioningHireForm,
 } from "@/components/staff-management/utils";
+import { ManagerPendingHiresTable } from "@/components/staff-management/manager-pending-hires";
 import type { StaffFormState } from "@/components/staff-management/types";
+import { extractProvisioningRequestsList } from "@/lib/staff-provisioning-adapters";
+import type { StaffProvisioningRequest } from "@/lib/staff-requests-types";
 import { useSessionUser } from "@/lib/use-session-user";
 
 const TEAM_ROLES: User["role"][] = ["loan_officer", "collections_officer"];
 
 export default function StaffTeamPage() {
  const { user: sessionUser } = useSessionUser();
+ const branchCtx = useOptionalBranchAssignment();
  const [users, setUsers] = useState<User[]>([]);
  const [customers, setCustomers] = useState<Customer[]>([]);
+ const [loans, setLoans] = useState<LoanListRow[]>([]);
+ const [applications, setApplications] = useState<LoanApplication[]>([]);
+ const [payments, setPayments] = useState<Payment[]>([]);
  const [loading, setLoading] = useState(true);
  const [assignCustomerId, setAssignCustomerId] = useState("");
  const [assignOfficerId, setAssignOfficerId] = useState("");
@@ -88,30 +97,56 @@ export default function StaffTeamPage() {
  const [hireForm, setHireForm] = useState<StaffFormState>(defaultCreateForm);
  const [hireError, setHireError] = useState("");
  const [hireSaving, setHireSaving] = useState(false);
+ const [hireNotes, setHireNotes] = useState("");
+ const [provisioningRows, setProvisioningRows] = useState<StaffProvisioningRequest[]>([]);
+ const [loadingProvisioning, setLoadingProvisioning] = useState(false);
 
- const effectiveRole = sessionUser?.role ?? currentUser.role;
- const branchId = sessionUser?.branch_id ?? currentUser.branch_id;
+ const effectiveRole = sessionUser?.role ?? "branch_manager";
+ const branchId = sessionUser?.branch_id ?? "";
  const lockHireBranch = effectiveRole === "branch_manager";
 
  const load = useCallback(async () => {
  setLoading(true);
  try {
- const [uRes, cRes] = await Promise.all([
- fetch("/api/staff/directory"),
- fetch("/api/customers/with-assignments"),
+ const branchQ = branchId ? `branch_id=${encodeURIComponent(branchId)}&` : "";
+ const [uRes, cRes, lRes, aRes, pRes] = await Promise.all([
+ fetch(`/api/staff/directory?${branchQ}page_size=200`, { credentials: "include" }),
+ fetch("/api/customers/with-assignments", { credentials: "include" }),
+ fetch(`/api/loans?${branchQ}page_size=200`, { credentials: "include" }),
+ fetch(`/api/applications?${branchQ}page_size=200`, { credentials: "include" }),
+ fetch(`/api/payments?${branchQ}page_size=200`, { credentials: "include" }),
  ]);
  const uData = await uRes.json();
  const cData = await cRes.json();
- setUsers(uData.users ?? []);
- setCustomers(cData.customers ?? []);
+ setUsers(uRes.ok ? extractUsersListPayload(uData).users : []);
+ setCustomers(cRes.ok ? extractCustomersList(cData) : []);
+ if (lRes.ok) setLoans(extractLoansList(await lRes.json()));
+ else setLoans([]);
+ if (aRes.ok) setApplications(extractApplicationsList(await aRes.json()));
+ else setApplications([]);
+ if (pRes.ok) setPayments(extractPaymentsPayload(await pRes.json()).payments);
+ else setPayments([]);
  } finally {
  setLoading(false);
  }
- }, []);
+ }, [branchId]);
+
+ const loadProvisioning = useCallback(async () => {
+ if (effectiveRole !== "branch_manager") return;
+ setLoadingProvisioning(true);
+ try {
+ const res = await fetch("/api/staff/provisioning", { credentials: "include" });
+ const data = await res.json().catch(() => ({}));
+ setProvisioningRows(res.ok ? extractProvisioningRequestsList(data) : []);
+ } finally {
+ setLoadingProvisioning(false);
+ }
+ }, [effectiveRole]);
 
  useEffect(() => {
  load();
- }, [load]);
+ void loadProvisioning();
+ }, [load, loadProvisioning]);
 
  useEffect(() => {
  if (hireOpen) {
@@ -134,12 +169,12 @@ export default function StaffTeamPage() {
  computeOfficerPerformance(officer, {
  customers,
  loans,
- applications: loanApplications,
+ applications,
  payments,
  })
  );
  return rankOfficersByScore(rows);
- }, [branchOfficers, customers]);
+ }, [branchOfficers, customers, loans, applications, payments]);
 
  const perfById = useMemo(() => {
  const m = new Map<string, OfficerPerformance>();
@@ -166,20 +201,34 @@ export default function StaffTeamPage() {
  const viewOfficer = viewOfficerId ? users.find((u) => u.id === viewOfficerId) ?? null : null;
  const viewPerf = viewOfficerId ? perfById.get(viewOfficerId) ?? null : null;
 
+ const loanOfficers = useMemo(
+ () => branchOfficers.filter((u) => u.role === "loan_officer"),
+ [branchOfficers]
+ );
+
+ const officerNameById = useMemo(() => {
+ const m = new Map<string, string>();
+ for (const u of users) m.set(u.id, u.full_name);
+ return m;
+ }, [users]);
+
  const handleAssign = async () => {
  if (!assignCustomerId || !assignOfficerId) return;
  setAssignSaving(true);
  try {
- const res = await fetch(`/api/customers/${assignCustomerId}/assignment`, {
+ const res = await fetch(`/api/customers/${encodeURIComponent(assignCustomerId)}/assignment`, {
  method: "PATCH",
+ credentials: "include",
  headers: { "Content-Type": "application/json" },
  body: JSON.stringify({ assigned_loan_officer_id: assignOfficerId }),
  });
+ const json = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
  if (!res.ok) {
- const e = await res.json();
- alert(e.error ?? "Assignment failed");
+ toast.error(json.error ?? json.message ?? "Assignment failed");
  return;
  }
+ const officerName = officerNameById.get(assignOfficerId) ?? "loan officer";
+ toast.success(`Customer assigned to ${officerName}`);
  await load();
  setAssignCustomerId("");
  setAssignOfficerId("");
@@ -194,6 +243,7 @@ export default function StaffTeamPage() {
  try {
  const res = await fetch("/api/staff/access-requests", {
  method: "POST",
+ credentials: "include",
  headers: { "Content-Type": "application/json" },
  body: JSON.stringify({
  type: "suspend",
@@ -233,6 +283,7 @@ export default function StaffTeamPage() {
  try {
  const res = await fetch("/api/staff/provisioning", {
  method: "POST",
+ credentials: "include",
  headers: { "Content-Type": "application/json" },
  body: JSON.stringify({
  full_name: hireForm.full_name.trim(),
@@ -240,6 +291,7 @@ export default function StaffTeamPage() {
  phone: hireForm.phone.trim(),
  role: hireForm.role,
  branch_id: hireForm.branch_id,
+ notes: hireNotes.trim() || undefined,
  }),
  });
  const data = await res.json().catch(() => ({}));
@@ -248,15 +300,17 @@ export default function StaffTeamPage() {
  return;
  }
  setHireOpen(false);
+ setHireNotes("");
+ void loadProvisioning();
  alert(
- "Hire request submitted. Super Admin will review it in Staff Management → Pending hires. The user cannot access the system until approved."
+ "Hire request submitted. A super administrator will approve it under Staff Management → Pending hires and issue a portal password."
  );
  } finally {
  setHireSaving(false);
  }
  };
 
- if (effectiveRole !== "branch_manager" && effectiveRole !== "super_admin") {
+ if (effectiveRole !== "branch_manager") {
  return (
  <>
  <DashboardHeader title="Team & assignments" description="" />
@@ -267,7 +321,8 @@ export default function StaffTeamPage() {
  );
  }
 
- const branchName = branches.find((b) => b.id === branchId)?.name ?? branchId;
+ const branchName =
+ (branchCtx?.branches.find((b) => b.id === branchId)?.name ?? branchId) || "Branch";
  const loanOfficerCount = branchOfficers.filter((u) => u.role === "loan_officer").length;
 
  return (
@@ -295,7 +350,16 @@ export default function StaffTeamPage() {
  </div>
  </div>
  <div className="flex flex-wrap gap-2">
- <Button type="button" variant="outline" size="sm" onClick={() => load()} disabled={loading}>
+ <Button
+ type="button"
+ variant="outline"
+ size="sm"
+ onClick={() => {
+ void load();
+ void loadProvisioning();
+ }}
+ disabled={loading}
+ >
  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
  <span className="ml-2">Refresh</span>
  </Button>
@@ -365,6 +429,10 @@ export default function StaffTeamPage() {
  </div>
  </div>
 
+ {effectiveRole === "branch_manager" ? (
+ <ManagerPendingHiresTable rows={provisioningRows} loading={loadingProvisioning} />
+ ) : null}
+
  {best && (
  <Card className="border border-emerald-200/70 bg-gradient-to-br from-emerald-600/95 via-emerald-700 to-emerald-900 text-emerald-50 shadow-md ">
  <CardHeader className="pb-2">
@@ -373,7 +441,7 @@ export default function StaffTeamPage() {
  Best performer
  </CardTitle>
  <CardDescription className="text-emerald-100/90">
- Composite ranking from assignments, pipeline, loans, and collections (demo formula).
+ Live ranking from customer assignments, applications, loans, and collections.
  </CardDescription>
  </CardHeader>
  <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -403,6 +471,10 @@ export default function StaffTeamPage() {
  <div className="flex justify-center py-16">
  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
  </div>
+ ) : branchOfficers.length === 0 ? (
+ <p className="py-12 text-center text-sm text-muted-foreground">
+ No active loan or collections officers on this branch yet.
+ </p>
  ) : (
  <>
  <div className="hidden md:block">
@@ -509,7 +581,7 @@ export default function StaffTeamPage() {
  Assign loan officer to customer
  </CardTitle>
  <CardDescription>
- Sets the primary relationship manager (`assigned_loan_officer_id`) for the selected customer.
+ Assign a branch customer to a loan officer. Saves to the LMS as the customer&apos;s relationship manager.
  </CardDescription>
  </CardHeader>
  <CardContent className="space-y-4">
@@ -530,11 +602,22 @@ export default function StaffTeamPage() {
  <SelectValue placeholder="Select customer" />
  </SelectTrigger>
  <SelectContent className="max-h-72">
- {filteredCustomers.map((c) => (
+ {filteredCustomers.length === 0 ? (
+ <SelectItem value="__none__" disabled>
+ No customers in this branch
+ </SelectItem>
+ ) : (
+ filteredCustomers.map((c) => {
+ const rmId = c.assigned_loan_officer_id?.trim();
+ const rmLabel = rmId ? officerNameById.get(rmId) : null;
+ return (
  <SelectItem key={c.id} value={c.id}>
  {c.customer_number} · {c.first_name} {c.last_name}
+ {rmLabel ? ` (RM: ${rmLabel})` : " (Unassigned)"}
  </SelectItem>
- ))}
+ );
+ })
+ )}
  </SelectContent>
  </Select>
  </div>
@@ -545,20 +628,31 @@ export default function StaffTeamPage() {
  <SelectValue placeholder="Select officer" />
  </SelectTrigger>
  <SelectContent>
- {branchOfficers
- .filter((u) => u.role === "loan_officer")
- .map((u) => (
+ {loanOfficers.length === 0 ? (
+ <SelectItem value="__none__" disabled>
+ No loan officers on this branch
+ </SelectItem>
+ ) : (
+ loanOfficers.map((u) => (
  <SelectItem key={u.id} value={u.id}>
  {u.full_name}
+ {u.employee_id ? ` (${u.employee_id})` : ""}
  </SelectItem>
- ))}
+ ))
+ )}
  </SelectContent>
  </Select>
  </div>
  </div>
  <Button
  onClick={handleAssign}
- disabled={!assignCustomerId || !assignOfficerId || assignSaving}
+ disabled={
+ !assignCustomerId ||
+ !assignOfficerId ||
+ assignSaving ||
+ !loanOfficers.length ||
+ !branchCustomers.length
+ }
  >
  {assignSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
  Save assignment
@@ -583,11 +677,22 @@ export default function StaffTeamPage() {
  <SelectValue placeholder="Customer" />
  </SelectTrigger>
  <SelectContent className="max-h-72">
- {filteredCustomers.map((c) => (
+ {filteredCustomers.length === 0 ? (
+ <SelectItem value="__none__" disabled>
+ No customers in this branch
+ </SelectItem>
+ ) : (
+ filteredCustomers.map((c) => {
+ const rmId = c.assigned_loan_officer_id?.trim();
+ const rmLabel = rmId ? officerNameById.get(rmId) : null;
+ return (
  <SelectItem key={c.id} value={c.id}>
  {c.customer_number} · {c.first_name} {c.last_name}
+ {rmLabel ? ` (RM: ${rmLabel})` : " (Unassigned)"}
  </SelectItem>
- ))}
+ );
+ })
+ )}
  </SelectContent>
  </Select>
  <Select value={assignOfficerId} onValueChange={setAssignOfficerId}>
@@ -595,19 +700,30 @@ export default function StaffTeamPage() {
  <SelectValue placeholder="Loan officer" />
  </SelectTrigger>
  <SelectContent>
- {branchOfficers
- .filter((u) => u.role === "loan_officer")
- .map((u) => (
+ {loanOfficers.length === 0 ? (
+ <SelectItem value="__none__" disabled>
+ No loan officers on this branch
+ </SelectItem>
+ ) : (
+ loanOfficers.map((u) => (
  <SelectItem key={u.id} value={u.id}>
  {u.full_name}
+ {u.employee_id ? ` (${u.employee_id})` : ""}
  </SelectItem>
- ))}
+ ))
+ )}
  </SelectContent>
  </Select>
  <Button
  className="w-full"
  onClick={handleAssign}
- disabled={!assignCustomerId || !assignOfficerId || assignSaving}
+ disabled={
+ !assignCustomerId ||
+ !assignOfficerId ||
+ assignSaving ||
+ !loanOfficers.length ||
+ !branchCustomers.length
+ }
  >
  {assignSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
  Save assignment
@@ -631,7 +747,7 @@ export default function StaffTeamPage() {
  officer={viewOfficer}
  perf={viewPerf}
  customers={customers}
- applications={loanApplications}
+ applications={applications}
  loans={loans}
  />
 
@@ -651,12 +767,23 @@ export default function StaffTeamPage() {
  </div>
  <form className="grid gap-0 px-5 py-5 sm:px-6" onSubmit={handleProposeHire}>
  <StaffFormFields
+ branches={branchCtx?.branches ?? []}
  form={hireForm}
  onChange={(updater) => setHireForm((prev) => updater(prev))}
  provisioningHire
  lockedBranchId={lockHireBranch ? branchId : undefined}
  recordLayout
  />
+ <div className="mt-4 space-y-2">
+ <Label htmlFor="hire-notes">Notes for Head Office (optional)</Label>
+ <Textarea
+ id="hire-notes"
+ value={hireNotes}
+ onChange={(e) => setHireNotes(e.target.value)}
+ rows={2}
+ placeholder="e.g. Replacing officer on maternity leave"
+ />
+ </div>
  {hireError ? <p className="mt-4 text-sm text-destructive">{hireError}</p> : null}
  <DialogFooter className="mt-4 gap-2 border-t border-border/60 bg-muted/25 px-5 py-4 sm:gap-3 sm:px-6">
  <Button type="button" variant="outline" onClick={() => setHireOpen(false)}>

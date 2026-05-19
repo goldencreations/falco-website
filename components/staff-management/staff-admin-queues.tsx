@@ -1,7 +1,8 @@
 "use client";
 
 import { Loader2 } from "lucide-react";
-import { branches, formatDateTime } from "@/lib/mock-data";
+import { formatDateTime } from "@/lib/formatters";
+import type { Branch } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,14 +19,16 @@ import type { StaffRole } from "@/components/staff-management/types";
 import { roleLabel } from "@/components/staff-management/utils";
 
 export function PendingHiresTable({
+ branches,
  rows,
  loading,
- onApprove,
+ onReview,
  onReject,
 }: {
+ branches: Branch[];
  rows: StaffProvisioningRequest[];
  loading: boolean;
- onApprove: (id: string) => void;
+ onReview: (row: StaffProvisioningRequest) => void;
  onReject: (id: string) => void;
 }) {
  return (
@@ -33,7 +36,7 @@ export function PendingHiresTable({
  <CardHeader>
  <CardTitle className="text-lg">Pending hires</CardTitle>
  <CardDescription>
- Approve to create the portal-ready profile in the directory. Reject to dismiss without creating an account.
+ Review each request: approve to create portal login (set or receive a password), or reject to dismiss.
  </CardDescription>
  </CardHeader>
  <CardContent>
@@ -75,8 +78,8 @@ export function PendingHiresTable({
  <Button size="sm" variant="outline" onClick={() => onReject(row.id)}>
  Reject
  </Button>
- <Button size="sm" onClick={() => onApprove(row.id)}>
- Approve
+ <Button size="sm" onClick={() => onReview(row)}>
+ Review & approve
  </Button>
  </div>
  </TableCell>

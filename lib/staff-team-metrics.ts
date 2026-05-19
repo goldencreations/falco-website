@@ -1,6 +1,6 @@
 /**
  * Per–loan-officer KPIs for branch team dashboards.
- * Score = weighted blend for ranking (tweak weights when product defines official formula).
+ * Aggregates live customers, applications, loans, and payments.
  */
 
 import type { Customer, Loan, LoanApplication, Payment, User } from "@/lib/types";
@@ -24,24 +24,74 @@ export interface OfficerPerformance {
  score: number;
 }
 
+function idEq(a: unknown, b: string): boolean {
+ return String(a ?? "").trim() === b;
+}
+
+function customerOfficerId(customer: Customer): string {
+ return String(customer.assigned_loan_officer_id ?? "").trim();
+}
+
+export function applicationBelongsToOfficer(
+ app: LoanApplication & { assigned_officer_id?: string; customer_loan_officer_id?: string },
+ officerId: string,
+ customersById: Map<string, Customer>
+): boolean {
+ if (idEq(app.created_by, officerId)) return true;
+ if (idEq(app.assigned_officer_id, officerId)) return true;
+ if (idEq(app.customer_loan_officer_id, officerId)) return true;
+ const cust = customersById.get(app.customer_id);
+ if (cust && idEq(customerOfficerId(cust), officerId)) return true;
+ return false;
+}
+
+export function loanBelongsToOfficer(
+ loan: Loan,
+ officerId: string,
+ customersById?: Map<string, Customer>
+): boolean {
+ if (idEq(loan.loan_officer_id, officerId)) return true;
+ if (idEq(loan.disbursed_by, officerId)) return true;
+ if (customersById && loan.customer_id) {
+ const cust = customersById.get(loan.customer_id);
+ if (cust && idEq(customerOfficerId(cust), officerId)) return true;
+ }
+ return false;
+}
+
+export function paymentAttributedToOfficer(
+ payment: Payment,
+ officerId: string,
+ loansById: Map<string, Loan>,
+ customersById?: Map<string, Customer>
+): boolean {
+ if (payment.status !== "completed") return false;
+ if (idEq(payment.received_by, officerId)) return true;
+ const loan = loansById.get(payment.loan_id);
+ return loan ? loanBelongsToOfficer(loan, officerId, customersById) : false;
+}
+
 export function computeOfficerPerformance(
  officer: User,
  ctx: {
  customers: Customer[];
  loans: Loan[];
- applications: LoanApplication[];
+ applications: (LoanApplication & { assigned_officer_id?: string })[];
  payments: Payment[];
  }
 ): OfficerPerformance {
- const oid = officer.id;
- const customers_assigned = ctx.customers.filter(
- (c) => (c.assigned_loan_officer_id ?? c.created_by) === oid
+ const oid = officer.id.trim();
+ const customersById = new Map(ctx.customers.map((c) => [c.id, c]));
+ const loansById = new Map(ctx.loans.map((l) => [l.id, l]));
+
+ const customers_assigned = ctx.customers.filter((c) => idEq(customerOfficerId(c), oid)).length;
+ const customers_created = ctx.customers.filter((c) => idEq(c.created_by, oid)).length;
+ const applications_count = ctx.applications.filter((a) =>
+ applicationBelongsToOfficer(a, oid, customersById)
  ).length;
- const customers_created = ctx.customers.filter((c) => c.created_by === oid).length;
- const applications_count = ctx.applications.filter((a) => a.created_by === oid).length;
- const loans_handled = ctx.loans.filter((l) => l.loan_officer_id === oid).length;
+ const loans_handled = ctx.loans.filter((l) => loanBelongsToOfficer(l, oid, customersById)).length;
  const collections_tz_sum = ctx.payments
- .filter((p) => p.status === "completed" && p.received_by === oid)
+ .filter((p) => paymentAttributedToOfficer(p, oid, loansById, customersById))
  .reduce((s, p) => s + p.amount, 0);
 
  const score =

@@ -12,6 +12,7 @@ export type SessionUserClient = {
  employee_id?: string;
  phone?: string;
  is_active?: boolean;
+ permissions?: string[];
 };
 
 export function useSessionUser() {
@@ -22,7 +23,7 @@ export function useSessionUser() {
  let active = true;
  const load = async () => {
  try {
- const response = await fetch("/api/session");
+ const response = await fetch("/api/session", { credentials: "include" });
  if (!response.ok) return;
  const payload = (await response.json()) as { user?: SessionUserClient };
  if (active && payload.user) setUser(payload.user);
