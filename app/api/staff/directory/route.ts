@@ -1,17 +1,12 @@
 import { NextResponse } from "next/server";
-import { branches, currentUser } from "@/lib/mock-data";
-import {
- addDirectoryUser,
- listDirectoryUsers,
- nextDirectoryEmployeeId,
-} from "@/lib/mock-user-directory";
+import { mapAppRoleToApiRole } from "@/lib/api-roles";
+import { fetchStaffUsersForSessionUser } from "@/lib/branch-summary-fallback";
+import { requireApiUser, resolvedBranchIdForListQuery, isBranchDataScoped } from "@/lib/authorization";
+import { falcoServerFetch } from "@/lib/server-falco";
+import { adaptApiUserToUser } from "@/lib/user-adapters";
 import { roleHasPortalAccess } from "@/components/staff-management/utils";
 import type { StaffRole } from "@/components/staff-management/types";
-import type { User, UserRole } from "@/lib/types";
-
-function uid(prefix: string) {
- return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-}
+import type { UserRole } from "@/lib/types";
 
 const CREATABLE_ROLES: StaffRole[] = [
  "super_admin",
@@ -21,13 +16,38 @@ const CREATABLE_ROLES: StaffRole[] = [
  "collections_officer",
 ];
 
-export async function GET() {
- return NextResponse.json({ users: listDirectoryUsers() });
+function canManageUsers(user: { role: UserRole; permissions: string[] }): boolean {
+ return user.role === "super_admin" || user.permissions.includes("users.manage");
 }
 
-/** Super admin: create an active directory user immediately (portal roles require initial password). */
+export async function GET(request: Request) {
+ try {
+ const auth = await requireApiUser(request);
+ if ("response" in auth) return auth.response;
+
+ const url = new URL(request.url);
+ const branch_id = resolvedBranchIdForListQuery(auth.user, url.searchParams.get("branch_id"));
+ const requestedRole = url.searchParams.get("role")?.trim();
+ const is_active = url.searchParams.get("is_active") ?? undefined;
+
+ const users = await fetchStaffUsersForSessionUser(auth.user, {
+ branchId: branch_id,
+ requestedRole: requestedRole ?? undefined,
+ isActive: is_active ?? undefined,
+ });
+
+ return NextResponse.json({ users });
+ } catch (e) {
+ const message = e instanceof Error ? e.message : "Failed to load staff directory";
+ console.error("[staff/directory GET]", e);
+ return NextResponse.json({ error: message, message, users: [] }, { status: 500 });
+ }
+}
+
 export async function POST(request: Request) {
- if (currentUser.role !== "super_admin") {
+ const auth = await requireApiUser(request);
+ if ("response" in auth) return auth.response;
+ if (!canManageUsers(auth.user)) {
  return NextResponse.json({ error: "Forbidden" }, { status: 403 });
  }
 
@@ -35,6 +55,7 @@ export async function POST(request: Request) {
  full_name?: string;
  email?: string;
  phone?: string;
+ employee_id?: string;
  role?: StaffRole;
  branch_id?: string;
  password?: string | null;
@@ -45,7 +66,10 @@ export async function POST(request: Request) {
  const full_name = body.full_name?.trim();
  const phone = body.phone?.trim();
  const role = body.role;
- const branch_id = body.branch_id;
+ let branch_id = body.branch_id?.trim();
+ if (isBranchDataScoped(auth.user)) {
+ branch_id = auth.user.branch_id;
+ }
 
  if (!full_name || !email || !phone || !role || !branch_id) {
  return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -56,12 +80,10 @@ export async function POST(request: Request) {
  if (!CREATABLE_ROLES.includes(role)) {
  return NextResponse.json({ error: "Invalid role" }, { status: 400 });
  }
- if (!branches.some((b) => b.id === branch_id)) {
- return NextResponse.json({ error: "Invalid branch" }, { status: 400 });
- }
 
- if (listDirectoryUsers().some((u) => u.email.toLowerCase() === email)) {
- return NextResponse.json({ error: "Email already exists" }, { status: 400 });
+ const apiRole = mapAppRoleToApiRole(role as UserRole);
+ if (!apiRole) {
+ return NextResponse.json({ error: "Invalid role mapping" }, { status: 400 });
  }
 
  const portal = roleHasPortalAccess(role);
@@ -80,25 +102,41 @@ export async function POST(request: Request) {
  }
  }
 
- const now = new Date().toISOString();
- const newUser: User = {
- id: uid("usr"),
+ const payload: Record<string, unknown> = {
  email,
  full_name,
  phone,
- role: role as UserRole,
+ role: apiRole,
  branch_id,
- employee_id: nextDirectoryEmployeeId(),
- is_active: true,
- created_at: now,
- last_login: null,
+ employee_id:
+ typeof body.employee_id === "string" && body.employee_id.trim()
+ ? body.employee_id.trim()
+ : `EMP-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
  };
+ if (portal && password) {
+ payload.temporary_password = password;
+ }
 
- addDirectoryUser(newUser);
+ const res = await falcoServerFetch<{ user?: Record<string, unknown> }>("/users", {
+ method: "POST",
+ body: payload,
+ });
 
+ if (!res.ok) {
+ return NextResponse.json(
+ { error: res.error.message, details: res.error.details },
+ { status: res.error.status }
+ );
+ }
+
+ const row = (res.data as { user?: Record<string, unknown> }).user;
+ if (!row) {
+ return NextResponse.json({ error: "Unexpected response from server" }, { status: 502 });
+ }
+
+ const user = adaptApiUserToUser(row);
  return NextResponse.json({
- user: newUser,
- /** Mock only: confirms portal password met validation; not persisted on User. */
+ user,
  portal_credentials_set: portal,
  });
 }

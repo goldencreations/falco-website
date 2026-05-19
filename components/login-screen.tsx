@@ -16,6 +16,7 @@ import {
  SelectTrigger,
  SelectValue,
 } from "@/components/ui/select";
+import { useOptionalLanguage } from "@/components/language-provider";
 import {
  type AppLanguage,
  isAppLanguage,
@@ -24,8 +25,9 @@ import {
 
 export function LoginScreen() {
  const router = useRouter();
- const [email, setEmail] = useState("admin@falcofinancial.co.tz");
- const [password, setPassword] = useState("SuperAdmin@123");
+ const languageCtx = useOptionalLanguage();
+ const [email, setEmail] = useState("");
+ const [password, setPassword] = useState("");
  const [showPassword, setShowPassword] = useState(false);
  const [rememberMe, setRememberMe] = useState(false);
  const [error, setError] = useState("");
@@ -38,9 +40,12 @@ export function LoginScreen() {
  }, []);
 
  useEffect(() => {
+ languageCtx?.setLanguage(language);
+ if (!languageCtx) {
  localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
  document.documentElement.setAttribute("lang", language === "sw" ? "sw" : "en");
- }, [language]);
+ }
+ }, [language, languageCtx]);
 
  const t = useMemo(() => {
  if (language === "sw") {
@@ -55,7 +60,6 @@ export function LoginScreen() {
  signingIn: "Inaingia...",
  noAccount: "Huna akaunti?",
  signUp: "Jisajili",
- demo: "Jaribio",
  invalidCredentials: "Taarifa za kuingia si sahihi.",
  unableToLogin: "Imeshindikana kuingia sasa. Tafadhali jaribu tena.",
     language: "Lugha",
@@ -72,7 +76,6 @@ export function LoginScreen() {
  signingIn: "Signing in...",
  noAccount: "Don't have an account?",
  signUp: "Sign up",
- demo: "Demo",
  invalidCredentials: "Invalid credentials.",
  unableToLogin: "Unable to login right now. Please try again.",
     language: "Language",
@@ -91,13 +94,12 @@ export function LoginScreen() {
  body: JSON.stringify({ email, password, rememberMe }),
  });
 
+ const payload = (await response.json()) as { message?: string; redirectTo?: string };
  if (!response.ok) {
- const payload = (await response.json()) as { message?: string };
  setError(payload.message ?? t.invalidCredentials);
  return;
  }
 
- const payload = (await response.json()) as { redirectTo?: string };
  router.push(payload.redirectTo ?? "/dashboard");
  router.refresh();
  } catch {
@@ -158,7 +160,7 @@ export function LoginScreen() {
  value={email}
  onChange={(e) => setEmail(e.target.value)}
  className="h-11 bg-background/80 "
- placeholder="admin@falcofinancial.co.tz"
+ placeholder="you@company.co.tz"
  autoComplete="email"
  required
  />
@@ -216,28 +218,6 @@ export function LoginScreen() {
  <p className="mt-6 text-center text-sm text-muted-foreground">
  {t.noAccount} <span className="font-semibold text-primary">{t.signUp}</span>
  </p>
-
- <div className="mt-8 space-y-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
- <p className="font-medium text-primary">{t.demo} Credentials</p>
- <p>
- <span className="font-semibold text-foreground">Super Admin:</span>{" "}
- <span className="rounded bg-background/70 px-1.5 py-0.5">admin@falcofinancial.co.tz</span>{" "}
- /{" "}
- <span className="rounded bg-background/70 px-1.5 py-0.5">SuperAdmin@123</span>
- </p>
- <p>
- <span className="font-semibold text-foreground">Manager:</span>{" "}
- <span className="rounded bg-background/70 px-1.5 py-0.5">grace.mushi@falcofinancial.co.tz</span>{" "}
- /{" "}
- <span className="rounded bg-background/70 px-1.5 py-0.5">Manager@123</span>
- </p>
- <p>
- <span className="font-semibold text-foreground">Loan Officer:</span>{" "}
- <span className="rounded bg-background/70 px-1.5 py-0.5">john.kimaro@falcofinancial.co.tz</span>{" "}
- /{" "}
- <span className="rounded bg-background/70 px-1.5 py-0.5">Officer@123</span>
- </p>
- </div>
  </div>
  </section>
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Bell, Search, MapPin, Check, X, CheckCheck } from "lucide-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Input } from "@/components/ui/input";
@@ -13,7 +13,8 @@ import {
  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
-import { branches, currentUser } from "@/lib/mock-data";
+import type { Branch } from "@/lib/types";
+import { useSessionUser } from "@/lib/use-session-user";
 import { cn } from "@/lib/utils";
 
 interface Notification {
@@ -58,7 +59,23 @@ interface DashboardHeaderProps {
 }
 
 export function DashboardHeader({ title, description }: DashboardHeaderProps) {
- const currentBranch = branches.find((b) => b.id === currentUser.branch_id);
+ const { user } = useSessionUser();
+ const [branches, setBranches] = useState<Branch[]>([]);
+
+ useEffect(() => {
+ let cancelled = false;
+ void fetch("/api/falco/branches", { credentials: "include" })
+ .then((r) => r.json())
+ .then((d: { branches?: Branch[] }) => {
+ if (!cancelled) setBranches(d.branches ?? []);
+ })
+ .catch(() => {});
+ return () => {
+ cancelled = true;
+ };
+ }, []);
+
+ const currentBranch = branches.find((b) => b.id === user?.branch_id);
  const [notifications, setNotifications] = useState<Notification[]>(INITIAL_NOTIFICATIONS);
  const unreadCount = notifications.filter((n) => !n.read).length;
 

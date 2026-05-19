@@ -1,34 +1,30 @@
 import { NextResponse } from "next/server";
-import { currentUser } from "@/lib/mock-data";
-import { patchAccessRequest } from "@/lib/mock-staff-requests";
-import type { StaffRequestStatus } from "@/lib/staff-requests-types";
+import { requireApiUser } from "@/lib/authorization";
+import { falcoServerFetch } from "@/lib/server-falco";
 
 export async function PATCH(
  request: Request,
  context: { params: Promise<{ id: string }> }
 ) {
+ const auth = await requireApiUser(request, ["super_admin"]);
+ if ("response" in auth) return auth.response;
+
  const { id } = await context.params;
- if (currentUser.role !== "super_admin") {
- return NextResponse.json({ error: "Only super admin can resolve access requests" }, { status: 403 });
- }
+ const body = (await request.json()) as Record<string, unknown>;
 
- const body = (await request.json()) as {
- status?: StaffRequestStatus;
- resolution_notes?: string | null;
- };
-
- if (!body.status || !["approved", "rejected"].includes(body.status)) {
- return NextResponse.json({ error: "status must be approved or rejected" }, { status: 400 });
- }
-
- const result = patchAccessRequest(id, {
+ const res = await falcoServerFetch<unknown>(`/users/access-requests/${encodeURIComponent(id)}`, {
+ method: "PATCH",
+ body: {
  status: body.status,
- reviewed_by: currentUser.id,
- resolution_notes: body.resolution_notes ?? null,
+ notes: body.resolution_notes ?? body.notes ?? null,
+ },
  });
 
- if (!result.ok) {
- return NextResponse.json({ error: result.error }, { status: 400 });
+ if (!res.ok) {
+ return NextResponse.json(
+ { error: res.error.message, details: res.error.details },
+ { status: res.error.status }
+ );
  }
- return NextResponse.json({ request: result.request });
+ return NextResponse.json(res.data);
 }

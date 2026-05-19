@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
  Download,
@@ -8,11 +8,13 @@ import {
  Search,
  Filter,
  Eye,
+ Pencil,
  CheckCircle,
  XCircle,
  Clock,
  FileText,
  Scale,
+ Trash2,
  X,
 } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard-header";
@@ -60,19 +62,38 @@ import {
  DialogTitle,
 } from "@/components/ui/dialog";
 import {
- loanApplications,
- currentUser,
- getCustomerById,
- getProductById,
- getBranchById,
- getUserById,
- formatCurrency,
- formatDateTime,
-} from "@/lib/mock-data";
-import type { LoanApplicationStatus } from "@/lib/types";
-import type { PaymentMethod } from "@/lib/types";
+ adaptApiApplicationListRow,
+ extractApplicationDetail,
+ extractApplicationsList,
+ type ApplicationViewRow,
+} from "@/lib/application-adapters";
+import {
+ enrichApplicationRow,
+ enrichApplicationRows,
+ fetchApplicationEnrichmentContext,
+ type EnrichmentContext,
+} from "@/lib/application-enrichment";
+import { RequiredDocumentsFields } from "@/components/applications/required-documents-fields";
+import {
+ DeleteApplicationDialog,
+ type DeleteApplicationTarget,
+} from "@/components/applications/delete-application-dialog";
+import {
+ documentTypeFromRow,
+ fetchApplicationDocumentStatus,
+ formatRequiredDocumentLabel,
+} from "@/lib/application-documents";
+import {
+ buildApplicationChecklist,
+ canDeleteApplication,
+ getApplicationWorkflowActions,
+ approveApplicationApi,
+ runAdminActivateApplicationWorkflow,
+} from "@/lib/application-workflow";
+import { formatCurrency, formatDateTime } from "@/lib/formatters";
 import { exportApplicationToPdf } from "@/lib/application-pdf";
 import { useSessionUser } from "@/lib/use-session-user";
+import type { LoanApplicationStatus } from "@/lib/types";
 
 const statusConfig: Record<
  LoanApplicationStatus,
@@ -82,6 +103,7 @@ const statusConfig: Record<
  submitted: { label: "Submitted", variant: "secondary", icon: Clock },
  under_review: { label: "Under Review", variant: "secondary", icon: Clock },
  approved: { label: "Approved", variant: "default", icon: CheckCircle },
+ pending_disbursement: { label: "Pending disbursement", variant: "default", icon: CheckCircle },
  rejected: { label: "Rejected", variant: "destructive", icon: XCircle },
  disbursed: { label: "Disbursed", variant: "default", icon: CheckCircle },
  cancelled: { label: "Cancelled", variant: "outline", icon: XCircle },
@@ -89,7 +111,7 @@ const statusConfig: Record<
 
 export default function ApplicationsPage() {
  const { user } = useSessionUser();
- const effectiveRole = user?.role ?? currentUser.role;
+ const effectiveRole = user?.role ?? "super_admin";
  const isManagerView = effectiveRole === "branch_manager";
  const isOfficerView = effectiveRole === "loan_officer";
  const isTopAdminView = effectiveRole === "super_admin";
@@ -101,28 +123,81 @@ export default function ApplicationsPage() {
  : effectiveRole === "loan_officer"
  ? "/officer/applications/new"
  : "/applications/new";
- const canDisburse = isTopAdminView;
  const [searchQuery, setSearchQuery] = useState("");
  const [statusFilter, setStatusFilter] = useState<string>("all");
- const [applications, setApplications] = useState(loanApplications);
+ const [applications, setApplications] = useState<ApplicationViewRow[]>([]);
+ const [listLoading, setListLoading] = useState(true);
+ const [actionError, setActionError] = useState<string | null>(null);
+ const [actionBusyId, setActionBusyId] = useState<string | null>(null);
+ const [activateDocsDialog, setActivateDocsDialog] = useState<{
+ appId: string;
+ amount: number;
+ required: string[];
+ missing: string[];
+ uploadedTypes: string[];
+ } | null>(null);
+ const [activateDocFiles, setActivateDocFiles] = useState<Record<string, File | null>>({});
+ const [enrichmentCtx, setEnrichmentCtx] = useState<EnrichmentContext | null>(null);
+ const [detailRow, setDetailRow] = useState<ApplicationViewRow | null>(null);
+ const [detailLoading, setDetailLoading] = useState(false);
+ const [activateUploadedTypes, setActivateUploadedTypes] = useState<string[]>([]);
+ const [successMessage, setSuccessMessage] = useState<string | null>(null);
+ const [deleteTarget, setDeleteTarget] = useState<DeleteApplicationTarget | null>(null);
+
+ const reloadApplications = useCallback(async () => {
+ setListLoading(true);
+ setActionError(null);
+ try {
+ const ctx = await fetchApplicationEnrichmentContext(scopeBranchId);
+ setEnrichmentCtx(ctx);
+
+ const params = new URLSearchParams();
+ params.set("page_size", "100");
+ if (scopeBranchId) params.set("branch_id", scopeBranchId);
+ const res = await fetch(`/api/applications?${params.toString()}`, { credentials: "include" });
+ const json = await res.json();
+ if (!res.ok) {
+ throw new Error(typeof json.message === "string" ? json.message : "Failed to load applications");
+ }
+ const rows = enrichApplicationRows(extractApplicationsList(json), ctx);
+ setApplications(rows);
+ } catch (e) {
+ setActionError(e instanceof Error ? e.message : "Failed to load applications");
+ } finally {
+ setListLoading(false);
+ }
+ }, [scopeBranchId]);
+
+ useEffect(() => {
+ void reloadApplications();
+ }, [reloadApplications]);
+
+ useEffect(() => {
+ if (typeof window === "undefined") return;
+ const id = new URLSearchParams(window.location.search).get("id")?.trim();
+ if (id) setSelectedApplicationId(id);
+ }, []);
+
+ useEffect(() => {
+ if (typeof window === "undefined") return;
+ const params = new URLSearchParams(window.location.search);
+ if (params.get("activated") === "1") {
+ setSuccessMessage(
+ "Application activated. Loan is pending disbursement — open Loan Disbursement to release funds."
+ );
+ }
+ }, []);
  const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(null);
- const [disburseApplicationId, setDisburseApplicationId] = useState<string | null>(null);
- const [disbursementMethod, setDisbursementMethod] = useState<PaymentMethod>("bank_transfer");
+ /** Branch managers and loan officers see all applications in their assigned branch. */
  const visibleApplications = scopeBranchId
- ? applications.filter((app) => {
- if (app.branch_id !== scopeBranchId) return false;
- if (!isOfficerView || !user) return true;
- return app.created_by === user.id;
- })
+ ? applications.filter((app) => app.branch_id === scopeBranchId)
  : applications;
 
  const filteredApplications = visibleApplications.filter((app) => {
- const customer = getCustomerById(app.customer_id);
  const matchesSearch =
  searchQuery === "" ||
  app.application_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
- customer?.first_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
- customer?.last_name.toLowerCase().includes(searchQuery.toLowerCase());
+ app.customerSearchText.includes(searchQuery.toLowerCase());
 
  const matchesStatus = statusFilter === "all" || app.status === statusFilter;
 
@@ -136,36 +211,154 @@ export default function ApplicationsPage() {
  {} as Record<string, number>
  );
 
- const selectedApplication = selectedApplicationId
+ const listSelectedApplication = selectedApplicationId
  ? visibleApplications.find((app) => app.id === selectedApplicationId) ?? null
  : null;
- const selectedCustomer = selectedApplication ? getCustomerById(selectedApplication.customer_id) : null;
- const selectedProduct = selectedApplication ? getProductById(selectedApplication.product_id) : null;
- const selectedBranch = selectedApplication ? getBranchById(selectedApplication.branch_id) : null;
- const selectedCreator = selectedApplication ? getUserById(selectedApplication.created_by) : null;
- const selectedAssignedOfficer = selectedCustomer
- ? getUserById(selectedCustomer.assigned_loan_officer_id ?? selectedCustomer.created_by)
- : null;
- const disburseApplication = disburseApplicationId
- ? visibleApplications.find((app) => app.id === disburseApplicationId) ?? null
- : null;
+ const selectedApplication = detailRow ?? listSelectedApplication;
+ const selectedAssignedOfficer = selectedApplication?.officerName ?? "Unassigned";
 
- const addWorkflowNote = (existing: string | undefined, nextNote: string) =>
- [existing, nextNote].filter(Boolean).join("\n");
-
- const updateApplicationStatus = (id: string, status: LoanApplicationStatus, extras?: Record<string, unknown>) => {
- setApplications((prev) =>
- prev.map((app) =>
- app.id === id
- ? {
- ...app,
- status,
- updated_at: new Date().toISOString(),
- ...(extras ?? {}),
+ useEffect(() => {
+ if (!selectedApplicationId) {
+ setDetailRow(null);
+ return;
  }
- : app
- )
+ let cancelled = false;
+ setDetailLoading(true);
+ void (async () => {
+ const ctx = enrichmentCtx ?? (await fetchApplicationEnrichmentContext(scopeBranchId));
+ if (cancelled) return;
+ if (!enrichmentCtx) setEnrichmentCtx(ctx);
+ const res = await fetch(`/api/applications/${encodeURIComponent(selectedApplicationId)}`, {
+ credentials: "include",
+ });
+ const json = await res.json();
+ if (cancelled) return;
+ const detail = extractApplicationDetail(json);
+ if (!detail) return;
+ const row = enrichApplicationRow(
+ adaptApiApplicationListRow({ application: detail }),
+ ctx
  );
+ setDetailRow(row);
+ })()
+ .finally(() => {
+ if (!cancelled) setDetailLoading(false);
+ });
+ return () => {
+ cancelled = true;
+ };
+ }, [selectedApplicationId, enrichmentCtx, scopeBranchId]);
+ const openDeleteDialog = (app: ApplicationViewRow) => {
+ setDeleteTarget({
+ id: app.id,
+ application_number: app.application_number,
+ customerDisplayName: app.customerDisplayName,
+ });
+ };
+
+ const handleApplicationDeleted = () => {
+ setDeleteTarget(null);
+ setSelectedApplicationId(null);
+ setDetailRow(null);
+ setSuccessMessage("Application deleted from the database.");
+ void reloadApplications();
+ };
+
+ const handleAdminActivate = async (app: ApplicationViewRow) => {
+ setActionError(null);
+ const status = await fetchApplicationDocumentStatus(
+ app.id,
+ app.product_id,
+ app.required_documents
+ );
+ if (!status) {
+ setActionError("Could not load required documents for this application.");
+ return;
+ }
+ if (status.missing.length > 0) {
+ openActivateDocsDialog(app, status.missing);
+ setActivateUploadedTypes(status.uploadedTypes);
+ return;
+ }
+ const ok = await runWorkflowAction(app.id, async () => {
+ const r = await activateApplicationApi(
+ app.id,
+ app.approved_amount ?? app.requested_amount
+ );
+ if (!r.ok && /missing required documents/i.test(r.error)) {
+ const status = await fetchApplicationDocumentStatus(
+ app.id,
+ app.product_id,
+ app.required_documents
+ );
+ if (status?.missing.length) openActivateDocsDialog(app, status.missing);
+ }
+ return r.ok ? { ok: true } : { ok: false, error: r.error };
+ });
+ if (ok) {
+ setSuccessMessage(
+ "Application activated. Loan is pending disbursement — open Loan Disbursement to release funds."
+ );
+ }
+ };
+
+ const openActivateDocsDialog = (app: ApplicationViewRow, missing: string[]) => {
+ const files: Record<string, File | null> = {};
+ for (const t of missing) files[t] = null;
+ setActivateDocFiles(files);
+ setActivateUploadedTypes([]);
+ setActivateDocsDialog({
+ appId: app.id,
+ amount: app.approved_amount ?? app.requested_amount,
+ required: app.required_documents ?? missing,
+ missing,
+ uploadedTypes: [],
+ });
+ };
+
+ const confirmActivateWithDocuments = async () => {
+ if (!activateDocsDialog) return;
+ const { appId, amount, missing } = activateDocsDialog;
+ const stillMissing = missing.filter((t) => !activateDocFiles[t] && !activateUploadedTypes.includes(t));
+ if (stillMissing.length > 0) {
+ setActionError(
+ `Select files for: ${stillMissing.map(formatRequiredDocumentLabel).join(", ")}`
+ );
+ return;
+ }
+ const ok = await runWorkflowAction(appId, async () => {
+ const r = await runAdminActivateApplicationWorkflow(
+ appId,
+ amount,
+ user?.full_name ?? "User",
+ activateDocFiles
+ );
+ return r.ok ? { ok: true } : { ok: false, error: r.error };
+ });
+ if (ok) {
+ setActivateDocsDialog(null);
+ setActivateDocFiles({});
+ setSuccessMessage("Application activated. Loan is now active and ready on the Loans page.");
+ }
+ };
+
+ const runWorkflowAction = async (
+ appId: string,
+ action: () => Promise<{ ok: boolean; error?: string }>
+ ) => {
+ setActionBusyId(appId);
+ setActionError(null);
+ const result = await action();
+ if (!result.ok) {
+ setActionError(result.error ?? "Action failed");
+ setActionBusyId(null);
+ return false;
+ }
+ await reloadApplications();
+ setActionBusyId(null);
+ setSelectedApplicationId(null);
+ setDetailRow(null);
+ return true;
  };
 
  const statusChartData = [
@@ -191,14 +384,14 @@ export default function ApplicationsPage() {
  const pendingArc = (pendingCount / progressTotal) * arcLength;
 
  const exportSelectedApplicationPdf = () => {
- if (!selectedApplication || !selectedCustomer || !selectedProduct) return;
+ if (!selectedApplication) return;
  exportApplicationToPdf({
  application: selectedApplication,
- customerName: `${selectedCustomer.first_name} ${selectedCustomer.last_name}`,
- customerNumber: selectedCustomer.customer_number,
- productName: selectedProduct.name,
- branchName: selectedBranch?.name ?? selectedApplication.branch_id,
- createdByName: selectedCreator?.full_name ?? selectedApplication.created_by,
+ customerName: selectedApplication.customerDisplayName,
+ customerNumber: selectedApplication.customerNumber,
+ productName: selectedApplication.productName,
+ branchName: selectedApplication.branchName,
+ createdByName: selectedApplication.creatorName || selectedApplication.created_by,
  });
  };
 
@@ -206,11 +399,17 @@ export default function ApplicationsPage() {
  <>
  <DashboardHeader
  title="Loan Applications"
- description="Manage and review loan applications"
+ description={
+ isOfficerView
+ ? "Branch loan applications from the Falco API — limited to your assigned branch."
+ : isManagerView
+ ? "Branch loan applications from the Falco API — limited to your assigned branch."
+ : "Manage and review loan applications"
+ }
  />
- <main className="flex min-h-0 flex-1 overflow-y-auto p-4 pb-10 lg:p-6">
- <div className="mx-auto max-w-7xl space-y-6">
- <div className="rounded-2xl border border-emerald-100 bg-gradient-to-r from-emerald-50 via-background to-background p-4 sm:p-5">
+ <main className="flex min-h-0 flex-1 overflow-y-auto p-2 pb-6 sm:p-3">
+ <div className="w-full space-y-4">
+ <div className="rounded-xl border border-emerald-100 bg-gradient-to-r from-emerald-50 via-background to-background p-3 sm:p-4">
  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
  <div>
  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">
@@ -396,9 +595,29 @@ export default function ApplicationsPage() {
  </div>
  ) : null}
 
+ {successMessage ? (
+ <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+ <span>{successMessage}</span>
+ <div className="flex gap-2">
+ <Button size="sm" variant="outline" asChild>
+ <Link href="/disbursements">Loan Disbursement</Link>
+ </Button>
+ <Button size="sm" variant="ghost" onClick={() => setSuccessMessage(null)}>
+ Dismiss
+ </Button>
+ </div>
+ </div>
+ ) : null}
+
+ {actionError ? (
+ <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+ {actionError}
+ </div>
+ ) : null}
+
  {/* Filters and Actions */}
  <Card className="border-emerald-100">
- <CardContent className="p-4">
+ <CardContent className="p-3 sm:p-4">
  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
  <div className="flex flex-1 flex-col gap-3 sm:flex-row">
  <div className="relative min-w-0 flex-1 sm:max-w-sm">
@@ -421,6 +640,7 @@ export default function ApplicationsPage() {
  <SelectItem value="submitted">Submitted</SelectItem>
  <SelectItem value="under_review">Under Review</SelectItem>
  <SelectItem value="approved">Approved</SelectItem>
+ <SelectItem value="pending_disbursement">Pending disbursement</SelectItem>
  <SelectItem value="rejected">Rejected</SelectItem>
  <SelectItem value="disbursed">Disbursed</SelectItem>
  </SelectContent>
@@ -440,8 +660,6 @@ export default function ApplicationsPage() {
  </p>
  ) : (
  filteredApplications.map((app) => {
- const customer = getCustomerById(app.customer_id);
- const product = getProductById(app.product_id);
  const status = statusConfig[app.status];
  const StatusIcon = status.icon;
  return (
@@ -453,16 +671,10 @@ export default function ApplicationsPage() {
  {status.label}
  </Badge>
  </div>
- <p className="mt-2 font-medium">
- {customer?.first_name} {customer?.last_name}
- </p>
- <p className="text-xs text-muted-foreground">{product?.name}</p>
+ <p className="mt-2 font-medium">{app.customerDisplayName}</p>
+ <p className="text-xs text-muted-foreground">{app.productName}</p>
  <p className="mt-1 text-xs text-muted-foreground">
- Officer:{" "}
- <span className="font-medium text-foreground">
- {getUserById(customer?.assigned_loan_officer_id ?? customer?.created_by ?? "")?.full_name ??
- "Unassigned"}
- </span>
+ Officer: <span className="font-medium text-foreground">{app.officerName || "Unassigned"}</span>
  </p>
  <p className="mt-1 text-sm font-semibold">{formatCurrency(app.requested_amount)}</p>
  <div className="mt-3 flex gap-2">
@@ -506,8 +718,6 @@ export default function ApplicationsPage() {
  </TableRow>
  ) : (
  filteredApplications.map((app) => {
- const customer = getCustomerById(app.customer_id);
- const product = getProductById(app.product_id);
  const status = statusConfig[app.status];
  const StatusIcon = status.icon;
 
@@ -518,22 +728,14 @@ export default function ApplicationsPage() {
  </TableCell>
  <TableCell>
  <div>
- <p className="font-medium">
- {customer?.first_name} {customer?.last_name}
- </p>
- <p className="text-sm text-muted-foreground">
- {customer?.customer_number}
- </p>
+ <p className="font-medium">{app.customerDisplayName}</p>
+ <p className="text-sm text-muted-foreground">{app.customerNumber}</p>
  </div>
  </TableCell>
  <TableCell className="hidden lg:table-cell">
- <div className="max-w-[180px] truncate text-sm">
- {getUserById(
- customer?.assigned_loan_officer_id ?? customer?.created_by ?? ""
- )?.full_name ?? "Unassigned"}
- </div>
+ <div className="max-w-[180px] truncate text-sm">{app.officerName || "Unassigned"}</div>
  </TableCell>
- <TableCell className="hidden md:table-cell">{product?.name}</TableCell>
+ <TableCell className="hidden md:table-cell">{app.productName}</TableCell>
  <TableCell className="text-right font-medium">
  {formatCurrency(app.requested_amount)}
  </TableCell>
@@ -563,16 +765,13 @@ export default function ApplicationsPage() {
  </DropdownMenuItem>
  <DropdownMenuItem
  onClick={() => {
- const branch = getBranchById(app.branch_id);
- const createdBy = getUserById(app.created_by);
- if (!customer || !product) return;
  exportApplicationToPdf({
  application: app,
- customerName: `${customer.first_name} ${customer.last_name}`,
- customerNumber: customer.customer_number,
- productName: product.name,
- branchName: branch?.name ?? app.branch_id,
- createdByName: createdBy?.full_name ?? app.created_by,
+ customerName: app.customerDisplayName,
+ customerNumber: app.customerNumber,
+ productName: app.productName,
+ branchName: app.branchName,
+ createdByName: app.creatorName || app.created_by,
  });
  }}
  >
@@ -585,124 +784,48 @@ export default function ApplicationsPage() {
  Analyze
  </Link>
  </DropdownMenuItem>
-                  {isOfficerView && app.status === "draft" && (
-                    <DropdownMenuItem
-                      className="text-accent"
-                      onClick={() =>
-                        updateApplicationStatus(app.id, "submitted", {
-                          submitted_at: new Date().toISOString(),
-                          review_notes: addWorkflowNote(
-                            app.review_notes,
-                            `Loan Officer (${user?.full_name ?? "Officer"}) submitted application for manager review.`
-                          ),
-                        })
-                      }
-                    >
-                      Submit to Manager
-                    </DropdownMenuItem>
-                  )}
-                  {(isManagerView || isTopAdminView) && app.status === "submitted" && (
-                    <DropdownMenuItem
-                      className="text-accent"
-                      onClick={() =>
-                        updateApplicationStatus(app.id, "under_review", {
-                          reviewed_by: user?.id,
-                          reviewed_at: new Date().toISOString(),
-                          review_notes: addWorkflowNote(
-                            app.review_notes,
-                            `${isManagerView ? "Manager" : "Top Admin"} (${user?.full_name ?? "Approver"}) opened review.`
-                          ),
-                        })
-                      }
-                    >
-                      Start Review
-                    </DropdownMenuItem>
-                  )}
- {app.status === "under_review" && (
+ {app.status === "draft" && (
+ <DropdownMenuItem asChild>
+ <Link href={`${applicationsNewPath}?edit=${app.id}`}>
+ <Pencil className="mr-2 h-4 w-4" />
+ Continue draft
+ </Link>
+ </DropdownMenuItem>
+ )}
+ {getApplicationWorkflowActions(app, effectiveRole, user?.full_name ?? "User").length > 0 ? (
+ <DropdownMenuItem disabled className="text-xs font-semibold text-muted-foreground">
+ Change status (API)
+ </DropdownMenuItem>
+ ) : null}
+ {getApplicationWorkflowActions(app, effectiveRole, user?.full_name ?? "User").map((wf) => (
+ <DropdownMenuItem
+ key={wf.id}
+ className={wf.variant === "destructive" ? "text-destructive" : "text-accent"}
+ disabled={actionBusyId === app.id}
+ onClick={() =>
+ void (wf.id === "admin_activate"
+ ? handleAdminActivate(app)
+ : runWorkflowAction(app.id, wf.run))
+ }
+ >
+ {wf.label}
+ </DropdownMenuItem>
+ ))}
+ {canDeleteApplication(effectiveRole, app, user?.id) ? (
  <>
-                      {(isManagerView || isTopAdminView) && (
-                        <DropdownMenuItem
-                          className="text-accent"
-                          onClick={() =>
-                            updateApplicationStatus(app.id, "approved", {
-                              approved_by: user?.id,
-                              approved_at: new Date().toISOString(),
-                              review_notes: addWorkflowNote(
-                                app.review_notes,
-                                `${isManagerView ? "Manager" : "Top Admin"} (${user?.full_name ?? "Approver"}) approved application.`
-                              ),
-                            })
-                          }
-                        >
-                          Approve
-                        </DropdownMenuItem>
-                      )}
-                      {(isManagerView || isTopAdminView) && (
-                        <DropdownMenuItem
-                          className="text-destructive"
-                          onClick={() =>
-                            updateApplicationStatus(app.id, "rejected", {
-                              reviewed_by: user?.id,
-                              reviewed_at: new Date().toISOString(),
-                              rejection_reason: `${isManagerView ? "Manager" : "Top Admin"} rejected application during review.`,
-                            })
-                          }
-                        >
-                          Reject
-                        </DropdownMenuItem>
-                      )}
-                    </>
-                  )}
-                  {(isTopAdminView && app.status === "submitted") && (
-                    <DropdownMenuItem
-                      className="text-accent"
-                      onClick={() =>
-                        updateApplicationStatus(app.id, "approved", {
-                          approved_by: user?.id,
-                          approved_at: new Date().toISOString(),
-                          review_notes: addWorkflowNote(
-                            app.review_notes,
-                            `Top Admin (${user?.full_name ?? "Top Admin"}) approved directly from submitted queue.`
-                          ),
-                        })
-                      }
-                    >
-                      Top Admin Approve
-                    </DropdownMenuItem>
-                  )}
-                  {(isTopAdminView && (app.status === "submitted" || app.status === "under_review")) && (
-                    <DropdownMenuItem
-                      className="text-destructive"
-                      onClick={() =>
-                        updateApplicationStatus(app.id, "rejected", {
-                          reviewed_by: user?.id,
-                          reviewed_at: new Date().toISOString(),
-                          rejection_reason: "Rejected by Top Admin.",
-                        })
-                      }
-                    >
-                      Top Admin Reject
-                    </DropdownMenuItem>
-                  )}
-                  {app.status === "approved" && (
-                    <>
-                      {canDisburse ? (
-                        <DropdownMenuItem
-                          className="text-accent"
-                          onClick={() => {
-                            setDisburseApplicationId(app.id);
-                            setDisbursementMethod("bank_transfer");
-                          }}
-                        >
-                          Disburse (Top Admin)
-                        </DropdownMenuItem>
-                      ) : (
-                        <DropdownMenuItem disabled>
-                          Disburse (Top Admin only)
-                        </DropdownMenuItem>
-                      )}
-                    </>
-                  )}
+ <DropdownMenuItem disabled className="text-xs font-semibold text-muted-foreground">
+ Danger zone
+ </DropdownMenuItem>
+ <DropdownMenuItem
+ className="text-destructive focus:text-destructive"
+ disabled={actionBusyId === app.id}
+ onClick={() => openDeleteDialog(app)}
+ >
+ <Trash2 className="mr-2 h-4 w-4" />
+ Delete application…
+ </DropdownMenuItem>
+ </>
+ ) : null}
                 </DropdownMenuContent>
               </DropdownMenu>
             </TableCell>
@@ -724,7 +847,7 @@ export default function ApplicationsPage() {
 showCloseButton={false}
 className="flex max-h-[min(92vh,820px)] max-w-[calc(100vw-1.5rem)] flex-col gap-0 overflow-hidden border border-border/80 p-0 sm:max-w-3xl"
 >
-{selectedApplication && selectedCustomer && selectedProduct ? (
+{selectedApplication ? (
 <>
 <div className="relative border-b bg-gradient-to-r from-emerald-950/95 via-emerald-900 to-emerald-950 px-6 pb-6 pt-6 text-primary-foreground">
 <button
@@ -744,7 +867,7 @@ Loan application record
 {selectedApplication.application_number}
 </DialogTitle>
 <DialogDescription className="text-left text-emerald-100/90">
-{selectedCustomer.first_name} {selectedCustomer.last_name} · {selectedProduct.name}
+{selectedApplication.customerDisplayName} · {selectedApplication.productName}
 </DialogDescription>
 </div>
 <Badge
@@ -777,7 +900,16 @@ Requested over {selectedApplication.term_days} days
 <dl className="grid gap-2 text-sm">
 <div className="flex justify-between gap-4">
 <dt className="text-muted-foreground">Purpose</dt>
-<dd className="text-right font-medium">{selectedApplication.purpose}</dd>
+<dd className="text-right font-medium">
+{selectedApplication.purpose?.trim() &&
+selectedApplication.purpose.trim().toLowerCase() !== "general purpose" ? (
+ selectedApplication.purpose
+) : (
+ <Badge variant="outline" className="font-normal">
+ Required — add purpose
+ </Badge>
+)}
+</dd>
 </div>
 <div className="flex justify-between gap-4">
 <dt className="text-muted-foreground">Collateral</dt>
@@ -800,22 +932,31 @@ Applicant & workflow
 <dl className="grid gap-3 rounded-xl border bg-muted/30 p-4 text-sm">
 <div>
 <dt className="text-muted-foreground">Customer</dt>
-<dd className="font-medium">
-{selectedCustomer.first_name} {selectedCustomer.last_name}
-</dd>
-<dd className="text-xs text-muted-foreground">{selectedCustomer.customer_number}</dd>
+<dd className="font-medium">{selectedApplication.customerDisplayName}</dd>
+<dd className="text-xs text-muted-foreground">{selectedApplication.customerNumber}</dd>
 </div>
 <div>
 <dt className="text-muted-foreground">Branch</dt>
-<dd>{selectedBranch?.name ?? selectedApplication.branch_id}</dd>
+<dd>{selectedApplication.branchName}</dd>
+</div>
+<div>
+<dt className="text-muted-foreground">Loan product</dt>
+<dd className="font-medium">
+{selectedApplication.productName || "—"}
+{selectedApplication.product_id ? (
+ <span className="ml-1 text-xs font-normal text-muted-foreground">
+ (#{selectedApplication.product_id})
+ </span>
+) : null}
+</dd>
 </div>
 <div>
 <dt className="text-muted-foreground">Created by</dt>
-<dd>{selectedCreator?.full_name ?? selectedApplication.created_by}</dd>
+<dd>{selectedApplication.creatorName || selectedApplication.created_by}</dd>
 </div>
 <div>
 <dt className="text-muted-foreground">Assigned loan officer</dt>
-<dd>{selectedAssignedOfficer?.full_name ?? "Unassigned"}</dd>
+<dd>{selectedAssignedOfficer}</dd>
 </div>
 <div>
 <dt className="text-muted-foreground">Created</dt>
@@ -824,6 +965,65 @@ Applicant & workflow
 </dl>
 </div>
 </div>
+
+<Separator className="my-5" />
+<div className="space-y-2">
+<h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+Uploaded documents
+</h4>
+{detailLoading ? (
+<p className="text-sm text-muted-foreground">Loading documents…</p>
+) : selectedApplication.documents?.length ? (
+<ul className="space-y-2 text-sm">
+{selectedApplication.documents.map((doc) => (
+<li
+key={doc.id || `${doc.type}-${doc.name}`}
+className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2"
+>
+<span className="font-medium">{formatRequiredDocumentLabel(documentTypeFromRow(doc))}</span>
+<span className="text-muted-foreground">{doc.name}</span>
+{doc.verified ? (
+<Badge variant="outline" className="text-emerald-700">
+Verified
+</Badge>
+) : (
+<Badge variant="outline">Pending</Badge>
+)}
+</li>
+))}
+</ul>
+) : (
+<p className="text-sm text-muted-foreground">No documents uploaded yet.</p>
+)}
+</div>
+
+{selectedApplication.status === "draft" ? (
+<>
+<Separator className="my-5" />
+<div className="space-y-2">
+<h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+Application checklist
+</h4>
+<div className="flex flex-wrap gap-2">
+{buildApplicationChecklist(
+ selectedApplication,
+ effectiveRole,
+ selectedApplication.required_documents
+).map((item) => (
+<Badge
+key={item.key}
+variant={item.complete ? "default" : "outline"}
+className={item.complete ? "bg-emerald-600 hover:bg-emerald-700" : "border-amber-300 text-amber-900"}
+>
+{item.complete ? "✓ " : "○ "}
+{item.label}
+{!item.complete && item.hint ? ` — ${item.hint}` : ""}
+</Badge>
+))}
+</div>
+</div>
+</>
+) : null}
 
 {(selectedApplication.review_notes || selectedApplication.rejection_reason) && (
 <>
@@ -850,64 +1050,128 @@ Rejection reason
 )}
 </div>
 
-<div className="flex flex-col-reverse gap-2 border-t bg-muted/20 px-6 py-4 sm:flex-row sm:justify-end">
+<div className="flex flex-col-reverse gap-2 border-t bg-muted/20 px-6 py-4 sm:flex-row sm:justify-end sm:gap-3">
 <Button variant="outline" onClick={() => setSelectedApplicationId(null)}>
 Close
 </Button>
-<Button className="bg-emerald-600 hover:bg-emerald-700" onClick={exportSelectedApplicationPdf}>
-<Download className="mr-2 h-4 w-4" />
-Export Professional PDF
+{selectedApplication.status === "draft" ? (
+<Button asChild variant="secondary">
+<Link href={`${applicationsNewPath}?edit=${selectedApplication.id}`}>
+<Pencil className="mr-2 h-4 w-4" />
+Continue draft
+</Link>
 </Button>
+) : null}
+{selectedApplication.status === "pending_disbursement" ? (
+<Button className="bg-emerald-600 hover:bg-emerald-700" asChild>
+<Link
+ href={
+ selectedApplication.loan_id
+ ? `/disbursements?loanId=${encodeURIComponent(selectedApplication.loan_id)}`
+ : "/disbursements"
+ }
+>
+Create disbursement
+</Link>
+</Button>
+) : null}
+{getApplicationWorkflowActions(
+ selectedApplication,
+ effectiveRole,
+ user?.full_name ?? "User"
+).map((wf) => (
+<Button
+ key={wf.id}
+ variant={wf.variant === "destructive" ? "destructive" : "default"}
+ className={wf.variant === "destructive" ? undefined : "bg-emerald-600 hover:bg-emerald-700"}
+ disabled={actionBusyId === selectedApplication.id}
+ onClick={() =>
+ void (wf.id === "admin_activate"
+ ? handleAdminActivate(selectedApplication)
+ : runWorkflowAction(selectedApplication.id, wf.run))
+ }
+>
+{wf.label}
+</Button>
+))}
+<Button variant="outline" onClick={exportSelectedApplicationPdf}>
+<Download className="mr-2 h-4 w-4" />
+Export PDF
+</Button>
+{canDeleteApplication(effectiveRole, selectedApplication, user?.id) ? (
+<Button
+ variant="destructive"
+ disabled={actionBusyId === selectedApplication.id}
+ onClick={() => openDeleteDialog(selectedApplication)}
+>
+<Trash2 className="mr-2 h-4 w-4" />
+Delete application
+</Button>
+) : null}
 </div>
 </>
 ) : null}
 </DialogContent>
 </Dialog>
 
-<Dialog open={Boolean(disburseApplication)} onOpenChange={(open) => !open && setDisburseApplicationId(null)}>
-<DialogContent>
-  <DialogTitle>Confirm Loan Disbursement</DialogTitle>
-  <DialogDescription>
-    Top Admin action: choose a disbursement method and confirm to mark this approved application as disbursed.
-  </DialogDescription>
-  <div className="space-y-3 py-2">
-    <Select
-      value={disbursementMethod}
-      onValueChange={(value) => setDisbursementMethod(value as PaymentMethod)}
-    >
-      <SelectTrigger>
-        <SelectValue placeholder="Disbursement method" />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
-        <SelectItem value="mobile_money">Mobile Money</SelectItem>
-        <SelectItem value="cash">Cash</SelectItem>
-        <SelectItem value="cheque">Cheque</SelectItem>
-      </SelectContent>
-    </Select>
-  </div>
-  <DialogFooter>
-    <Button variant="outline" onClick={() => setDisburseApplicationId(null)}>
-      Cancel
-    </Button>
-    <Button
-      onClick={() => {
-        if (!disburseApplication) return;
-        updateApplicationStatus(disburseApplication.id, "disbursed", {
-          approved_by: disburseApplication.approved_by ?? user?.id,
-          approved_at: disburseApplication.approved_at ?? new Date().toISOString(),
-          review_notes: addWorkflowNote(
-            disburseApplication.review_notes,
-            `Disbursed by Top Admin (${user?.full_name ?? "Top Admin"}) via ${disbursementMethod.replace("_", " ")}.`
-          ),
-        });
-        setDisburseApplicationId(null);
-      }}
-      disabled={!disburseApplication}
-    >
-      Confirm Disbursement
-    </Button>
-  </DialogFooter>
+<DeleteApplicationDialog
+ open={deleteTarget != null}
+ onOpenChange={(open) => {
+ if (!open) setDeleteTarget(null);
+ }}
+ application={deleteTarget}
+ onDeleted={handleApplicationDeleted}
+/>
+
+<Dialog
+ open={activateDocsDialog != null}
+ onOpenChange={(open) => {
+ if (!open) {
+ setActivateDocsDialog(null);
+ setActivateDocFiles({});
+ }
+ }}
+>
+<DialogContent className="max-w-lg">
+<DialogTitle>Required documents</DialogTitle>
+<DialogDescription>
+Upload the missing files below, then activation will continue automatically.
+</DialogDescription>
+{activateDocsDialog ? (
+<RequiredDocumentsFields
+ requiredTypes={activateDocsDialog.missing}
+ filesByType={activateDocFiles}
+ uploadedTypes={[...activateDocsDialog.uploadedTypes, ...activateUploadedTypes]}
+ applicationId={activateDocsDialog.appId}
+ uploadOnSelect
+ onUploadComplete={(type) =>
+ setActivateUploadedTypes((prev) =>
+ prev.includes(type) ? prev : [...prev, type]
+ )
+ }
+ onChange={(type, file) =>
+ setActivateDocFiles((prev) => ({ ...prev, [type]: file }))
+ }
+ />
+) : null}
+<DialogFooter className="gap-2 sm:gap-0">
+<Button
+ variant="outline"
+ onClick={() => {
+ setActivateDocsDialog(null);
+ setActivateDocFiles({});
+ }}
+>
+Cancel
+</Button>
+<Button
+ className="bg-emerald-600 hover:bg-emerald-700"
+ disabled={!activateDocsDialog || actionBusyId === activateDocsDialog.appId}
+ onClick={() => void confirmActivateWithDocuments()}
+>
+Activate & create loan
+</Button>
+</DialogFooter>
 </DialogContent>
 </Dialog>
 </>

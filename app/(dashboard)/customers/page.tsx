@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
  Plus,
@@ -35,13 +35,11 @@ import {
  SelectValue,
 } from "@/components/ui/select";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import {
- customers,
- getLoansByCustomerId,
- formatCurrency,
- formatDate,
-} from "@/lib/mock-data";
-import type { RiskGrade } from "@/lib/types";
+import { extractCustomersList } from "@/lib/customer-adapters";
+import { useTranslations } from "@/lib/i18n/use-translations";
+import { formatCurrency, formatDate } from "@/lib/formatters";
+import { formatApiResponseError } from "@/lib/falco-api";
+import type { Customer, RiskGrade } from "@/lib/types";
 import { useSessionUser } from "@/lib/use-session-user";
 
 const riskGradeConfig: Record<RiskGrade, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
@@ -53,20 +51,71 @@ const riskGradeConfig: Record<RiskGrade, { label: string; variant: "default" | "
 };
 
 export default function CustomersPage() {
+ const { t } = useTranslations();
  const { user } = useSessionUser();
  const isManagerView = user?.role === "branch_manager";
  const isOfficerView = user?.role === "loan_officer";
  const scopeBranchId = isManagerView || isOfficerView ? user?.branch_id : null;
  const customersBasePath = isManagerView ? "/manager/customers" : isOfficerView ? "/officer/customers" : "/customers";
+ const [customers, setCustomers] = useState<Customer[]>([]);
+ const [loading, setLoading] = useState(true);
+ const [loadError, setLoadError] = useState<string | null>(null);
+
+ const loadCustomers = useCallback(async () => {
+ setLoading(true);
+ setLoadError(null);
+ try {
+ if (isOfficerView) {
+ const res = await fetch("/api/customers/my-customers?page_size=100", {
+ credentials: "include",
+ cache: "no-store",
+ });
+ const json = (await res.json().catch(() => ({}))) as {
+ customers?: Customer[];
+ message?: string;
+ };
+ if (!res.ok) {
+ throw new Error(formatApiResponseError(json, t("customers.loadError")));
+ }
+ const list = Array.isArray(json.customers)
+ ? json.customers
+ : extractCustomersList(json);
+ setCustomers(list);
+ return;
+ }
+
+ const params = new URLSearchParams();
+ if (scopeBranchId) params.set("branch_id", scopeBranchId);
+ params.set("page_size", "100");
+ const endpoint = isManagerView
+ ? `/api/customers/with-assignments?${params.toString()}`
+ : `/api/customers?${params.toString()}`;
+ const res = await fetch(endpoint, { credentials: "include", cache: "no-store" });
+ const json = (await res.json().catch(() => ({}))) as unknown;
+ if (!res.ok) {
+ throw new Error(formatApiResponseError(json as { message?: string }, t("customers.loadError")));
+ }
+ setCustomers(extractCustomersList(json));
+ } catch (e) {
+ setCustomers([]);
+ setLoadError(e instanceof Error ? e.message : t("customers.loadError"));
+ } finally {
+ setLoading(false);
+ }
+ }, [scopeBranchId, isOfficerView, isManagerView, t]);
+
+ useEffect(() => {
+ void loadCustomers();
+ }, [loadCustomers]);
+
  const [searchQuery, setSearchQuery] = useState("");
  const [typeFilter, setTypeFilter] = useState<string>("all");
  const [riskFilter, setRiskFilter] = useState<string>("all");
- const visibleCustomers = scopeBranchId
- ? customers.filter((customer) => {
- if (customer.branch_id !== scopeBranchId) return false;
- if (!isOfficerView || !user) return true;
- return customer.assigned_loan_officer_id === user.id || customer.created_by === user.id;
- })
+ const visibleCustomers =
+ isOfficerView
+ ? customers
+ : scopeBranchId
+ ? customers.filter((customer) => customer.branch_id === scopeBranchId)
  : customers;
 
  const filteredCustomers = visibleCustomers.filter((customer) => {
@@ -84,6 +133,11 @@ export default function CustomersPage() {
  return matchesSearch && matchesType && matchesRisk;
  });
 
+ const activeLoansForCustomer = (_customerId: string) => ({
+ count: 0,
+ outstanding: 0,
+ });
+
  const totalCustomers = visibleCustomers.length;
  const individualCount = visibleCustomers.filter((c) => c.customer_type === "individual").length;
  const businessCount = visibleCustomers.filter((c) => c.customer_type === "business").length;
@@ -92,25 +146,36 @@ export default function CustomersPage() {
  return (
  <>
  <DashboardHeader
- title="Customer Management"
- description="View and manage customer profiles"
+ title={isOfficerView ? t("customers.titleOfficer") : t("customers.title")}
+ description={isOfficerView ? t("customers.descriptionOfficer") : t("customers.description")}
  />
  <main className="flex min-h-0 flex-1 overflow-y-auto overflow-x-hidden scroll-smooth p-4 pb-10 lg:p-6 lg:pb-8">
  <div className="mx-auto w-full max-w-7xl space-y-6">
+ {loadError ? (
+ <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+ {loadError}
+ </div>
+ ) : null}
  <div className="rounded-2xl border border-emerald-100 bg-gradient-to-r from-emerald-50 via-background to-background p-4 sm:p-5">
  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
  <div>
  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">
- Customer Portfolio
+ {isOfficerView ? t("customers.portfolioOfficer") : t("customers.portfolio")}
  </p>
- <h2 className="mt-1 text-lg font-semibold tracking-tight">Monitor and manage customer records</h2>
+ <h2 className="mt-1 text-lg font-semibold tracking-tight">
+ {isOfficerView ? t("customers.titleOfficer") : t("customers.subtitle")}
+ </h2>
  <p className="mt-1 text-sm text-muted-foreground">
- Search, filter and review customer profiles with branch-ready insights.
+ {isOfficerView ? t("customers.subtitleOfficer") : t("customers.subtitle")}
  </p>
  </div>
  </div>
  </div>
 
+ {loading ? (
+ <p className="py-12 text-center text-sm text-muted-foreground">{t("customers.loading")}</p>
+ ) : (
+ <>
  {/* Summary Cards */}
  <Card className="border-emerald-100 bg-emerald-50/60 sm:hidden">
  <CardContent className="p-4">
@@ -252,20 +317,13 @@ export default function CustomersPage() {
  {filteredCustomers.length === 0 ? (
  <TableRow>
  <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
- No customers found
+ {isOfficerView ? t("customers.noCustomersOfficer") : t("customers.noCustomers")}
  </TableCell>
  </TableRow>
  ) : (
  filteredCustomers.map((customer) => {
  const risk = riskGradeConfig[customer.risk_grade];
- const customerLoans = getLoansByCustomerId(customer.id);
- const activeLoans = customerLoans.filter(
- (l) => l.status === "active" || l.status === "in_arrears"
- );
- const totalOutstanding = activeLoans.reduce(
- (sum, l) => sum + l.total_outstanding,
- 0
- );
+ const { count: activeLoanCount, outstanding: totalOutstanding } = activeLoansForCustomer(customer.id);
 
  return (
  <TableRow key={customer.id}>
@@ -334,9 +392,9 @@ export default function CustomersPage() {
  )}
  </TableCell>
  <TableCell>
- {activeLoans.length > 0 ? (
+ {activeLoanCount > 0 ? (
  <div>
- <p className="font-medium">{activeLoans.length} loan(s)</p>
+ <p className="font-medium">{activeLoanCount} loan(s)</p>
  <p className="text-xs text-muted-foreground">
  {formatCurrency(totalOutstanding)} outstanding
  </p>
@@ -364,6 +422,8 @@ export default function CustomersPage() {
  </div>
  </CardContent>
  </Card>
+ </>
+ )}
  </div>
  </main>
  </>

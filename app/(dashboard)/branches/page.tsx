@@ -13,6 +13,7 @@ import {
  CalendarRange,
  Download,
  Eye,
+ Loader2,
  PencilLine,
  Plus,
  UserCheck,
@@ -86,14 +87,17 @@ export default function BranchesPage() {
  const {
  branches: branchRecords,
  users,
- addBranch,
  updateBranch,
  assignManager,
  assignLoanOfficer,
  removeLoanOfficer,
+ refresh,
  } = useBranchAssignment();
  const [createOpen, setCreateOpen] = useState(false);
+ const [createSaving, setCreateSaving] = useState(false);
  const [editBranchId, setEditBranchId] = useState<string | null>(null);
+ const [editSaving, setEditSaving] = useState(false);
+ const [editError, setEditError] = useState("");
  const [createForm, setCreateForm] = useState<BranchFormState>(defaultForm);
  const [createError, setCreateError] = useState("");
  const [overviewBranchId, setOverviewBranchId] = useState<string | null>(null);
@@ -239,7 +243,7 @@ export default function BranchesPage() {
  { label: "Expected Profit", amount: expectedProfit, color: "#10b981" },
  ];
 
- const createBranch = (event: FormEvent<HTMLFormElement>) => {
+ const createBranch = async (event: FormEvent<HTMLFormElement>) => {
  event.preventDefault();
  if (!createForm.name.trim() || !createForm.code.trim() || !createForm.manager_id) {
  setCreateError("Branch name, code and manager are required.");
@@ -249,40 +253,70 @@ export default function BranchesPage() {
  (branch) => branch.code.toLowerCase() === createForm.code.trim().toLowerCase()
  );
  if (duplicate) {
- setCreateError("Branch code already exists.");
+ setCreateError("Branch code already exists in the current list.");
  return;
  }
 
- const payload = {
+ setCreateSaving(true);
+ setCreateError("");
+ try {
+ const res = await fetch("/api/falco/branches", {
+ method: "POST",
+ credentials: "include",
+ headers: { "Content-Type": "application/json" },
+ body: JSON.stringify({
  name: createForm.name.trim(),
- location: createForm.address.trim(),
- phone: createForm.phone.trim(),
- manager_id: createForm.manager_id,
- is_active: true,
- };
- void payload;
-
- const newBranch: Branch = {
- id: `br-${Date.now()}`,
- name: createForm.name.trim(),
- code: createForm.code.trim().toUpperCase(),
+ code: createForm.code.trim(),
  region: createForm.region.trim() || "Not specified",
  address: createForm.address.trim() || "Not specified",
  phone: createForm.phone.trim() || "N/A",
  manager_id: createForm.manager_id,
  is_active: true,
- };
- addBranch(newBranch);
+ }),
+ });
+ const json = (await res.json()) as { message?: string; details?: unknown };
+ if (!res.ok) {
+ setCreateError(json.message ?? "Could not create branch");
+ return;
+ }
+ await refresh();
  setCreateOpen(false);
  setCreateForm(defaultForm);
- setCreateError("");
+ } finally {
+ setCreateSaving(false);
+ }
  };
 
- const saveBranchEdit = (event: FormEvent<HTMLFormElement>) => {
+ const saveBranchEdit = async (event: FormEvent<HTMLFormElement>) => {
  event.preventDefault();
  if (!editingBranch) return;
- updateBranch(editingBranch.id, editingBranch);
+ setEditSaving(true);
+ setEditError("");
+ try {
+ const res = await fetch(`/api/falco/branches/${encodeURIComponent(editingBranch.id)}`, {
+ method: "PATCH",
+ credentials: "include",
+ headers: { "Content-Type": "application/json" },
+ body: JSON.stringify({
+ name: editingBranch.name,
+ code: editingBranch.code,
+ region: editingBranch.region,
+ address: editingBranch.address,
+ phone: editingBranch.phone,
+ manager_id: editingBranch.manager_id || null,
+ is_active: editingBranch.is_active,
+ }),
+ });
+ const json = (await res.json()) as { message?: string };
+ if (!res.ok) {
+ setEditError(json.message ?? "Could not update branch");
+ return;
+ }
+ await refresh();
  setEditBranchId(null);
+ } finally {
+ setEditSaving(false);
+ }
  };
 
  const managerOptions = branchManagers.filter(
@@ -542,12 +576,23 @@ export default function BranchesPage() {
  </div>
  </main>
 
- <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+ <Dialog
+ open={createOpen}
+ onOpenChange={(open) => {
+ setCreateOpen(open);
+ if (!open) {
+ setCreateError("");
+ setCreateForm(defaultForm);
+ }
+ }}
+ >
  <DialogContent className="sm:max-w-xl">
  <DialogHeader>
  <DialogTitle>Create Branch</DialogTitle>
  <DialogDescription>
- Add branch details aligned with architecture branch fields and manager assignment.
+ Saves to the LMS via <span className="font-mono text-xs">POST /branches</span> (see branches controller
+ docs). The branch appears in <span className="font-mono text-xs">GET /branches</span> for customer assignment
+ and elsewhere.
  </DialogDescription>
  </DialogHeader>
  <form className="grid gap-4" onSubmit={createBranch}>
@@ -613,19 +658,38 @@ export default function BranchesPage() {
  <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
  Cancel
  </Button>
- <Button type="submit">Create Branch</Button>
+ <Button type="submit" disabled={createSaving}>
+ {createSaving ? (
+ <>
+ <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+ Saving…
+ </>
+ ) : (
+ "Create Branch"
+ )}
+ </Button>
  </DialogFooter>
  </form>
  </DialogContent>
  </Dialog>
 
- <Dialog open={Boolean(editingBranch)} onOpenChange={(open) => !open && setEditBranchId(null)}>
+ <Dialog
+ open={Boolean(editingBranch)}
+ onOpenChange={(open) => {
+ if (!open) {
+ setEditBranchId(null);
+ setEditError("");
+ }
+ }}
+ >
  <DialogContent className="sm:max-w-xl">
  {editingBranch ? (
  <>
  <DialogHeader>
  <DialogTitle>Edit Branch</DialogTitle>
- <DialogDescription>Update branch details and assignment in one place.</DialogDescription>
+ <DialogDescription>
+ Updates the LMS via <span className="font-mono text-xs">PATCH /branches/{"{id}"}</span>.
+ </DialogDescription>
  </DialogHeader>
  <form className="grid gap-4" onSubmit={saveBranchEdit}>
  <div className="grid gap-3 sm:grid-cols-2">
@@ -650,11 +714,21 @@ export default function BranchesPage() {
  <Input value={editingBranch.address} onChange={(e) => updateBranch(editingBranch.id, { address: e.target.value })} />
  </div>
  </div>
+ {editError ? <p className="text-sm text-destructive">{editError}</p> : null}
  <DialogFooter>
- <Button type="button" variant="outline" onClick={() => setEditBranchId(null)}>
+ <Button type="button" variant="outline" onClick={() => setEditBranchId(null)} disabled={editSaving}>
  Cancel
  </Button>
- <Button type="submit">Save Changes</Button>
+ <Button type="submit" disabled={editSaving}>
+ {editSaving ? (
+ <>
+ <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+ Saving…
+ </>
+ ) : (
+ "Save Changes"
+ )}
+ </Button>
  </DialogFooter>
  </form>
  </>

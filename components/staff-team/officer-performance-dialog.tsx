@@ -20,9 +20,14 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { branches, formatCurrency, formatDate } from "@/lib/mock-data";
+import { useOptionalBranchAssignment } from "@/components/branch-assignment-context";
+import { formatCurrency, formatDate } from "@/lib/formatters";
 import type { Customer, Loan, LoanApplication, User } from "@/lib/types";
-import type { OfficerPerformance } from "@/lib/staff-team-metrics";
+import {
+ applicationBelongsToOfficer,
+ loanBelongsToOfficer,
+ type OfficerPerformance,
+} from "@/lib/staff-team-metrics";
 import type { StaffRole } from "@/components/staff-management/types";
 import { roleLabel } from "@/components/staff-management/utils";
 
@@ -47,25 +52,32 @@ export function OfficerPerformanceDialog({
  applications: LoanApplication[];
  loans: Loan[];
 }) {
+ const branchCtx = useOptionalBranchAssignment();
+ const branches = branchCtx?.branches ?? [];
  const oid = officer?.id;
+
+ const customersById = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
 
  const officerCustomers = useMemo(() => {
  if (!oid) return [];
- return customers.filter((c) => {
- const rm = c.assigned_loan_officer_id ?? c.created_by;
- return rm === oid || c.created_by === oid;
- });
+ return customers.filter(
+ (c) =>
+ String(c.assigned_loan_officer_id ?? "").trim() === oid ||
+ c.created_by === oid
+ );
  }, [customers, oid]);
 
  const officerApplications = useMemo(() => {
  if (!oid) return [];
- return applications.filter((a) => a.created_by === oid);
- }, [applications, oid]);
+ return applications.filter((a) =>
+ applicationBelongsToOfficer(a, oid, customersById)
+ );
+ }, [applications, oid, customersById]);
 
  const officerLoans = useMemo(() => {
  if (!oid) return [];
- return loans.filter((l) => l.loan_officer_id === oid);
- }, [loans, oid]);
+ return loans.filter((l) => loanBelongsToOfficer(l, oid, customersById));
+ }, [loans, oid, customersById]);
 
  if (!officer || !perf) return null;
 

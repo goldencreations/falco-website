@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
  Users,
  TrendingUp,
@@ -21,20 +21,96 @@ import {
  CarouselPrevious,
  type CarouselApi,
 } from "@/components/ui/carousel";
-import { dashboardMetrics, formatCurrency, formatCurrencyCompact } from "@/lib/mock-data";
+import { useTranslations } from "@/lib/i18n/use-translations";
+import { formatCurrency, formatCurrencyCompact } from "@/lib/formatters";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-/** Activity-oriented labels — avoids duplicating “total portfolio” from the hero strip. */
-const kpiData = [
+type KpiMetrics = {
+ collections_today: number;
+ expected_collections_today: number;
+ collection_rate: number;
+ par_exposure: number;
+ npl_ratio: number;
+ pending_applications: number;
+ total_customers: number;
+ disbursements_this_month: number;
+};
+
+const KPI_ZERO: KpiMetrics = {
+ collections_today: 0,
+ expected_collections_today: 0,
+ collection_rate: 0,
+ par_exposure: 0,
+ npl_ratio: 0,
+ pending_applications: 0,
+ total_customers: 0,
+ disbursements_this_month: 0,
+};
+
+function mapDashboardMetricsPayload(json: unknown): KpiMetrics {
+ if (!json || typeof json !== "object") return KPI_ZERO;
+ const root = json as { metrics?: Record<string, unknown> };
+ const m = root.metrics;
+ if (!m || typeof m !== "object") return KPI_ZERO;
+ const portfolio = (m.portfolio as Record<string, unknown>) || {};
+ const risk = (m.risk as Record<string, unknown>) || {};
+ const applications = (m.applications as Record<string, unknown>) || {};
+ const collections = (m.collections as Record<string, unknown>) || {};
+ const disbursements = (m.disbursements as Record<string, unknown>) || {};
+
+ const colAmount = Number(collections.amount ?? 0);
+ const colRate = Number(collections.collection_rate ?? 0);
+ const parAmount = Number(risk.par_amount ?? 0);
+ const nplRate = Number(risk.npl_rate ?? 0);
+ const pending =
+ Number(applications.submitted ?? 0) + Number(applications.under_review ?? 0);
+ const customers = Number(portfolio.loan_count ?? 0);
+ const disb = Number(disbursements.amount ?? 0);
+
+ return {
+ collections_today: colAmount,
+ expected_collections_today: 0,
+ collection_rate: colRate,
+ par_exposure: parAmount,
+ npl_ratio: nplRate,
+ pending_applications: pending,
+ total_customers: customers,
+ disbursements_this_month: disb,
+ };
+}
+
+type Period = "today" | "week" | "all";
+
+export function KPICards() {
+ const { t } = useTranslations();
+ const [metrics, setMetrics] = useState<KpiMetrics>(KPI_ZERO);
+
+ useEffect(() => {
+ let cancelled = false;
+ void fetch("/api/falco/dashboard/metrics")
+ .then((r) => r.json())
+ .then((json) => {
+ if (!cancelled) setMetrics(mapDashboardMetricsPayload(json));
+ })
+ .catch(() => {});
+ return () => {
+ cancelled = true;
+ };
+ }, []);
+
+ const kpiData = useMemo(
+ () => [
  {
- title: "Cash collected today",
- value: formatCurrencyCompact(dashboardMetrics.collections_today),
- rawAmount: dashboardMetrics.collections_today,
- change: `${dashboardMetrics.collection_rate}%`,
+ title: t("kpi.cashCollectedToday"),
+ value: formatCurrencyCompact(metrics.collections_today),
+ rawAmount: metrics.collections_today,
+ change: `${metrics.collection_rate}%`,
  changeType: "positive" as const,
  icon: CreditCard,
- description: `of ${formatCurrencyCompact(dashboardMetrics.expected_collections_today)} expected`,
+ description: t("kpi.ofExpected", {
+ amount: formatCurrencyCompact(metrics.expected_collections_today),
+ }),
  colorClass: "bg-kpi-collections",
  iconBgClass: "bg-kpi-collections/15",
  iconClass: "text-kpi-collections",
@@ -43,13 +119,13 @@ const kpiData = [
  "border-emerald-500/25 bg-gradient-to-br from-emerald-500/[0.08] via-card to-emerald-950/[0.04] ",
  },
  {
- title: "At-risk exposure (PAR)",
- value: formatCurrencyCompact(dashboardMetrics.par_over_90 + dashboardMetrics.par_31_90),
- rawAmount: dashboardMetrics.par_over_90 + dashboardMetrics.par_31_90,
- change: `${dashboardMetrics.npl_ratio}% NPL`,
+ title: t("kpi.atRiskPar"),
+ value: formatCurrencyCompact(metrics.par_exposure),
+ rawAmount: metrics.par_exposure,
+ change: t("kpi.nplSuffix", { pct: metrics.npl_ratio }),
  changeType: "negative" as const,
  icon: AlertTriangle,
- description: "non-performing vs book",
+ description: t("kpi.nonPerformingVsBook"),
  colorClass: "bg-kpi-risk",
  iconBgClass: "bg-kpi-risk/15",
  iconClass: "text-kpi-risk",
@@ -58,13 +134,13 @@ const kpiData = [
  "border-amber-500/25 bg-gradient-to-br from-amber-500/[0.07] via-card to-amber-950/[0.05] ",
  },
  {
- title: "Applications in pipeline",
- value: dashboardMetrics.pending_applications.toString(),
+ title: t("kpi.applicationsPipeline"),
+ value: metrics.pending_applications.toString(),
  rawAmount: null,
- change: "2 new",
+ change: "—",
  changeType: "neutral" as const,
  icon: FileText,
- description: "awaiting decision",
+ description: t("kpi.awaitingDecision"),
  colorClass: "bg-kpi-applications",
  iconBgClass: "bg-kpi-applications/15",
  iconClass: "text-kpi-applications",
@@ -73,13 +149,13 @@ const kpiData = [
  "border-violet-500/25 bg-gradient-to-br from-violet-500/[0.07] via-card to-violet-950/[0.05] ",
  },
  {
- title: "Registered customers",
- value: dashboardMetrics.total_customers.toString(),
+ title: t("kpi.registeredCustomers"),
+ value: metrics.total_customers.toString(),
  rawAmount: null,
- change: "+3",
+ change: "—",
  changeType: "positive" as const,
  icon: Users,
- description: "active relationships",
+ description: t("kpi.activeRelationships"),
  colorClass: "bg-kpi-customers",
  iconBgClass: "bg-kpi-customers/15",
  iconClass: "text-kpi-customers",
@@ -88,13 +164,13 @@ const kpiData = [
  "border-sky-500/25 bg-gradient-to-br from-sky-500/[0.07] via-card to-sky-950/[0.05] ",
  },
  {
- title: "Disbursements (MTD)",
- value: formatCurrencyCompact(dashboardMetrics.disbursements_this_month),
- rawAmount: dashboardMetrics.disbursements_this_month,
- change: "+8.2%",
+ title: t("kpi.disbursementsMtd"),
+ value: formatCurrencyCompact(metrics.disbursements_this_month),
+ rawAmount: metrics.disbursements_this_month,
+ change: "—",
  changeType: "positive" as const,
  icon: TrendingUp,
- description: "vs prior month",
+ description: t("kpi.vsPriorMonth"),
  colorClass: "bg-kpi-disbursements",
  iconBgClass: "bg-kpi-disbursements/15",
  iconClass: "text-kpi-disbursements",
@@ -102,11 +178,10 @@ const kpiData = [
  slideTint:
  "border-teal-500/25 bg-gradient-to-br from-teal-500/[0.07] via-card to-teal-950/[0.05] ",
  },
-];
+ ],
+ [metrics, t]
+ );
 
-type Period = "today" | "week" | "all";
-
-export function KPICards() {
  const [period, setPeriod] = useState<Period>("today");
  const [carouselApi, setCarouselApi] = useState<CarouselApi>();
  const [activeSlide, setActiveSlide] = useState(0);
@@ -126,7 +201,7 @@ export function KPICards() {
  }, [carouselApi, onCarouselSelect]);
 
  const periodLabel =
- period === "today" ? "Today" : period === "week" ? "This week" : "All time";
+ period === "today" ? t("common.today") : period === "week" ? t("common.week") : t("common.all");
 
  const scrollRef = useRef<HTMLDivElement>(null);
  const [scrollProgress, setScrollProgress] = useState(0);
@@ -160,18 +235,18 @@ export function KPICards() {
  <div className="relative flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
  <div>
  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-200/95">
- Key indicators
+ {t("kpi.keyIndicators")}
  </p>
  <p className="mt-0.5 text-sm font-medium text-emerald-50/90">
- Portfolio pulse · {periodLabel}
+ {t("kpi.portfolioPulse", { period: periodLabel })}
  </p>
  </div>
  <div className="flex gap-1.5 rounded-full bg-black/20 p-1 ring-1 ring-white/10">
  {(
  [
- { id: "today" as const, label: "Today" },
- { id: "week" as const, label: "Week" },
- { id: "all" as const, label: "All" },
+ { id: "today" as const, label: t("common.today") },
+ { id: "week" as const, label: t("common.week") },
+ { id: "all" as const, label: t("common.all") },
  ] as const
  ).map(({ id, label }) => (
  <Button
@@ -293,7 +368,7 @@ export function KPICards() {
 
  <div className="border-t border-border/60 bg-gradient-to-b from-muted/40 to-muted/20 px-2 py-3 ">
  <p className="text-center text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
- At a glance — tap to focus
+ {t("kpi.atAGlance")}
  </p>
  <div className="mt-2.5 flex gap-2 overflow-x-auto pb-1 [-webkit-overflow-scrolling:touch]">
  {kpiData.map((kpi, i) => (

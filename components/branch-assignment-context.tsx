@@ -1,28 +1,48 @@
 "use client";
 
-import { createContext, ReactNode, useContext, useMemo, useState } from "react";
-import { branches as baseBranches, users as baseUsers } from "@/lib/mock-data";
+import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
+import { extractBranchesList } from "@/lib/branch-adapters";
+import { extractUsersListPayload } from "@/lib/user-adapters";
 import type { Branch, User } from "@/lib/types";
 
 interface BranchAssignmentContextValue {
  branches: Branch[];
  users: User[];
- addBranch: (branch: Branch) => void;
  updateBranch: (branchId: string, updates: Partial<Branch>) => void;
  assignManager: (branchId: string, managerId: string | null) => void;
  assignLoanOfficer: (officerId: string, branchId: string) => void;
  removeLoanOfficer: (officerId: string) => void;
+ refresh: () => Promise<void>;
 }
 
 const BranchAssignmentContext = createContext<BranchAssignmentContextValue | null>(null);
 
 export function BranchAssignmentProvider({ children }: { children: ReactNode }) {
- const [branches, setBranches] = useState<Branch[]>(baseBranches);
- const [users, setUsers] = useState<User[]>(baseUsers);
+ const [branches, setBranches] = useState<Branch[]>([]);
+ const [users, setUsers] = useState<User[]>([]);
 
- const addBranch = (branch: Branch) => {
- setBranches((prev) => [branch, ...prev]);
+ const refresh = async () => {
+ try {
+ const [branchesRes, usersRes] = await Promise.all([
+ fetch("/api/falco/branches", { credentials: "include" }),
+ fetch("/api/staff/directory?page_size=200", { credentials: "include" }),
+ ]);
+ if (branchesRes.ok) {
+ const b = await branchesRes.json();
+ setBranches(extractBranchesList(b));
+ }
+ if (usersRes.ok) {
+ const u = await usersRes.json();
+ setUsers(extractUsersListPayload(u).users);
+ }
+ } catch {
+ /* keep previous */
+ }
  };
+
+ useEffect(() => {
+ void refresh();
+ }, []);
 
  const updateBranch = (branchId: string, updates: Partial<Branch>) => {
  setBranches((prev) =>
@@ -75,24 +95,26 @@ export function BranchAssignmentProvider({ children }: { children: ReactNode }) 
  () => ({
  branches,
  users,
- addBranch,
  updateBranch,
  assignManager,
  assignLoanOfficer,
  removeLoanOfficer,
+ refresh,
  }),
  [branches, users]
  );
 
  return (
- <BranchAssignmentContext.Provider value={value}>
- {children}
- </BranchAssignmentContext.Provider>
+ <BranchAssignmentContext.Provider value={value}>{children}</BranchAssignmentContext.Provider>
  );
 }
 
+export function useOptionalBranchAssignment() {
+ return useContext(BranchAssignmentContext);
+}
+
 export function useBranchAssignment() {
- const context = useContext(BranchAssignmentContext);
+ const context = useOptionalBranchAssignment();
  if (!context) {
  throw new Error("useBranchAssignment must be used within BranchAssignmentProvider");
  }

@@ -128,8 +128,9 @@ export interface LoanProduct {
  min_term_days: number;
  max_term_days: number;
  
- // Interest
- interest_rate: number; // Annual percentage
+ // Interest (API: interest_rate_per_month; UI keeps annual `interest_rate` for legacy charts)
+ interest_rate: number; // Annual percentage (derived when API sends monthly rate)
+ interest_rate_per_month?: number;
  interest_type: InterestType;
  
  // Fees
@@ -158,11 +159,13 @@ export type LoanApplicationStatus =
  | 'submitted'
  | 'under_review'
  | 'approved'
+ | 'pending_disbursement'
  | 'rejected'
  | 'disbursed'
  | 'cancelled';
 
 export type LoanStatus = 
+ | 'draft'
  | 'pending_disbursement'
  | 'active'
  | 'in_arrears'
@@ -362,29 +365,45 @@ export interface ProvisionRate {
 }
 
 // -----------------------------------------------------------------------------
-// COLLECTION TYPES
+// COLLECTION TYPES (aligned with `backend-documentation/collections-controller.md`)
 // -----------------------------------------------------------------------------
-export type CollectionAction = 
- | 'sms_reminder'
- | 'phone_call'
- | 'field_visit'
- | 'demand_letter'
- | 'legal_notice'
- | 'restructuring_offer'
- | 'write_off_recommendation';
+export type CollectionAction =
+ | "phone_call"
+ | "sms"
+ | "visit"
+ | "promise_to_pay"
+ | "ussd_push"
+ | "escalation"
+ | "restructure_discussion"
+ | "other";
 
 export interface CollectionActivity {
  id: string;
  loan_id: string;
  customer_id: string;
- 
- action: CollectionAction;
+
+ action: CollectionAction | string;
  notes: string;
  outcome?: string;
  follow_up_date?: string;
- 
+ metadata?: Record<string, unknown> | null;
+
  performed_by: string;
  performed_at: string;
+}
+
+/** Row from `GET /collections/queue` (fields may vary slightly by backend version). */
+export interface CollectionQueueRow {
+ loan_id: string;
+ loan_number: string;
+ customer_id: string;
+ customer_name: string;
+ days_in_arrears: number;
+ risk_classification: string;
+ total_outstanding: number;
+ last_activity_at?: string | null;
+ product_id?: string | null;
+ product_name?: string | null;
 }
 
 // -----------------------------------------------------------------------------

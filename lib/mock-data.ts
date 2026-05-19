@@ -1506,7 +1506,7 @@ export const collectionActivities: CollectionActivity[] = [
  id: 'col-001',
  loan_id: 'loan-005',
  customer_id: 'cust-003',
- action: 'sms_reminder',
+ action: "sms",
  notes: 'Sent SMS reminder for overdue payment of TZS 476,000',
  outcome: 'Delivered',
  follow_up_date: '2023-12-20',
@@ -1539,7 +1539,7 @@ export const collectionActivities: CollectionActivity[] = [
  id: 'col-004',
  loan_id: 'loan-006',
  customer_id: 'cust-008',
- action: 'demand_letter',
+ action: "other",
  notes: 'Formal demand letter sent via registered post',
  outcome: 'Sent',
  follow_up_date: '2024-01-20',
@@ -1550,7 +1550,7 @@ export const collectionActivities: CollectionActivity[] = [
  id: 'col-005',
  loan_id: 'loan-006',
  customer_id: 'cust-008',
- action: 'field_visit',
+ action: "visit",
  notes: 'Visited customer at business premises, discussed restructuring options',
  outcome: 'Restructuring Discussion',
  follow_up_date: '2024-01-18',
@@ -1644,57 +1644,9 @@ export const agingReport: AgingReport[] = [
 ];
 
 // -----------------------------------------------------------------------------
-// UTILITY FUNCTIONS
+// UTILITY FUNCTIONS (re-exported from lib/formatters.ts)
 // -----------------------------------------------------------------------------
-export function formatCurrency(amount: number): string {
- return new Intl.NumberFormat('en-TZ', {
- style: 'currency',
- currency: 'TZS',
- minimumFractionDigits: 0,
- maximumFractionDigits: 0,
- }).format(amount);
-}
-
-/** Compact version: values ≥ 1B render as "TSh 2.5B", ≥ 1M as "TSh 1.5M", smaller values use the standard format. */
-export function formatCurrencyCompact(amount: number): string {
- if (amount >= 1_000_000_000) {
- const billions = amount / 1_000_000_000;
- const formatted = parseFloat(billions.toFixed(2)).toString();
- return `TSh\u00A0${formatted}B`;
- }
- if (amount >= 1_000_000) {
- const millions = amount / 1_000_000;
- const formatted = parseFloat(millions.toFixed(2)).toString();
- return `TSh\u00A0${formatted}M`;
- }
- return formatCurrency(amount);
-}
-
-export function formatDate(dateString: string): string {
- const date = new Date(dateString);
- if (Number.isNaN(date.getTime())) return "-";
-
- const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
- const day = String(date.getUTCDate()).padStart(2, "0");
- const month = months[date.getUTCMonth()];
- const year = date.getUTCFullYear();
-
- return `${day} ${month} ${year}`;
-}
-
-export function formatDateTime(dateString: string): string {
- const date = new Date(dateString);
- if (Number.isNaN(date.getTime())) return "-";
-
- const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
- const day = String(date.getUTCDate()).padStart(2, "0");
- const month = months[date.getUTCMonth()];
- const year = date.getUTCFullYear();
- const hours = String(date.getUTCHours()).padStart(2, "0");
- const minutes = String(date.getUTCMinutes()).padStart(2, "0");
-
- return `${day} ${month} ${year}, ${hours}:${minutes} UTC`;
-}
+export { formatCurrency, formatCurrencyCompact, formatDate, formatDateTime } from "./formatters";
 
 export function getCustomerById(id: string): Customer | undefined {
  return customers.find(c => c.id === id);

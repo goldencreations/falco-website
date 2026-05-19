@@ -1,4 +1,4 @@
-import { users } from "@/lib/mock-data";
+import type { User } from "@/lib/types";
 import type { StaffProvisioningRole } from "@/lib/staff-requests-types";
 import {
  PasswordResetState,
@@ -54,13 +54,10 @@ export const defaultResetForm: PasswordResetState = {
  confirmPassword: "",
 };
 
-export function mapUserToStaff(user: (typeof users)[number], index: number): StaffRecord | null {
+export function mapUserToStaff(user: User): StaffRecord | null {
  if (!isStaffRole(user.role)) {
  return null;
  }
-
- const lastLogin =
- index === 0 ? new Date(Date.now() - 5 * 60 * 1000).toISOString() : user.last_login;
 
  return {
  id: user.id,
@@ -73,7 +70,7 @@ export function mapUserToStaff(user: (typeof users)[number], index: number): Sta
  is_active: user.is_active,
  created_at: user.created_at,
  updated_at: user.created_at,
- last_login: lastLogin,
+ last_login: user.last_login,
  };
 }
 
