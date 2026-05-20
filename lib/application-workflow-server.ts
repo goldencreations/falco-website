@@ -238,7 +238,13 @@ export async function runServerApplicationApprovalWorkflow(
 
  const loanId = row.loan_id ?? extractLoanFromWorkflowResponse({ application: row })?.id;
 
- return { ok: true, loanId, message: "Application is already approved for disbursement." };
+ return {
+ ok: true,
+ loanId,
+ message: loanId
+ ? "Application is already approved. The loan account exists and is ready for disbursement."
+ : "Application is already approved for disbursement.",
+ };
 
  }
 
@@ -272,7 +278,13 @@ export async function runServerApplicationApprovalWorkflow(
 
  row.loan_id ?? extractLoanFromWorkflowResponse(finalData)?.id ?? undefined;
 
- return { ok: true, loanId };
+ return {
+ ok: true,
+ loanId,
+ message: loanId
+ ? "Application approved successfully. Loan created and pending disbursement."
+ : "Application approved successfully.",
+ };
 
  }
 

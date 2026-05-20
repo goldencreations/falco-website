@@ -18,12 +18,66 @@ import {
  APPLICATION_AUTO_DISBURSE_CASH,
  APPLICATION_DOCUMENTS_OPTIONAL,
 } from "@/lib/application-workflow-config";
+import { canFinalApproveApplication } from "@/lib/application-workflow-permissions";
 import {
  disburseLoanCashApi,
  extractLoanFromWorkflowResponse,
 } from "@/lib/loan-disbursement";
 import { formatApiResponseError } from "@/lib/falco-api";
 import type { LoanApplicationStatus } from "@/lib/types";
+
+export type ApplicationApprovalResult =
+ | { ok: true; data: unknown; message?: string; loanId?: string }
+ | { ok: false; error: string };
+
+function loanIdFromApprovalPayload(data: unknown): string | undefined {
+ if (!data || typeof data !== "object") return undefined;
+ const o = data as Record<string, unknown>;
+ if (o.loan_id != null && String(o.loan_id).trim()) return String(o.loan_id).trim();
+ const app = o.application;
+ if (app && typeof app === "object") {
+ const loanId = (app as Record<string, unknown>).loan_id;
+ if (loanId != null && String(loanId).trim()) return String(loanId).trim();
+ }
+ const loan = extractLoanFromWorkflowResponse(data);
+ return loan?.id ? String(loan.id) : undefined;
+}
+
+/** User-facing success copy after POST /api/applications/:id/approve succeeds. */
+export function resolveApplicationApprovalSuccessMessage(
+ result: { message?: string; loanId?: string; data?: unknown },
+ user: Pick<{ role: string; permissions?: string[] }, "role" | "permissions">
+): string {
+ const loanId = result.loanId ?? loanIdFromApprovalPayload(result.data);
+ const hasLoan = Boolean(loanId) || responseHasCreatedLoan(result.data);
+ const raw = result.message?.trim();
+
+ if (hasLoan) {
+ return "Application approved successfully. A loan account was created and is pending disbursement — open Loan Disbursement to release funds.";
+ }
+
+ if (raw) {
+ if (/already approved/i.test(raw)) {
+ return "Application is already approved. Open Loan Disbursement if funds have not been released yet.";
+ }
+ if (/loan account created|pending disbursement/i.test(raw)) {
+ return raw;
+ }
+ if (/needs final approval|lacks loans\.approve|must finalize/i.test(raw)) {
+ if (canFinalApproveApplication(user)) {
+ return "Application approved successfully. Complete any remaining workflow steps in Loan Disbursement if needed.";
+ }
+ return "Application approved at manager level. A user with final approval must create the loan before disbursement.";
+ }
+ return raw;
+ }
+
+ if (canFinalApproveApplication(user)) {
+ return "Application approved successfully. Open Loan Disbursement when you are ready to release funds.";
+ }
+
+ return "Application approved at manager level. Final approval is still required to create the loan account.";
+}
 
 export {
  uploadApplicationDocumentApi,
@@ -169,7 +223,7 @@ export async function submitApplicationApi(
 export async function approveApplicationApi(
  id: string,
  approvedAmount: number
-): Promise<{ ok: true; data: unknown; message?: string } | { ok: false; error: string }> {
+): Promise<ApplicationApprovalResult> {
  const res = await fetch(`/api/applications/${encodeURIComponent(id)}/approve`, {
  method: "POST",
  credentials: "include",
@@ -178,11 +232,13 @@ export async function approveApplicationApi(
  });
  const data = await res.json().catch(() => ({}));
  if (!res.ok) return { ok: false, error: await parseApiError(res, data) };
+ const o = data && typeof data === "object" ? (data as Record<string, unknown>) : {};
  const message =
- data && typeof data === "object" && typeof (data as Record<string, unknown>).workflow_message === "string"
- ? String((data as Record<string, unknown>).workflow_message)
+ typeof o.workflow_message === "string" && o.workflow_message.trim()
+ ? o.workflow_message.trim()
  : undefined;
- return { ok: true, data, message };
+ const loanId = loanIdFromApprovalPayload(data);
+ return { ok: true, data, message, loanId };
 }
 
 /** @deprecated Use `approveApplicationApi`. */

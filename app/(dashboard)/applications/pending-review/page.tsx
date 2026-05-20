@@ -19,6 +19,7 @@ import {
 import {
  approveApplicationApi,
  assignApplicationOfficerApi,
+ resolveApplicationApprovalSuccessMessage,
  reviewApplicationApi,
 } from "@/lib/application-workflow";
 import {
@@ -141,10 +142,14 @@ export default function PendingReviewPage() {
  return;
  }
  setSuccessMessage(
- result.message ??
- (canFinalApproveApplication({ role: effectiveRole, permissions: user?.permissions ?? [] })
- ? "Loan approved and created. Open Loan Disbursement to release funds — the loan is pending disbursement."
- : "Application approved. A user with loans.approve must finalize approval to create the loan.")
+ resolveApplicationApprovalSuccessMessage(
+ {
+ message: result.message,
+ loanId: "loanId" in result ? result.loanId : undefined,
+ data: "data" in result ? result.data : undefined,
+ },
+ { role: effectiveRole, permissions: user?.permissions ?? [] }
+ )
  );
  await reload();
  setBusyId(null);
@@ -283,7 +288,15 @@ export default function PendingReviewPage() {
  if (validation) return { ok: false, error: validation };
  const r = await approveApplicationApi(app.id, amount);
  return r.ok
- ? { ok: true, message: r.message }
+ ? {
+ ok: true,
+ message: resolveApplicationApprovalSuccessMessage(r, {
+ role: effectiveRole,
+ permissions: user?.permissions ?? [],
+ }),
+ loanId: r.loanId,
+ data: r.data,
+ }
  : { ok: false, error: r.error };
  })
  }
@@ -293,7 +306,15 @@ export default function PendingReviewPage() {
  if (validation) return { ok: false, error: validation };
  const r = await approveApplicationApi(app.id, amount);
  return r.ok
- ? { ok: true, message: r.message }
+ ? {
+ ok: true,
+ message: resolveApplicationApprovalSuccessMessage(r, {
+ role: effectiveRole,
+ permissions: user?.permissions ?? [],
+ }),
+ loanId: r.loanId,
+ data: r.data,
+ }
  : { ok: false, error: r.error };
  })
  }

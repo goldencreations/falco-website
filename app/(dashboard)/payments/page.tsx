@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
  Plus,
@@ -348,9 +349,16 @@ export default function PaymentsPage() {
 
  <Card>
  <CardHeader>
- <CardTitle className="flex items-center gap-2">
+ <CardTitle className="flex items-center justify-between gap-2">
+ <span className="flex items-center gap-2">
  <Scale className="h-5 w-5" />
  Payment Reconciliation (from server)
+ </span>
+ <Button variant="link" size="sm" className="h-auto px-0" asChild>
+ <Link href={isOfficerView ? "/officer/reconciliation" : user?.role === "branch_manager" ? "/manager/reconciliation" : "/reconciliation"}>
+ Full reconciliation page
+ </Link>
+ </Button>
  </CardTitle>
  </CardHeader>
  <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
