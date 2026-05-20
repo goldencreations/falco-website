@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
+import Link from "next/link";
 import {
  Cell,
  Pie,
@@ -107,9 +108,20 @@ export default function BranchesPage() {
  const [toDate, setToDate] = useState("");
  const [newOfficerId, setNewOfficerId] = useState("");
  const [exportingBranchId, setExportingBranchId] = useState<string | null>(null);
+ const [assignmentError, setAssignmentError] = useState("");
+ const [assignmentBusy, setAssignmentBusy] = useState(false);
 
- const branchManagers = useMemo(() => users.filter((u) => u.role === "branch_manager"), [users]);
- const loanOfficers = useMemo(() => users.filter((u) => u.role === "loan_officer"), [users]);
+ const branchManagers = useMemo(
+ () => users.filter((u) => u.role === "branch_manager" && u.is_active !== false),
+ [users]
+ );
+
+ const createManagerOptions = useMemo(() => branchManagers, [branchManagers]);
+
+ const loanOfficers = useMemo(
+ () => users.filter((u) => u.role === "loan_officer" && u.is_active !== false),
+ [users]
+ );
 
  const editingBranch = useMemo(
  () => branchRecords.find((branch) => branch.id === editBranchId) ?? null,
@@ -245,8 +257,8 @@ export default function BranchesPage() {
 
  const createBranch = async (event: FormEvent<HTMLFormElement>) => {
  event.preventDefault();
- if (!createForm.name.trim() || !createForm.code.trim() || !createForm.manager_id) {
- setCreateError("Branch name, code and manager are required.");
+ if (!createForm.name.trim() || !createForm.code.trim()) {
+ setCreateError("Branch name and code are required.");
  return;
  }
  const duplicate = branchRecords.some(
@@ -270,7 +282,7 @@ export default function BranchesPage() {
  region: createForm.region.trim() || "Not specified",
  address: createForm.address.trim() || "Not specified",
  phone: createForm.phone.trim() || "N/A",
- manager_id: createForm.manager_id,
+ ...(createForm.manager_id ? { manager_id: createForm.manager_id } : {}),
  is_active: true,
  }),
  });
@@ -320,7 +332,11 @@ export default function BranchesPage() {
  };
 
  const managerOptions = branchManagers.filter(
- (manager) => manager.branch_id === selectedBranch?.id || manager.branch_id === "" || manager.id === selectedBranch?.manager_id
+ (manager) =>
+ !manager.branch_id ||
+ manager.branch_id === "" ||
+ manager.branch_id === selectedBranch?.id ||
+ manager.id === selectedBranch?.manager_id
  );
 
  const unassignedOrExternalOfficers = loanOfficers.filter(
@@ -638,19 +654,36 @@ export default function BranchesPage() {
  />
  </div>
  <div className="space-y-2 sm:col-span-2">
- <Label>Branch Manager</Label>
- <Select value={createForm.manager_id} onValueChange={(value) => setCreateForm((prev) => ({ ...prev, manager_id: value }))}>
+ <Label>Branch Manager (optional)</Label>
+ <Select
+ value={createForm.manager_id || "none"}
+ onValueChange={(value) =>
+ setCreateForm((prev) => ({ ...prev, manager_id: value === "none" ? "" : value }))
+ }
+ >
  <SelectTrigger>
- <SelectValue placeholder="Select manager" />
+ <SelectValue placeholder="Assign later from branch overview" />
  </SelectTrigger>
  <SelectContent>
- {branchManagers.map((manager) => (
+ <SelectItem value="none">No manager — assign later</SelectItem>
+ {createManagerOptions.map((manager) => (
  <SelectItem key={manager.id} value={manager.id}>
- {manager.full_name} ({manager.employee_id})
+ {manager.full_name}
+ {manager.employee_id ? ` (${manager.employee_id})` : ""}
+ {manager.branch_id ? ` · ${branchRecords.find((b) => b.id === manager.branch_id)?.name ?? "branch"}` : ""}
  </SelectItem>
  ))}
  </SelectContent>
  </Select>
+ {createManagerOptions.length === 0 ? (
+ <p className="text-xs text-muted-foreground">
+ No branch managers in the directory yet. Create one under{" "}
+ <Link href="/staff/team" className="text-primary underline">
+ Staff Management
+ </Link>{" "}
+ with role Branch Manager, then assign them here or from the branch overview.
+ </p>
+ ) : null}
  </div>
  </div>
  {createError ? <p className="text-sm text-destructive">{createError}</p> : null}
@@ -865,7 +898,19 @@ export default function BranchesPage() {
  <div className="min-w-0">
  <Select
  value={selectedBranch.manager_id || "none"}
- onValueChange={(value) => assignManager(selectedBranch.id, value === "none" ? null : value)}
+ disabled={assignmentBusy}
+ onValueChange={(value) => {
+ void (async () => {
+ setAssignmentError("");
+ setAssignmentBusy(true);
+ const err = await assignManager(
+ selectedBranch.id,
+ value === "none" ? null : value
+ );
+ setAssignmentBusy(false);
+ if (err) setAssignmentError(err);
+ })();
+ }}
  >
  <SelectTrigger className="w-full touch-manipulation">
  <SelectValue placeholder="Change manager" />
@@ -879,6 +924,9 @@ export default function BranchesPage() {
  ))}
  </SelectContent>
  </Select>
+ {assignmentError ? (
+ <p className="mt-2 text-sm text-destructive">{assignmentError}</p>
+ ) : null}
  </div>
  </CardContent>
  </Card>
@@ -906,10 +954,20 @@ export default function BranchesPage() {
  </Select>
  <Button
  className="w-full touch-manipulation sm:w-auto sm:shrink-0"
+ disabled={assignmentBusy || !newOfficerId}
  onClick={() => {
  if (!newOfficerId) return;
- assignLoanOfficer(newOfficerId, selectedBranch.id);
+ void (async () => {
+ setAssignmentError("");
+ setAssignmentBusy(true);
+ const err = await assignLoanOfficer(newOfficerId, selectedBranch.id);
+ setAssignmentBusy(false);
+ if (err) {
+ setAssignmentError(err);
+ return;
+ }
  setNewOfficerId("");
+ })();
  }}
  >
  Add Officer
@@ -932,7 +990,16 @@ export default function BranchesPage() {
  variant="ghost"
  className="h-10 w-full touch-manipulation sm:h-9 sm:w-9 sm:shrink-0"
  aria-label={`Remove ${officer.full_name} from branch`}
- onClick={() => removeLoanOfficer(officer.id)}
+ disabled={assignmentBusy}
+ onClick={() => {
+ void (async () => {
+ setAssignmentError("");
+ setAssignmentBusy(true);
+ const err = await removeLoanOfficer(officer.id, selectedBranch.id);
+ setAssignmentBusy(false);
+ if (err) setAssignmentError(err);
+ })();
+ }}
  >
  <UserMinus className="h-4 w-4" />
  </Button>

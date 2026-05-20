@@ -142,6 +142,11 @@ const navigation: { title: string; items: SidebarNavItem[] }[] = [
  icon: CreditCard,
  },
  {
+ title: "Reconciliation",
+ href: "/reconciliation",
+ icon: Scale,
+ },
+ {
  title: "Collections",
  href: "/collections",
  icon: AlertTriangle,

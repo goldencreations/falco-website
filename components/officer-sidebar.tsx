@@ -6,6 +6,7 @@ import {
  BarChart3,
  ClipboardList,
  CreditCard,
+ Scale,
  LayoutDashboard,
  LogOut,
  Settings,
@@ -34,6 +35,7 @@ const officerNav = [
  { title: "Loan Applications", href: "/officer/applications", icon: ClipboardList },
  { title: "Active Loans", href: "/officer/loans", icon: Wallet },
  { title: "Payments", href: "/officer/payments", icon: CreditCard },
+ { title: "Reconciliation", href: "/officer/reconciliation", icon: Scale },
  { title: "Reports", href: "/officer/reports", icon: BarChart3 },
  { title: "Settings", href: "/officer/settings", icon: Settings },
 ];

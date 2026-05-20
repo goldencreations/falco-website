@@ -32,10 +32,15 @@ import {
  FieldGroup,
  FieldLabel,
 } from "@/components/ui/field";
-import { extractCustomersList } from "@/lib/customer-adapters";
+import {
+ adaptApiCustomerRowToCustomer,
+ extractCustomerDetail,
+ extractCustomersList,
+} from "@/lib/customer-adapters";
+import { extractGroupsList } from "@/lib/group-adapters";
 import { formatCurrency } from "@/lib/formatters";
 import { extractProductsList } from "@/lib/product-adapters";
-import type { Customer, LoanMode, LoanProduct } from "@/lib/types";
+import type { Customer, LoanGroup, LoanMode, LoanProduct } from "@/lib/types";
 import { extractApplicationDetail } from "@/lib/application-adapters";
 import {
  mapApplicationFormToFalcoBody,
@@ -101,6 +106,7 @@ function NewApplicationPageContent() {
  ? "/officer/applications"
  : "/applications";
  const [customers, setCustomers] = useState<Customer[]>([]);
+ const [groups, setGroups] = useState<LoanGroup[]>([]);
  const [loanProducts, setLoanProducts] = useState<LoanProduct[]>([]);
  const [productsLoading, setProductsLoading] = useState(false);
  const [productsError, setProductsError] = useState("");
@@ -149,10 +155,28 @@ function NewApplicationPageContent() {
  };
  }, [scopeBranchId]);
 
+ useEffect(() => {
+ let cancelled = false;
+ const params = new URLSearchParams({ page_size: "200", status: "active" });
+ if (scopeBranchId) params.set("branch_id", scopeBranchId);
+ void fetch(`/api/groups?${params.toString()}`, { credentials: "include" })
+ .then((r) => r.json())
+ .then((json) => {
+ if (!cancelled) setGroups(extractGroupsList(json));
+ })
+ .catch(() => {});
+ return () => {
+ cancelled = true;
+ };
+ }, [scopeBranchId]);
+
  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+ const [selectedGroup, setSelectedGroup] = useState<LoanGroup | null>(null);
  const [selectedProduct, setSelectedProduct] = useState<LoanProduct | null>(null);
  const [loanMode, setLoanMode] = useState<LoanMode>("individual");
  const [customerSearch, setCustomerSearch] = useState("");
+ const [groupSelectLoading, setGroupSelectLoading] = useState(false);
+ const [groupSelectError, setGroupSelectError] = useState("");
  const [editLoading, setEditLoading] = useState(Boolean(editId));
  const [editingApplicationId, setEditingApplicationId] = useState<string | null>(editId);
 
@@ -206,6 +230,10 @@ function NewApplicationPageContent() {
  if (app.loan_mode === "group_based" || app.loan_mode === "individual") {
  setLoanMode(app.loan_mode);
  }
+ if (app.loan_mode === "group_based" && app.group_id) {
+ const grp = groups.find((g) => g.id === String(app.group_id));
+ if (grp) setSelectedGroup(grp);
+ }
  setFormData((prev) => ({
  ...prev,
  amount: String(app.requested_amount ?? ""),
@@ -220,11 +248,68 @@ function NewApplicationPageContent() {
  return () => {
  cancelled = true;
  };
- }, [editId, customers, loanProducts]);
+ }, [editId, customers, loanProducts, groups]);
+
+ const resolveChairpersonCustomer = useCallback(
+ async (group: LoanGroup): Promise<Customer | null> => {
+ const existing = customers.find((c) => c.id === group.chairperson_customer_id);
+ if (existing) return existing;
+ try {
+ const res = await fetch(
+ `/api/customers/${encodeURIComponent(group.chairperson_customer_id)}`,
+ { credentials: "include" }
+ );
+ const json = (await res.json()) as unknown;
+ const row = extractCustomerDetail(json);
+ if (!row) return null;
+ return adaptApiCustomerRowToCustomer(row);
+ } catch {
+ return null;
+ }
+ },
+ [customers]
+ );
+
+ const handleSelectGroup = useCallback(
+ async (group: LoanGroup) => {
+ setGroupSelectError("");
+ setGroupSelectLoading(true);
+ try {
+ const chairperson = await resolveChairpersonCustomer(group);
+ if (!chairperson) {
+ setGroupSelectError(
+ "Could not load the group chairperson customer. Add or activate the chairperson under Customers first."
+ );
+ return;
+ }
+ if (!chairperson.is_active || chairperson.is_blacklisted) {
+ setGroupSelectError("The group chairperson is inactive or blacklisted and cannot be used for a loan.");
+ return;
+ }
+ setSelectedGroup(group);
+ setSelectedCustomer(chairperson);
+ setCustomerSearch("");
+ } finally {
+ setGroupSelectLoading(false);
+ }
+ },
+ [resolveChairpersonCustomer]
+ );
 
  const visibleCustomers = scopeBranchId
  ? customers.filter((customer) => customer.branch_id === scopeBranchId)
  : customers;
+
+ const visibleGroups = useMemo(() => {
+ let list = groups.filter((g) => g.status === "active" && g.chairperson_customer_id);
+ if (scopeBranchId) {
+ list = list.filter((g) => g.branch_id === scopeBranchId);
+ }
+ if (scopeBranchId && user?.role === "loan_officer") {
+ list = list.filter((g) => g.loan_officer_id === user.id);
+ }
+ return list;
+ }, [groups, scopeBranchId, user]);
 
  const filteredCustomers = visibleCustomers.filter(
  (c) =>
@@ -234,6 +319,18 @@ function NewApplicationPageContent() {
  c.last_name.toLowerCase().includes(customerSearch.toLowerCase()) ||
  c.customer_number.toLowerCase().includes(customerSearch.toLowerCase()))
  );
+
+ const filteredGroups = visibleGroups.filter((g) => {
+ const q = customerSearch.toLowerCase();
+ return (
+ g.group_name.toLowerCase().includes(q) ||
+ g.group_code.toLowerCase().includes(q) ||
+ g.village_or_street.toLowerCase().includes(q)
+ );
+ });
+
+ const isGroupMode = loanMode === "group_based";
+ const hasBorrower = isGroupMode ? Boolean(selectedGroup && selectedCustomer) : Boolean(selectedCustomer);
 
  const activeLoanProducts = useMemo(
  () => loanProducts.filter((p) => p.is_active !== false),
@@ -474,7 +571,11 @@ function NewApplicationPageContent() {
  };
 
  const handleSubmit = async (isDraft: boolean) => {
- if (!selectedCustomer || !selectedProduct) return;
+ if (!hasBorrower || !selectedCustomer || !selectedProduct) return;
+ if (isGroupMode && !selectedGroup) {
+ alert("Select a vikundi group before submitting.");
+ return;
+ }
 
  const termParsed = parseTermInput(formData.term);
  const amountParsed = parseAmountInput(formData.amount);
@@ -536,6 +637,7 @@ function NewApplicationPageContent() {
  customer_id: selectedCustomer.id,
  product_id: selectedProduct.id,
  loan_mode: loanMode,
+ group_id: isGroupMode ? selectedGroup!.id : null,
  requested_amount: amount,
  term_days: termDays,
  purpose: formData.purpose.trim() || "Working capital",
@@ -660,12 +762,14 @@ function NewApplicationPageContent() {
  <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
  {/* Main Form */}
  <div className="min-w-0 space-y-4">
- {/* Customer Selection */}
+ {/* Customer / Group Selection */}
  <Card>
  <CardHeader>
- <CardTitle>Customer Information</CardTitle>
+ <CardTitle>{isGroupMode ? "Group (Vikundi)" : "Customer Information"}</CardTitle>
  <CardDescription>
- Search and select an existing customer
+ {isGroupMode
+ ? "Search and select a vikundi created under Vikundi / Groups. The chairperson is used as the borrower anchor."
+ : "Search and select an existing customer"}
  </CardDescription>
  </CardHeader>
  <CardContent className="space-y-4">
@@ -673,7 +777,13 @@ function NewApplicationPageContent() {
 <FieldLabel>Application Type</FieldLabel>
 <Select
 value={loanMode}
-onValueChange={(value) => setLoanMode(value as LoanMode)}
+onValueChange={(value) => {
+ setLoanMode(value as LoanMode);
+ setSelectedCustomer(null);
+ setSelectedGroup(null);
+ setCustomerSearch("");
+ setGroupSelectError("");
+}}
 >
 <SelectTrigger>
 <SelectValue placeholder="Select application type" />
@@ -684,7 +794,84 @@ onValueChange={(value) => setLoanMode(value as LoanMode)}
 </SelectContent>
 </Select>
 </Field>
- {!selectedCustomer ? (
+ {groupSelectError ? (
+ <p className="text-sm text-destructive">{groupSelectError}</p>
+ ) : null}
+ {isGroupMode ? (
+ !selectedGroup ? (
+ <>
+ <div className="relative">
+ <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+ <Input
+ placeholder="Search by group name, code, or village..."
+ value={customerSearch}
+ onChange={(e) => setCustomerSearch(e.target.value)}
+ className="pl-9"
+ disabled={groupSelectLoading}
+ />
+ </div>
+ {(customerSearch || visibleGroups.length > 0) && (
+ <div className="max-h-48 space-y-2 overflow-auto">
+ {(customerSearch ? filteredGroups : visibleGroups).map((group) => (
+ <button
+ key={group.id}
+ type="button"
+ disabled={groupSelectLoading}
+ onClick={() => void handleSelectGroup(group)}
+ className="flex w-full items-center justify-between rounded-lg border border-border p-3 text-left transition-colors hover:bg-muted disabled:opacity-50"
+ >
+ <div>
+ <p className="font-medium">{group.group_name}</p>
+ <p className="text-sm text-muted-foreground">
+ {group.group_code || "—"} | {group.member_customer_ids.length} members
+ </p>
+ <p className="text-xs text-muted-foreground">{group.village_or_street}</p>
+ </div>
+ <Badge variant="secondary">Active</Badge>
+ </button>
+ ))}
+ {(customerSearch ? filteredGroups : visibleGroups).length === 0 ? (
+ <p className="py-4 text-center text-muted-foreground">
+ {customerSearch
+ ? "No vikundi match your search. "
+ : "No active vikundi in your branch. "}
+ <Link href="/groups/new" className="text-primary underline">
+ Create a group
+ </Link>
+ </p>
+ ) : null}
+ </div>
+ )}
+ </>
+ ) : (
+ <div className="flex items-start justify-between rounded-lg border border-border bg-muted/50 p-4">
+ <div className="space-y-1">
+ <p className="font-medium">{selectedGroup.group_name}</p>
+ <p className="text-sm text-muted-foreground">
+ {selectedGroup.group_code} | {selectedGroup.member_customer_ids.length} members
+ </p>
+ <p className="text-sm text-muted-foreground">{selectedGroup.meeting_location}</p>
+ {selectedCustomer ? (
+ <p className="text-xs text-muted-foreground pt-1">
+ Chairperson: {selectedCustomer.first_name} {selectedCustomer.last_name} (
+ {selectedCustomer.customer_number})
+ </p>
+ ) : null}
+ </div>
+ <Button
+ variant="ghost"
+ size="sm"
+ onClick={() => {
+ setSelectedGroup(null);
+ setSelectedCustomer(null);
+ setGroupSelectError("");
+ }}
+ >
+ Change
+ </Button>
+ </div>
+ )
+ ) : !selectedCustomer ? (
  <>
  <div className="relative">
  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -700,6 +887,7 @@ onValueChange={(value) => setLoanMode(value as LoanMode)}
  {filteredCustomers.map((customer) => (
  <button
  key={customer.id}
+ type="button"
  onClick={() => {
  setSelectedCustomer(customer);
  setCustomerSearch("");
@@ -793,8 +981,12 @@ onValueChange={(value) => setLoanMode(value as LoanMode)}
  <FieldGroup>
  <Field>
  <FieldLabel>Loan product</FieldLabel>
- {!selectedCustomer ? (
- <p className="text-xs text-muted-foreground mb-2">Select a customer first, then choose a loan product.</p>
+ {!hasBorrower ? (
+ <p className="text-xs text-muted-foreground mb-2">
+ {isGroupMode
+ ? "Select a vikundi group first, then choose a loan product."
+ : "Select a customer first, then choose a loan product."}
+ </p>
  ) : null}
  {productsError ? <p className="text-xs text-destructive mb-2">{productsError}</p> : null}
  {eligibleProductsStrict.length === 0 && eligibleProducts.length > 0 && (
@@ -810,7 +1002,7 @@ onValueChange={(value) => setLoanMode(value as LoanMode)}
  activeLoanProducts.find((p) => String(p.id) === String(value)) || null
  )
  }
- disabled={!selectedCustomer || productsLoading}
+ disabled={!hasBorrower || productsLoading}
  onOpenChange={(open) => {
  if (open) void loadLoanProducts();
  }}
@@ -820,8 +1012,10 @@ onValueChange={(value) => setLoanMode(value as LoanMode)}
  placeholder={
  productsLoading
  ? "Loading products…"
- : !selectedCustomer
- ? "Select customer first"
+ : !hasBorrower
+ ? isGroupMode
+ ? "Select group first"
+ : "Select customer first"
  : "Select a product"
  }
  />
@@ -839,7 +1033,7 @@ onValueChange={(value) => setLoanMode(value as LoanMode)}
  ))}
  </SelectContent>
  </Select>
- {eligibleProducts.length === 0 && selectedCustomer && !productsLoading ? (
+ {eligibleProducts.length === 0 && hasBorrower && !productsLoading ? (
  <p className="text-sm text-muted-foreground mt-2">
  No active loan products are available. Add products under{" "}
  <Link href="/products" className="text-primary underline">
@@ -1390,7 +1584,7 @@ onValueChange={(value) => setLoanMode(value as LoanMode)}
  type="button"
  className="w-full"
  onClick={() => void handleSubmit(false)}
- disabled={!selectedCustomer || !selectedProduct || amount <= 0 || termDays <= 0}
+ disabled={!hasBorrower || !selectedProduct || amount <= 0 || termDays <= 0}
  >
  <Send className="mr-2 h-4 w-4" />
  {isAdminView ? "Activate & create loan" : "Submit application"}
@@ -1400,13 +1594,15 @@ onValueChange={(value) => setLoanMode(value as LoanMode)}
  variant="outline"
  className="w-full"
  onClick={() => void handleSubmit(true)}
- disabled={!selectedCustomer || !selectedProduct}
+ disabled={!hasBorrower || !selectedProduct}
  >
  Save as draft
  </Button>
- {!selectedCustomer || !selectedProduct ? (
+ {!hasBorrower || !selectedProduct ? (
  <p className="text-xs text-muted-foreground">
- Choose a customer and a loan product. Amount and term must be greater than zero to submit.
+ {isGroupMode
+ ? "Choose a vikundi group and a loan product. Amount and term must be greater than zero to submit."
+ : "Choose a customer and a loan product. Amount and term must be greater than zero to submit."}
  </p>
  ) : amount <= 0 || termDays <= 0 ? (
  <p className="text-xs text-muted-foreground">

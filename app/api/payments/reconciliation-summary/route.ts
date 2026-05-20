@@ -10,6 +10,7 @@ export async function GET(request: Request) {
 
  const url = new URL(request.url);
  const res = await falcoServerFetch<unknown>("/payments/reconciliation-summary", {
+ request,
  query: {
  branch_id: resolvedBranchIdForListQuery(auth.user, url.searchParams.get("branch_id")),
  },

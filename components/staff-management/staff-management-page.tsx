@@ -58,7 +58,8 @@ function StaffManagementDenied() {
 
 function StaffManagementPageInner() {
  const { user } = useSessionUser();
- const { users: managedUsers, branches: managedBranches } = useBranchAssignment();
+ const { users: managedUsers, branches: managedBranches, refresh: refreshBranchAssignments } =
+ useBranchAssignment();
 
  const [directoryUsers, setDirectoryUsers] = useState<User[]>([]);
  const [staffMembers, setStaffMembers] = useState<StaffRecord[]>([]);
@@ -301,7 +302,7 @@ function StaffManagementPageInner() {
 
  toast.success("Staff member created (POST /users).");
  closeCreate();
- await refreshDirectory();
+ await Promise.all([refreshDirectory(), refreshBranchAssignments()]);
  } catch {
  setCreateFormError("Network error. Check your connection and try again.");
  toast.error("Could not reach the server.");
@@ -368,7 +369,7 @@ function StaffManagementPageInner() {
  return;
  }
 
- await refreshDirectory();
+ await Promise.all([refreshDirectory(), refreshBranchAssignments()]);
  setEditStaff(null);
  setEditForm(null);
  setEditFormError("");

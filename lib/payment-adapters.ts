@@ -139,6 +139,24 @@ export function extractPaymentsPayload(json: unknown): {
  return { payments, meta };
 }
 
+export function computeReconciliationSummaryFromPayments(
+ payments: Pick<PaymentViewRow, "reconciliation_status">[]
+): ReconciliationSummary {
+ const summary: ReconciliationSummary = {
+ matched: 0,
+ underpaid: 0,
+ overpaid: 0,
+ manual_review: 0,
+ unmatched: 0,
+ };
+ for (const payment of payments) {
+ const key = payment.reconciliation_status ?? "unmatched";
+ if (key in summary) summary[key] += 1;
+ else summary.unmatched += 1;
+ }
+ return summary;
+}
+
 export function extractReconciliationSummary(json: unknown): ReconciliationSummary {
  const empty: ReconciliationSummary = {
  matched: 0,
