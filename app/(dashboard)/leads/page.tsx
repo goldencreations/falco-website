@@ -34,8 +34,8 @@ import {
  SelectTrigger,
  SelectValue,
 } from "@/components/ui/select";
+import { extractBranchesList } from "@/lib/branch-adapters";
 import { extractCustomersList } from "@/lib/customer-adapters";
-import { useOptionalBranchAssignment } from "@/components/branch-assignment-context";
 import { formatApiResponseError } from "@/lib/falco-api";
 import {
  extractLeadsList,
@@ -46,7 +46,7 @@ import {
 } from "@/lib/lead-adapters";
 import { reverseGeocodeNominatim } from "@/lib/nominatim";
 import { parseJsonResponse } from "@/lib/parse-json-response";
-import type { Customer } from "@/lib/types";
+import type { Branch, Customer } from "@/lib/types";
 import { useSessionUser } from "@/lib/use-session-user";
 
 const statusLabel: Record<LeadStatus, string> = {
@@ -81,13 +81,12 @@ function getSeedFromText(value: string): number {
 }
 
 export default function LeadsPage() {
-  const { user } = useSessionUser();
-  const branchCtx = useOptionalBranchAssignment();
-  const scopeBranchId =
-    user?.role === "branch_manager" || user?.role === "loan_officer" ? user.branch_id : null;
-  const [leads, setLeads] = useState<LeadView[]>([]);
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const branches = branchCtx?.branches ?? [];
+ const { user } = useSessionUser();
+ const scopeBranchId =
+ user?.role === "branch_manager" || user?.role === "loan_officer" ? user.branch_id : null;
+ const [leads, setLeads] = useState<LeadView[]>([]);
+ const [customers, setCustomers] = useState<Customer[]>([]);
+ const [branches, setBranches] = useState<Branch[]>([]);
  const [loading, setLoading] = useState(true);
  const [saving, setSaving] = useState(false);
  const [error, setError] = useState<string | null>(null);
@@ -132,13 +131,22 @@ export default function LeadsPage() {
  custParams.set("page_size", "100");
  if (scopeBranchId) custParams.set("branch_id", scopeBranchId);
 
-    const [leadsRes, custRes] = await Promise.all([
-      fetch("/api/leads?page_size=100", { credentials: "include", cache: "no-store" }),
-      fetch(`/api/customers?${custParams.toString()}`, {
-        credentials: "include",
-        cache: "no-store",
-      }),
-    ]);
+ const fetches: [Promise<Response>, Promise<Response>, Promise<Response> | null] = [
+ fetch("/api/leads?page_size=100", { credentials: "include", cache: "no-store" }),
+ fetch(`/api/customers?${custParams.toString()}`, {
+ credentials: "include",
+ cache: "no-store",
+ }),
+ user?.role === "super_admin"
+ ? fetch("/api/falco/branches", { credentials: "include", cache: "no-store" })
+ : null,
+ ];
+
+ const [leadsRes, custRes, branchRes] = await Promise.all([
+ fetches[0],
+ fetches[1],
+ fetches[2] ?? Promise.resolve(null),
+ ]);
 
  const { data: leadsJson } = await parseJsonResponse<unknown>(leadsRes);
  if (!leadsRes.ok) {
@@ -157,12 +165,17 @@ export default function LeadsPage() {
  throw new Error(msg);
  }
 
-    if (user?.role === "super_admin" && branches.length > 0) {
-      setFormData((prev) => ({
-        ...prev,
-        branchId: prev.branchId || branches[0]?.id || "",
-      }));
-    }
+ if (branchRes) {
+ const branchJson = await branchRes.json().catch(() => null);
+ if (branchRes.ok && branchJson) {
+ const branchList = extractBranchesList(branchJson);
+ setBranches(branchList);
+ setFormData((prev) => ({
+ ...prev,
+ branchId: prev.branchId || branchList[0]?.id || "",
+ }));
+ }
+ }
 
  const list = extractLeadsList(leadsJson);
  setLeads(list);

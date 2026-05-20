@@ -55,19 +55,15 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
  }
  }, [setLanguage]);
 
-  useEffect(() => {
-    const saved = localStorage.getItem(LANGUAGE_STORAGE_KEY);
-    if (isAppLanguage(saved)) {
-      setLanguageState(saved);
-      document.documentElement.setAttribute("lang", saved === "sw" ? "sw" : "en");
-    }
-    setReady(true);
-    // Only sync from server when there is no locally saved preference,
-    // avoiding a /api/settings/profile fetch on every cold app start.
-    if (!isAppLanguage(saved)) {
-      void refreshFromServer();
-    }
-  }, [refreshFromServer]);
+ useEffect(() => {
+ const saved = localStorage.getItem(LANGUAGE_STORAGE_KEY);
+ if (isAppLanguage(saved)) {
+ setLanguageState(saved);
+ document.documentElement.setAttribute("lang", saved === "sw" ? "sw" : "en");
+ }
+ setReady(true);
+ void refreshFromServer();
+ }, [refreshFromServer]);
 
  const value = useMemo(
  () => ({ language, setLanguage, ready, refreshFromServer }),

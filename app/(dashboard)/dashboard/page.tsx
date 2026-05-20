@@ -19,25 +19,21 @@ type MetricsPayload = {
 };
 
 export default function DashboardPage() {
-  const { t } = useTranslations();
-  const [snapshot, setSnapshot] = useState<MetricsPayload | null>(null);
-  const [metricsJson, setMetricsJson] = useState<unknown>(undefined);
+ const { t } = useTranslations();
+ const [snapshot, setSnapshot] = useState<MetricsPayload | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    void fetch("/api/falco/dashboard/metrics")
-      .then((r) => r.json())
-      .then((json) => {
-        if (!cancelled) {
-          setSnapshot(json as MetricsPayload);
-          setMetricsJson(json);
-        }
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+ useEffect(() => {
+ let cancelled = false;
+ void fetch("/api/falco/dashboard/metrics")
+ .then((r) => r.json())
+ .then((json) => {
+ if (!cancelled) setSnapshot(json as MetricsPayload);
+ })
+ .catch(() => {});
+ return () => {
+ cancelled = true;
+ };
+ }, []);
 
  const portfolio = snapshot?.metrics?.portfolio;
  const risk = snapshot?.metrics?.risk;
@@ -97,7 +93,7 @@ export default function DashboardPage() {
  </div>
  </section>
 
-        <KPICards metricsJson={metricsJson} />
+ <KPICards />
 
  <DashboardChartsPanel />
 

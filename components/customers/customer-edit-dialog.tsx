@@ -32,7 +32,6 @@ import {
 } from "@/lib/customer-assignment-options";
 import type { Branch, Customer, User } from "@/lib/types";
 import { useSessionUser } from "@/lib/use-session-user";
-import { useOptionalBranchAssignment } from "@/components/branch-assignment-context";
 
 type CustomerStatus =
  | "pending_registration_fee"
@@ -217,48 +216,41 @@ export function CustomerEditDialog({
  sourceRow,
  onSaved,
 }: CustomerEditDialogProps) {
-  const { user } = useSessionUser();
-  const branchCtx = useOptionalBranchAssignment();
-  const isManagerView = user?.role === "branch_manager";
-  const isOfficerView = user?.role === "loan_officer";
-  const lockedBranchId = isManagerView || isOfficerView ? user?.branch_id ?? "" : "";
-  const lockedOfficerId = isOfficerView ? user?.id ?? "" : "";
+ const { user } = useSessionUser();
+ const isManagerView = user?.role === "branch_manager";
+ const isOfficerView = user?.role === "loan_officer";
+ const lockedBranchId = isManagerView || isOfficerView ? user?.branch_id ?? "" : "";
+ const lockedOfficerId = isOfficerView ? user?.id ?? "" : "";
 
-  const [form, setForm] = useState<EditForm | null>(null);
-  const [error, setError] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [branchRecords, setBranchRecords] = useState<Branch[]>([]);
-  const [branchesLoading, setBranchesLoading] = useState(false);
-  const [branchesError, setBranchesError] = useState("");
-  const [loanOfficers, setLoanOfficers] = useState<User[]>([]);
-  const [officersLoading, setOfficersLoading] = useState(false);
-  const [officersError, setOfficersError] = useState("");
+ const [form, setForm] = useState<EditForm | null>(null);
+ const [error, setError] = useState("");
+ const [saving, setSaving] = useState(false);
+ const [branchRecords, setBranchRecords] = useState<Branch[]>([]);
+ const [branchesLoading, setBranchesLoading] = useState(false);
+ const [branchesError, setBranchesError] = useState("");
+ const [loanOfficers, setLoanOfficers] = useState<User[]>([]);
+ const [officersLoading, setOfficersLoading] = useState(false);
+ const [officersError, setOfficersError] = useState("");
 
-  const loadBranches = useCallback(async () => {
-    const ctxBranches = branchCtx?.branches ?? [];
-    if (ctxBranches.length > 0) {
-      setBranchRecords(ctxBranches);
-      setBranchesError("");
-      return;
-    }
-    setBranchesLoading(true);
-    setBranchesError("");
-    try {
-      const r = await fetch("/api/falco/branches", { credentials: "include" });
-      const d = (await r.json()) as { branches?: Branch[]; message?: string };
-      if (!r.ok) {
-        setBranchesError(d.message ?? "Could not load branches");
-        setBranchRecords([]);
-        return;
-      }
-      setBranchRecords(d.branches ?? []);
-    } catch {
-      setBranchesError("Could not load branches");
-      setBranchRecords([]);
-    } finally {
-      setBranchesLoading(false);
-    }
-  }, [branchCtx?.branches]);
+ const loadBranches = useCallback(async () => {
+ setBranchesLoading(true);
+ setBranchesError("");
+ try {
+ const r = await fetch("/api/falco/branches", { credentials: "include" });
+ const d = (await r.json()) as { branches?: Branch[]; message?: string };
+ if (!r.ok) {
+ setBranchesError(d.message ?? "Could not load branches");
+ setBranchRecords([]);
+ return;
+ }
+ setBranchRecords(d.branches ?? []);
+ } catch {
+ setBranchesError("Could not load branches");
+ setBranchRecords([]);
+ } finally {
+ setBranchesLoading(false);
+ }
+ }, []);
 
  const loadOfficersForBranch = useCallback(
  async (branchId?: string) => {

@@ -21,47 +21,35 @@ export function BranchAssignmentProvider({ children }: { children: ReactNode }) 
  const [branches, setBranches] = useState<Branch[]>([]);
  const [users, setUsers] = useState<User[]>([]);
 
-  const loadBranches = async () => {
-    try {
-      const res = await fetch("/api/falco/branches", { credentials: "include" });
-      if (res.ok) {
-        const b = await res.json();
-        setBranches(extractBranchesList(b));
-      }
-    } catch {
-      /* keep previous */
-    }
-  };
+ const refresh = async () => {
+ try {
+ const [branchesRes, usersRes, managersRes, officersRes] = await Promise.all([
+ fetch("/api/falco/branches", { credentials: "include" }),
+ fetch("/api/staff/directory?page_size=500", { credentials: "include" }),
+ fetch("/api/staff/directory?page_size=500&role=branch_manager", { credentials: "include" }),
+ fetch("/api/staff/directory?page_size=500&role=loan_officer", { credentials: "include" }),
+ ]);
+ if (branchesRes.ok) {
+ const b = await branchesRes.json();
+ setBranches(extractBranchesList(b));
+ }
+ const merged = new Map<string, User>();
+ for (const res of [usersRes, managersRes, officersRes]) {
+ if (!res.ok) continue;
+ const u = await res.json();
+ for (const user of extractUsersListPayload(u).users) {
+ if (user.id) merged.set(user.id, user);
+ }
+ }
+ if (merged.size) setUsers(Array.from(merged.values()));
+ } catch {
+ /* keep previous */
+ }
+ };
 
-  const refresh = async () => {
-    try {
-      const [branchesRes, usersRes, managersRes, officersRes] = await Promise.all([
-        fetch("/api/falco/branches", { credentials: "include" }),
-        fetch("/api/staff/directory?page_size=500", { credentials: "include" }),
-        fetch("/api/staff/directory?page_size=500&role=branch_manager", { credentials: "include" }),
-        fetch("/api/staff/directory?page_size=500&role=loan_officer", { credentials: "include" }),
-      ]);
-      if (branchesRes.ok) {
-        const b = await branchesRes.json();
-        setBranches(extractBranchesList(b));
-      }
-      const merged = new Map<string, User>();
-      for (const res of [usersRes, managersRes, officersRes]) {
-        if (!res.ok) continue;
-        const u = await res.json();
-        for (const user of extractUsersListPayload(u).users) {
-          if (user.id) merged.set(user.id, user);
-        }
-      }
-      if (merged.size) setUsers(Array.from(merged.values()));
-    } catch {
-      /* keep previous */
-    }
-  };
-
-  useEffect(() => {
-    void loadBranches();
-  }, []);
+ useEffect(() => {
+ void refresh();
+ }, []);
 
  const updateBranch = (branchId: string, updates: Partial<Branch>) => {
  setBranches((prev) =>
