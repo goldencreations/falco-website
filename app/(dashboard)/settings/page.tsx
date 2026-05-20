@@ -38,6 +38,7 @@ import {
  canViewOrganizationSettings,
 } from "@/lib/settings-permissions";
 import { useSessionUser, type SessionUserClient } from "@/lib/use-session-user";
+import { useOptionalBranchAssignment } from "@/components/branch-assignment-context";
 
 function roleLabel(role: string): string {
  if (role === "branch_manager") return "Branch manager";
@@ -60,10 +61,11 @@ const DEFAULT_PREFERENCES: ProfilePreferences = {
 };
 
 export default function SettingsPage() {
- const { language, setLanguage, refreshFromServer } = useLanguage();
- const copy = settingsCopy(language);
- const L = (text: string) => tLabel(text, language);
- const { user: sessionUser, loaded: sessionLoaded } = useSessionUser();
+  const { language, setLanguage, refreshFromServer } = useLanguage();
+  const copy = settingsCopy(language);
+  const L = (text: string) => tLabel(text, language);
+  const { user: sessionUser, loaded: sessionLoaded } = useSessionUser();
+  const branchCtx = useOptionalBranchAssignment();
  const [profileUser, setProfileUser] = useState<SessionUserClient | null>(null);
  const [branchName, setBranchName] = useState<string>("");
  const [preferences, setPreferences] = useState<ProfilePreferences>(DEFAULT_PREFERENCES);
@@ -120,34 +122,26 @@ export default function SettingsPage() {
  setLanguage(prefs.language);
  }
 
- const bid = profileJson.user?.branch_id ?? sessionUser.branch_id;
- let resolvedBranchName = bid ?? "";
+    const bid = profileJson.user?.branch_id ?? sessionUser.branch_id;
+    let resolvedBranchName = bid ?? "";
 
- try {
- const branchRes = await fetch("/api/settings/branches", { credentials: "include" });
- if (branchRes.ok) {
- const branchJson = (await branchRes.json()) as { data?: { id: string; name: string }[] };
- const match = branchJson.data?.find((b) => b.id === bid);
- resolvedBranchName = match?.name ?? resolvedBranchName;
- }
- } catch {
- /* try falco branches */
- }
+    const ctxBranch = branchCtx?.branches.find((b) => b.id === bid);
+    if (ctxBranch?.name) {
+      resolvedBranchName = ctxBranch.name;
+    } else {
+      try {
+        const branchRes = await fetch("/api/settings/branches", { credentials: "include" });
+        if (branchRes.ok) {
+          const branchJson = (await branchRes.json()) as { data?: { id: string; name: string }[] };
+          const match = branchJson.data?.find((b) => b.id === bid);
+          resolvedBranchName = match?.name ?? resolvedBranchName;
+        }
+      } catch {
+        /* keep id */
+      }
+    }
 
- if (!resolvedBranchName || resolvedBranchName === bid) {
- try {
- const falcoRes = await fetch("/api/falco/branches", { credentials: "include" });
- if (falcoRes.ok) {
- const falcoJson = (await falcoRes.json()) as { branches?: { id: string; name: string }[] };
- const match = falcoJson.branches?.find((b) => b.id === bid);
- if (match?.name) resolvedBranchName = match.name;
- }
- } catch {
- /* keep id */
- }
- }
-
- setBranchName(resolvedBranchName || bid || "");
+    setBranchName(resolvedBranchName || bid || "");
 
  if (canViewOrganizationSettings(sessionUser)) {
  const orgRes = await fetch("/api/settings/organization", { credentials: "include" });

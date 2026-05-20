@@ -96,57 +96,50 @@ export default function NewGroupPage() {
  setBranchesLoading(true);
  setBranchesError("");
  try {
- if (lockedBranchId) {
- const fromContext = contextBranches.find((b) => String(b.id).trim() === lockedBranchId);
- setBranchRecords(
- fromContext
- ? [fromContext]
- : [
- {
- id: lockedBranchId,
- name: `Branch ${lockedBranchId}`,
- code: lockedBranchId,
- region: "",
- address: "",
- phone: "",
- manager_id: "",
- is_active: true,
- },
- ]
- );
- return;
- }
+    if (lockedBranchId) {
+      const fromContext = contextBranches.find((b) => String(b.id).trim() === lockedBranchId);
+      setBranchRecords(
+        fromContext
+          ? [fromContext]
+          : [
+              {
+                id: lockedBranchId,
+                name: `Branch ${lockedBranchId}`,
+                code: lockedBranchId,
+                region: "",
+                address: "",
+                phone: "",
+                manager_id: "",
+                is_active: true,
+              },
+            ]
+      );
+      return;
+    }
 
- const [falcoRes, settingsRes] = await Promise.all([
- fetch("/api/falco/branches", { credentials: "include" }),
- fetch("/api/settings/branches", { credentials: "include" }),
- ]);
+    if (contextBranches.length > 0) {
+      setBranchRecords(contextBranches);
+      return;
+    }
 
- const falcoJson = falcoRes.ok ? ((await falcoRes.json()) as unknown) : null;
- const settingsJson = settingsRes.ok ? ((await settingsRes.json()) as unknown) : null;
+    const settingsRes = await fetch("/api/settings/branches", { credentials: "include" });
+    const settingsJson = settingsRes.ok ? ((await settingsRes.json()) as unknown) : null;
+    const fromSettings = settingsJson
+      ? settingsRowsToBranches(parseSettingsBranches(settingsJson))
+      : [];
 
- const fromFalco = falcoJson ? extractBranchesList(falcoJson) : [];
- const fromSettings = settingsJson
- ? settingsRowsToBranches(parseSettingsBranches(settingsJson))
- : [];
- const fromContext = extractBranchesList(contextBranches);
-
- const loaded = mergeBranchesList(fromFalco, fromSettings, fromContext);
-
- setBranchRecords(loaded);
- if (!loaded.length) {
- const hint = !falcoRes.ok
- ? "Could not load branches from the server."
- : "No registered branches found. Add branches under Branches in the menu first.";
- setBranchesError(hint);
- }
- } catch {
- setBranchesError("Could not load branches");
- setBranchRecords(mergeBranchesList(extractBranchesList(contextBranches)));
- } finally {
- setBranchesLoading(false);
- }
- }, [lockedBranchId, contextBranches]);
+    const loaded = mergeBranchesList(fromSettings);
+    setBranchRecords(loaded);
+    if (!loaded.length) {
+      setBranchesError("No registered branches found. Add branches under Branches in the menu first.");
+    }
+  } catch {
+    setBranchesError("Could not load branches");
+    setBranchRecords(mergeBranchesList(extractBranchesList(contextBranches)));
+  } finally {
+    setBranchesLoading(false);
+  }
+  }, [lockedBranchId, contextBranches]);
 
  const loadOfficersForBranch = useCallback(
  async (branchId?: string) => {

@@ -27,6 +27,7 @@ import {
 } from "@/lib/customer-assignment-options";
 import { formatValidationDetails } from "@/lib/falco-api";
 import { useSessionUser } from "@/lib/use-session-user";
+import { useOptionalBranchAssignment } from "@/components/branch-assignment-context";
 
 type CustomerStatus =
  | "pending_registration_fee"
@@ -145,8 +146,9 @@ const defaultForm: CustomerCreateForm = {
 };
 
 export default function NewCustomerPage() {
- const router = useRouter();
- const { user } = useSessionUser();
+  const router = useRouter();
+  const { user } = useSessionUser();
+  const branchCtx = useOptionalBranchAssignment();
  const effectiveUserId = user?.id ?? "";
  const isManagerView = user?.role === "branch_manager";
  const isOfficerView = user?.role === "loan_officer";
@@ -170,41 +172,47 @@ export default function NewCustomerPage() {
  const [officersLoading, setOfficersLoading] = useState(false);
  const [officersError, setOfficersError] = useState("");
 
- const loadBranches = useCallback(async () => {
- if (lockedBranchId) {
- setBranchesError("");
- setBranchRecords([
- {
- id: lockedBranchId,
- name: `Branch ${lockedBranchId}`,
- code: lockedBranchId,
- region: "",
- address: "",
- phone: "",
- manager_id: "",
- is_active: true,
- },
- ]);
- return;
- }
- setBranchesLoading(true);
- setBranchesError("");
- try {
- const r = await fetch("/api/falco/branches", { credentials: "include" });
- const d = (await r.json()) as { branches?: Branch[]; message?: string };
- if (!r.ok) {
- setBranchesError(d.message ?? "Could not load branches");
- setBranchRecords([]);
- return;
- }
- setBranchRecords(d.branches ?? []);
- } catch {
- setBranchesError("Could not load branches");
- setBranchRecords([]);
- } finally {
- setBranchesLoading(false);
- }
- }, [lockedBranchId]);
+  const loadBranches = useCallback(async () => {
+    if (lockedBranchId) {
+      setBranchesError("");
+      setBranchRecords([
+        {
+          id: lockedBranchId,
+          name: `Branch ${lockedBranchId}`,
+          code: lockedBranchId,
+          region: "",
+          address: "",
+          phone: "",
+          manager_id: "",
+          is_active: true,
+        },
+      ]);
+      return;
+    }
+    const ctxBranches = branchCtx?.branches ?? [];
+    if (ctxBranches.length > 0) {
+      setBranchRecords(ctxBranches);
+      setBranchesError("");
+      return;
+    }
+    setBranchesLoading(true);
+    setBranchesError("");
+    try {
+      const r = await fetch("/api/falco/branches", { credentials: "include" });
+      const d = (await r.json()) as { branches?: Branch[]; message?: string };
+      if (!r.ok) {
+        setBranchesError(d.message ?? "Could not load branches");
+        setBranchRecords([]);
+        return;
+      }
+      setBranchRecords(d.branches ?? []);
+    } catch {
+      setBranchesError("Could not load branches");
+      setBranchRecords([]);
+    } finally {
+      setBranchesLoading(false);
+    }
+  }, [lockedBranchId, branchCtx?.branches]);
 
  const loadOfficersForBranch = useCallback(
  async (branchId?: string) => {

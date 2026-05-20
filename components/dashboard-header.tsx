@@ -1,20 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Bell, Search, MapPin, Check, X, CheckCheck } from "lucide-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
- DropdownMenu,
- DropdownMenuContent,
- DropdownMenuLabel,
- DropdownMenuSeparator,
- DropdownMenuTrigger,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
-import type { Branch } from "@/lib/types";
 import { useSessionUser } from "@/lib/use-session-user";
+import { useOptionalBranchAssignment } from "@/components/branch-assignment-context";
 import { cn } from "@/lib/utils";
 
 interface Notification {
@@ -59,23 +59,9 @@ interface DashboardHeaderProps {
 }
 
 export function DashboardHeader({ title, description }: DashboardHeaderProps) {
- const { user } = useSessionUser();
- const [branches, setBranches] = useState<Branch[]>([]);
-
- useEffect(() => {
- let cancelled = false;
- void fetch("/api/falco/branches", { credentials: "include" })
- .then((r) => r.json())
- .then((d: { branches?: Branch[] }) => {
- if (!cancelled) setBranches(d.branches ?? []);
- })
- .catch(() => {});
- return () => {
- cancelled = true;
- };
- }, []);
-
- const currentBranch = branches.find((b) => b.id === user?.branch_id);
+  const { user } = useSessionUser();
+  const branchCtx = useOptionalBranchAssignment();
+  const currentBranch = branchCtx?.branches.find((b) => b.id === user?.branch_id);
  const [notifications, setNotifications] = useState<Notification[]>(INITIAL_NOTIFICATIONS);
  const unreadCount = notifications.filter((n) => !n.read).length;
 

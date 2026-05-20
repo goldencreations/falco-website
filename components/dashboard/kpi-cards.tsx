@@ -82,22 +82,28 @@ function mapDashboardMetricsPayload(json: unknown): KpiMetrics {
 
 type Period = "today" | "week" | "all";
 
-export function KPICards() {
- const { t } = useTranslations();
- const [metrics, setMetrics] = useState<KpiMetrics>(KPI_ZERO);
+export function KPICards({ metricsJson }: { metricsJson?: unknown }) {
+  const { t } = useTranslations();
+  const [metrics, setMetrics] = useState<KpiMetrics>(() =>
+    metricsJson !== undefined ? mapDashboardMetricsPayload(metricsJson) : KPI_ZERO
+  );
 
- useEffect(() => {
- let cancelled = false;
- void fetch("/api/falco/dashboard/metrics")
- .then((r) => r.json())
- .then((json) => {
- if (!cancelled) setMetrics(mapDashboardMetricsPayload(json));
- })
- .catch(() => {});
- return () => {
- cancelled = true;
- };
- }, []);
+  useEffect(() => {
+    if (metricsJson !== undefined) {
+      setMetrics(mapDashboardMetricsPayload(metricsJson));
+      return;
+    }
+    let cancelled = false;
+    void fetch("/api/falco/dashboard/metrics")
+      .then((r) => r.json())
+      .then((json) => {
+        if (!cancelled) setMetrics(mapDashboardMetricsPayload(json));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [metricsJson]);
 
  const kpiData = useMemo(
  () => [
