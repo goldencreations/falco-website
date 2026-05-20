@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Building2, Save, UserPlus, Users } from "lucide-react";
+import { ArrowLeft, Building2, Home, Save, Store, UserPlus, Users } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,9 +20,21 @@ import {
  SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { branches, currentUser, users } from "@/lib/mock-data";
 import { useSessionUser } from "@/lib/use-session-user";
+
+const CustomerLocationMapPicker = dynamic(
+  () =>
+    import("@/components/customers/business-location-map-picker").then(
+      (mod) => mod.CustomerLocationMapPicker
+    ),
+  {
+    ssr: false,
+    loading: () => <Skeleton className="h-[220px] w-full rounded-md border border-border" />,
+  }
+);
 
 type CustomerStatus =
  | "pending_registration_fee"
@@ -38,6 +51,8 @@ type CustomerCreateForm = {
  alt_phone: string;
  email: string;
  physical_address: string;
+ home_latitude: number | null;
+ home_longitude: number | null;
  street: string;
  ward: string;
  district: string;
@@ -53,6 +68,8 @@ type CustomerCreateForm = {
  business_name: string;
  business_type: string;
  business_address: string;
+ business_latitude: number | null;
+ business_longitude: number | null;
  business_registration_no: string;
  years_in_business: string;
  cheque_number: string;
@@ -108,6 +125,8 @@ const defaultForm: CustomerCreateForm = {
  alt_phone: "",
  email: "",
  physical_address: "",
+ home_latitude: null,
+ home_longitude: null,
  street: "",
  ward: "",
  district: "",
@@ -123,6 +142,8 @@ const defaultForm: CustomerCreateForm = {
  business_name: "",
  business_type: "",
  business_address: "",
+ business_latitude: null,
+ business_longitude: null,
  business_registration_no: "",
  years_in_business: "",
  cheque_number: "",
@@ -345,6 +366,8 @@ export default function NewCustomerPage() {
  alt_phone: form.alt_phone.trim() || null,
  email: form.email.trim() || null,
  physical_address: form.physical_address.trim(),
+ home_latitude: form.home_latitude,
+ home_longitude: form.home_longitude,
  street: form.street.trim() || null,
  ward: form.ward.trim() || null,
  district: form.district.trim() || null,
@@ -360,6 +383,8 @@ export default function NewCustomerPage() {
  business_name: form.business_name.trim() || null,
  business_type: form.business_type.trim() || null,
  business_address: form.business_address.trim() || null,
+ business_latitude: form.business_latitude,
+ business_longitude: form.business_longitude,
  business_registration_no: form.business_registration_no.trim() || null,
  years_in_business: form.years_in_business ? Number(form.years_in_business) : null,
  cheque_number: form.cheque_number.trim() || null,
@@ -586,6 +611,10 @@ export default function NewCustomerPage() {
  <Card>
  <CardHeader>
  <CardTitle>Address Information</CardTitle>
+ <CardDescription>
+ Text address is required. Optionally record where the customer lives on the map (green pin) — separate
+ from business location below.
+ </CardDescription>
  </CardHeader>
  <CardContent className="space-y-4">
  <div className="space-y-2">
@@ -686,6 +715,27 @@ export default function NewCustomerPage() {
  <Label htmlFor="region">Region</Label>
  <Input id="region" value={form.region} onChange={(event) => updateField("region", event.target.value)} />
  </div>
+ <div className="space-y-2 md:col-span-2">
+ <CustomerLocationMapPicker
+ purpose="home"
+ latitude={form.home_latitude}
+ longitude={form.home_longitude}
+ onPick={(lat, lng) =>
+ setForm((prev) => ({
+ ...prev,
+ home_latitude: lat,
+ home_longitude: lng,
+ }))
+ }
+ onClear={() =>
+ setForm((prev) => ({
+ ...prev,
+ home_latitude: null,
+ home_longitude: null,
+ }))
+ }
+ />
+ </div>
  </div>
  </CardContent>
  </Card>
@@ -761,6 +811,14 @@ export default function NewCustomerPage() {
 
  <Separator />
 
+ <div className="space-y-1 rounded-lg border border-amber-100 bg-amber-50/40 px-3 py-2">
+ <p className="text-sm font-semibold text-amber-950">Business location</p>
+ <p className="text-xs text-amber-900/80">
+ Record where this customer&apos;s business operates (orange pin). This is independent of home — many
+ customers live and work at different addresses.
+ </p>
+ </div>
+
  <div className="grid gap-4 md:grid-cols-2">
  <div className="space-y-2">
  <Label htmlFor="business-name">Business Name</Label>
@@ -803,6 +861,27 @@ export default function NewCustomerPage() {
  value={form.business_address}
  onChange={(event) => updateField("business_address", event.target.value)}
  rows={2}
+ />
+ </div>
+ <div className="space-y-2 md:col-span-2">
+ <CustomerLocationMapPicker
+ purpose="business"
+ latitude={form.business_latitude}
+ longitude={form.business_longitude}
+ onPick={(lat, lng) =>
+ setForm((prev) => ({
+ ...prev,
+ business_latitude: lat,
+ business_longitude: lng,
+ }))
+ }
+ onClear={() =>
+ setForm((prev) => ({
+ ...prev,
+ business_latitude: null,
+ business_longitude: null,
+ }))
+ }
  />
  </div>
  </div>
@@ -917,6 +996,24 @@ export default function NewCustomerPage() {
  Loan officers (filtered)
  </span>
  <Badge variant="secondary">{loanOfficerOptions.length}</Badge>
+ </div>
+ <div className="flex items-center justify-between rounded-md border px-3 py-2 text-xs">
+ <span className="inline-flex items-center gap-1 text-muted-foreground">
+ <Home className="h-3 w-3 text-emerald-700" />
+ Where customer lives
+ </span>
+ <Badge variant={form.home_latitude != null ? "default" : "outline"}>
+ {form.home_latitude != null ? "Recorded" : "Not set"}
+ </Badge>
+ </div>
+ <div className="flex items-center justify-between rounded-md border px-3 py-2 text-xs">
+ <span className="inline-flex items-center gap-1 text-muted-foreground">
+ <Store className="h-3 w-3 text-amber-700" />
+ Where business is
+ </span>
+ <Badge variant={form.business_latitude != null ? "default" : "outline"}>
+ {form.business_latitude != null ? "Recorded" : "Not set"}
+ </Badge>
  </div>
  </div>
 
