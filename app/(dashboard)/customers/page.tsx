@@ -13,7 +13,9 @@ import {
  Building2,
  User,
  AlertTriangle,
+ Trash2,
 } from "lucide-react";
+import { DeleteCustomerDialog } from "@/components/customers/delete-customer-dialog";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -55,6 +57,7 @@ export default function CustomersPage() {
  const { user } = useSessionUser();
  const isManagerView = user?.role === "branch_manager";
  const isOfficerView = user?.role === "loan_officer";
+ const isSuperAdmin = user?.role === "super_admin";
  const scopeBranchId = isManagerView || isOfficerView ? user?.branch_id : null;
  const customersBasePath = isManagerView ? "/manager/customers" : isOfficerView ? "/officer/customers" : "/customers";
  const [customers, setCustomers] = useState<Customer[]>([]);
@@ -111,6 +114,8 @@ export default function CustomersPage() {
  const [searchQuery, setSearchQuery] = useState("");
  const [typeFilter, setTypeFilter] = useState<string>("all");
  const [riskFilter, setRiskFilter] = useState<string>("all");
+ const [deleteTarget, setDeleteTarget] = useState<Customer | null>(null);
+ const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
  const visibleCustomers =
  isOfficerView
  ? customers
@@ -407,11 +412,28 @@ export default function CustomersPage() {
  {formatDate(customer.created_at)}
  </TableCell>
  <TableCell className="text-right">
+ <div className="flex items-center justify-end gap-1">
  <Button variant="ghost" size="sm" asChild>
  <Link href={`${customersBasePath}/${customer.id}`}>
  <Eye className="h-4 w-4" />
+ <span className="sr-only">View</span>
  </Link>
  </Button>
+ {isSuperAdmin ? (
+ <Button
+ variant="ghost"
+ size="sm"
+ className="text-destructive hover:text-destructive"
+ onClick={() => {
+ setDeleteTarget(customer);
+ setDeleteDialogOpen(true);
+ }}
+ aria-label={`Delete ${customer.first_name} ${customer.last_name}`}
+ >
+ <Trash2 className="h-4 w-4" />
+ </Button>
+ ) : null}
+ </div>
  </TableCell>
  </TableRow>
  );
@@ -424,6 +446,18 @@ export default function CustomersPage() {
  </Card>
  </>
  )}
+
+ {isSuperAdmin ? (
+ <DeleteCustomerDialog
+ customer={deleteTarget}
+ open={deleteDialogOpen}
+ onOpenChange={(open) => {
+ setDeleteDialogOpen(open);
+ if (!open) setDeleteTarget(null);
+ }}
+ onDeleted={() => void loadCustomers()}
+ />
+ ) : null}
  </div>
  </main>
  </>

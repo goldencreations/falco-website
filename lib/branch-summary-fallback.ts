@@ -47,6 +47,23 @@ function branchFromSummaryRow(row: Record<string, unknown>): Branch | null {
  });
 }
 
+function managerFromSummaryRow(row: Record<string, unknown>, branchId: string): User | null {
+ const manager = row.manager;
+ if (!manager || typeof manager !== "object") return null;
+ try {
+ const record = manager as Record<string, unknown>;
+ const user = adaptApiUserToUser({
+ ...record,
+ branch_id: record.branch_id ?? branchId,
+ role: record.role ?? "manager",
+ });
+ if (user.role !== "branch_manager" || user.is_active === false) return null;
+ return user;
+ } catch {
+ return null;
+ }
+}
+
 function officersFromSummaryRow(row: Record<string, unknown>, branchId: string): User[] {
  const pools = [row.officers, row.loan_officers, row.staff, row.users];
  const rawOfficers = pools.find((pool) => Array.isArray(pool)) as unknown[] | undefined;
@@ -69,6 +86,21 @@ function officersFromSummaryRow(row: Record<string, unknown>, branchId: string):
  }
  }
  return users;
+}
+
+/** Build a deduped staff list from all rows in `GET /branches/summary`. */
+export function usersFromBranchesSummary(raw: unknown): User[] {
+ const rows = collectSummaryRows(raw);
+ const byId = new Map<string, User>();
+ for (const row of rows) {
+ const branchId = branchIdFromSummaryRow(row);
+ const manager = managerFromSummaryRow(row, branchId);
+ if (manager?.id) byId.set(manager.id, manager);
+ for (const officer of officersFromSummaryRow(row, branchId)) {
+ if (officer.id) byId.set(officer.id, officer);
+ }
+ }
+ return Array.from(byId.values());
 }
 
 export function syntheticBranchFromSession(user: SessionUser): Branch {
@@ -152,6 +184,20 @@ export async function fetchStaffUsersForSessionUser(
  mapApiRoleToAppRole(apiRole ?? requestedRole ?? "") ??
  (requestedRole ? (requestedRole as UserRole) : null);
 
+ const applyFilters = (list: User[]) => {
+ let users = list;
+ if (branchId) {
+ users = users.filter((u) => String(u.branch_id).trim() === branchId);
+ }
+ if (appRoleFilter) {
+ users = users.filter((u) => u.role === appRoleFilter);
+ }
+ if (options.isActive === "true") {
+ users = users.filter((u) => u.is_active !== false);
+ }
+ return users;
+ };
+
  if (canListStaffViaUsersApi(user)) {
  const res = await falcoServerFetch<unknown>("/users", {
  query: {
@@ -159,32 +205,36 @@ export async function fetchStaffUsersForSessionUser(
  role: apiRole,
  is_active: options.isActive,
  page: "1",
- page_size: "100",
+ page_size: "200",
  },
  });
  if (res.ok) {
- let { users } = extractUsersListPayload(res.data);
- if (branchId) {
- users = users.filter((u) => String(u.branch_id).trim() === branchId);
- }
- if (appRoleFilter) {
- users = users.filter((u) => u.role === appRoleFilter);
- }
- return users;
+ const { users } = extractUsersListPayload(res.data);
+ const filtered = applyFilters(users);
+ if (filtered.length) return filtered;
  }
  }
 
  const summaryRes = await falcoServerFetch<unknown>("/branches/summary");
- if (summaryRes.ok && branchId) {
+ if (summaryRes.ok) {
+ const fromSummary = usersFromBranchesSummary(summaryRes.data);
+ if (fromSummary.length) {
+ const filtered = applyFilters(fromSummary);
+ if (filtered.length) return filtered;
+ }
+ if (branchId) {
  const rows = collectSummaryRows(summaryRes.data);
- const officers: User[] = [];
+ const scoped: User[] = [];
  for (const row of rows) {
  const rowBranchId = branchIdFromSummaryRow(row);
  if (rowBranchId !== branchId) continue;
- officers.push(...officersFromSummaryRow(row, branchId));
+ const manager = managerFromSummaryRow(row, branchId);
+ if (manager) scoped.push(manager);
+ scoped.push(...officersFromSummaryRow(row, branchId));
  }
- if (officers.length) {
- return appRoleFilter ? officers.filter((u) => u.role === appRoleFilter) : officers;
+ if (scoped.length) {
+ return applyFilters(scoped);
+ }
  }
  }
 

@@ -33,19 +33,18 @@ export function LoginScreen() {
  const [error, setError] = useState("");
  const [loading, setLoading] = useState(false);
  const [language, setLanguage] = useState<AppLanguage>("en");
+ const [mounted, setMounted] = useState(false);
 
  useEffect(() => {
+ setMounted(true);
  const savedLanguage = localStorage.getItem(LANGUAGE_STORAGE_KEY);
  if (isAppLanguage(savedLanguage)) setLanguage(savedLanguage);
  }, []);
 
  useEffect(() => {
+ if (!mounted) return;
  languageCtx?.setLanguage(language);
- if (!languageCtx) {
- localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
- document.documentElement.setAttribute("lang", language === "sw" ? "sw" : "en");
- }
- }, [language, languageCtx]);
+ }, [language, languageCtx, mounted]);
 
  const t = useMemo(() => {
  if (language === "sw") {
@@ -130,6 +129,7 @@ export function LoginScreen() {
 
  <div className="mt-4 w-1/2">
  <Label className="mb-1 block text-xs text-muted-foreground">{t.language}</Label>
+ {mounted ? (
  <Select value={language} onValueChange={(value: AppLanguage) => setLanguage(value)}>
  <SelectTrigger className="h-9 bg-background/80">
  <SelectValue />
@@ -147,6 +147,14 @@ export function LoginScreen() {
  </SelectItem>
  </SelectContent>
  </Select>
+ ) : (
+ <div
+ className="flex h-9 items-center rounded-md border border-input bg-background/80 px-3 text-sm text-muted-foreground"
+ aria-hidden
+ >
+ English
+ </div>
+ )}
  </div>
 
  <form className="mt-8 space-y-4" onSubmit={handleSubmit}>
