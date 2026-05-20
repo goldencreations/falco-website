@@ -1,69 +1,60 @@
 import { NextResponse } from "next/server";
-import { getAllDataSummary, getScopeRows } from "@/lib/mock-backup-data";
-import type { BackupScope } from "@/lib/backup-types";
+import { requireApiUser } from "@/lib/authorization";
+import { getFalcoApiBaseUrl } from "@/lib/falco-api";
+import { resolveFalcoAccessToken } from "@/lib/server-falco";
 
-function toCsv(rows: Array<Record<string, unknown>>) {
- if (!rows.length) return "";
- const headers = Object.keys(rows[0]);
- const lines = [headers.join(",")];
- for (const row of rows) {
- const values = headers.map((header) => {
- const value = row[header];
- const escaped = String(value ?? "").replace(/"/g, '""');
- return `"${escaped}"`;
- });
- lines.push(values.join(","));
- }
- return lines.join("\n");
-}
-
-function toPdfLikeText(scope: BackupScope, rows: Array<Record<string, unknown>>) {
- const summary = getAllDataSummary();
- const body = rows
- .slice(0, 200)
- .map((row) => JSON.stringify(row))
- .join("\n");
- return [
- "Falco Backup Export Report",
- `Scope: ${scope}`,
- `Generated: ${new Date().toISOString()}`,
- `Totals: customers=${summary.totals.customers}, applications=${summary.totals.applications}, payments=${summary.totals.payments}, loans=${summary.totals.loans}`,
- "",
- body || "No rows",
- ].join("\n");
-}
-
+/** Proxies `GET /backups/export?format=csv` — returns raw CSV from LMS. */
 export async function GET(request: Request) {
+ const auth = await requireApiUser(request);
+ if ("response" in auth) return auth.response;
+
  const url = new URL(request.url);
  const format = (url.searchParams.get("format") || "csv").toLowerCase();
- const scope = (url.searchParams.get("scope") || "all") as BackupScope;
 
- const rows =
- scope === "all"
- ? [
- { scope: "customers", count: getScopeRows("customers").length },
- { scope: "applications", count: getScopeRows("applications").length },
- { scope: "payments", count: getScopeRows("payments").length },
- { scope: "loans", count: getScopeRows("loans").length },
- { scope: "users", count: getScopeRows("users").length },
- ]
- : getScopeRows(scope);
-
- if (format === "pdf") {
- const content = toPdfLikeText(scope, rows);
- return new NextResponse(content, {
- headers: {
- "Content-Type": "application/pdf",
- "Content-Disposition": `attachment; filename="backup-${scope}-${Date.now()}.pdf"`,
- },
- });
+ if (format !== "csv") {
+ return NextResponse.json(
+ { message: "Only CSV export is supported by the LMS backup export endpoint." },
+ { status: 400 }
+ );
  }
 
- const csv = toCsv(rows);
- return new NextResponse(csv, {
+ const token = await resolveFalcoAccessToken(request);
+ if (!token) {
+ return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+ }
+
+ const res = await fetch(`${getFalcoApiBaseUrl()}/backups/export?format=csv`, {
+ method: "GET",
+ headers: {
+ Authorization: `Bearer ${token}`,
+ Accept: "text/csv, application/json",
+ "User-Agent": "FalcoWebsite/1.0 (Next.js)",
+ },
+ cache: "no-store",
+ });
+
+ const text = await res.text();
+ if (!res.ok) {
+ let message = "Export failed";
+ try {
+ const j = JSON.parse(text) as { message?: string; error?: { message?: string } };
+ message =
+ typeof j.message === "string"
+ ? j.message
+ : typeof j.error?.message === "string"
+ ? j.error.message
+ : message;
+ } catch {
+ if (text) message = text.slice(0, 200);
+ }
+ return NextResponse.json({ message }, { status: res.status });
+ }
+
+ return new NextResponse(text, {
+ status: 200,
  headers: {
  "Content-Type": "text/csv; charset=utf-8",
- "Content-Disposition": `attachment; filename="backup-${scope}-${Date.now()}.csv"`,
+ "Content-Disposition": `attachment; filename="backups-export-${Date.now()}.csv"`,
  },
  });
 }

@@ -1,79 +1,92 @@
 import { NextResponse } from "next/server";
-import {
- customers,
- getBranchById,
- getLoansByCustomerId,
- getProductById,
- getUserById,
- payments,
-} from "@/lib/mock-data";
+import { adaptApiCustomerRowToCustomer, extractCustomerDetail } from "@/lib/customer-adapters";
+import { requireApiUser, ensureResourceBranchAllowed } from "@/lib/authorization";
+import { loadCustomerPortfolioData } from "@/lib/customer-portfolio-detail";
+import { falcoServerFetch } from "@/lib/server-falco";
+import type { Branch } from "@/lib/types";
+
+function extractBranchesList(raw: unknown): Branch[] {
+ if (Array.isArray(raw)) return raw as Branch[];
+ if (raw && typeof raw === "object" && Array.isArray((raw as { branches?: Branch[] }).branches)) {
+ return (raw as { branches: Branch[] }).branches;
+ }
+ if (raw && typeof raw === "object" && Array.isArray((raw as { data?: Branch[] }).data)) {
+ return (raw as { data: Branch[] }).data;
+ }
+ return [];
+}
 
 export async function GET(
- _request: Request,
- { params }: { params: Promise<{ id: string }> }
+ request: Request,
+ context: { params: Promise<{ id: string }> }
 ) {
- const { id } = await params;
- const customer = customers.find((item) => item.id === id);
+ const auth = await requireApiUser(request);
+ if ("response" in auth) return auth.response;
 
- if (!customer) {
- return NextResponse.json({ message: "Customer not found" }, { status: 404 });
+ const { id } = await context.params;
+ if (!id) {
+ return NextResponse.json({ message: "Customer id is required" }, { status: 400 });
  }
 
- const customerBranch = getBranchById(customer.branch_id);
- const createdBy = getUserById(customer.created_by);
- const customerLoans = getLoansByCustomerId(customer.id).map((loan) => {
- const product = getProductById(loan.product_id);
- const loanOfficer = loan.loan_officer_id ? getUserById(loan.loan_officer_id) : undefined;
- const manager = loan.manager_id ? getUserById(loan.manager_id) : undefined;
- return {
- id: loan.id,
- loan_number: loan.loan_number,
- status: loan.status,
- product_name: product?.name ?? "Unknown product",
- principal_amount: loan.principal_amount,
- total_paid: loan.total_paid,
- total_outstanding: loan.total_outstanding,
- disbursement_date: loan.disbursement_date,
- maturity_date: loan.maturity_date,
- follow_up_loan_officer: loanOfficer?.full_name ?? "Unassigned",
- branch_manager: manager?.full_name ?? "Unassigned",
- };
- });
+ const custRes = await falcoServerFetch<unknown>(`/customers/${encodeURIComponent(id)}`, { request });
+ if (!custRes.ok) {
+ return NextResponse.json(
+ { message: custRes.error.message, details: custRes.error.details },
+ { status: custRes.error.status }
+ );
+ }
 
- const customerPayments = payments
- .filter((payment) => payment.customer_id === customer.id)
- .map((payment) => {
- const receiver = getUserById(payment.received_by);
- const loan = customerLoans.find((item) => item.id === payment.loan_id);
- return {
- payment_number: payment.payment_number,
- amount: payment.amount,
- payment_method: payment.payment_method,
- payment_status: payment.status,
- payment_date: payment.payment_date,
- reference_number: payment.reference_number,
- principal_allocated: payment.principal_allocated,
- interest_allocated: payment.interest_allocated,
- fees_allocated: payment.fees_allocated,
- received_by: receiver?.full_name ?? "Unknown receiver",
- loan_number: loan?.loan_number ?? "Unknown loan",
- follow_up_loan_officer: loan?.follow_up_loan_officer ?? "Unassigned",
- };
- });
+ const row = extractCustomerDetail(custRes.data);
+ if (!row) {
+ return NextResponse.json({ message: "Unexpected customer response from server" }, { status: 502 });
+ }
 
- const totalBorrowed = customerLoans.reduce((sum, loan) => sum + loan.principal_amount, 0);
- const totalPaid = customerLoans.reduce((sum, loan) => sum + loan.total_paid, 0);
- const totalOutstanding = customerLoans.reduce((sum, loan) => sum + loan.total_outstanding, 0);
+ const customer = adaptApiCustomerRowToCustomer(row);
+ const denied = ensureResourceBranchAllowed(auth.user, customer.branch_id);
+ if (denied) return denied;
+ const branchId = customer.branch_id;
+
+ let branchName = "Unknown branch";
+ const bRes = await falcoServerFetch<unknown>("/branches", { request, query: { page_size: "200" } });
+
+ const portfolio = await loadCustomerPortfolioData(request, id, auth.user);
+ const loans = portfolio.ok ? portfolio.data.loans : [];
+ const payments = portfolio.ok ? portfolio.data.payments : [];
+ const summary = portfolio.ok
+ ? portfolio.data.summary
+ : {
+ total_loans: 0,
+ total_borrowed: 0,
+ total_paid: 0,
+ total_outstanding: 0,
+ total_payments: 0,
+ };
+
+ const loanNumberById = new Map(loans.map((l) => [l.id, l.loan_number]));
+ if (bRes.ok) {
+ const branches = extractBranchesList(bRes.data);
+ const br = branches.find((b) => b.id === branchId);
+ if (br) branchName = br.name;
+ }
+
+ const md =
+ row.metadata && typeof row.metadata === "object" && row.metadata !== null
+ ? (row.metadata as Record<string, unknown>)
+ : {};
+ const createdByName =
+ md.created_by_name != null
+ ? String(md.created_by_name)
+ : md.created_by != null
+ ? String(md.created_by)
+ : "—";
+
+ const fullName = [customer.first_name, customer.middle_name, customer.last_name].filter(Boolean).join(" ");
 
  return NextResponse.json({
  generated_at: new Date().toISOString(),
  customer: {
- id: customer.id,
  customer_number: customer.customer_number,
- full_name: `${customer.first_name} ${customer.middle_name ?? ""} ${customer.last_name}`.replace(
- /\s+/g,
- " "
- ),
+ full_name: fullName,
  customer_type: customer.customer_type,
  national_id: customer.national_id,
  phone_primary: customer.phone_primary,
@@ -87,18 +100,38 @@ export async function GET(
  credit_score: customer.credit_score ?? null,
  is_blacklisted: customer.is_blacklisted,
  monthly_income: customer.monthly_income,
- branch_name: customerBranch?.name ?? "Unknown branch",
- created_by_name: createdBy?.full_name ?? "Unknown user",
+ branch_name: branchName,
+ created_by_name: createdByName,
  created_at: customer.created_at,
  },
  summary: {
- total_loans: customerLoans.length,
- total_borrowed: totalBorrowed,
- total_paid: totalPaid,
- total_outstanding: totalOutstanding,
- total_payments: customerPayments.length,
+ total_loans: summary.total_loans,
+ total_borrowed: summary.total_borrowed,
+ total_paid: summary.total_paid,
+ total_outstanding: summary.total_outstanding,
+ total_payments: summary.total_payments,
  },
- loans: customerLoans,
- payments: customerPayments,
+ loans: loans.map((loan) => ({
+ loan_number: loan.loan_number,
+ status: loan.status,
+ product_name: loan.productName || loan.product_id,
+ principal_amount: loan.principal_amount,
+ total_paid: loan.total_paid,
+ total_outstanding: loan.total_outstanding,
+ disbursement_date: loan.disbursement_date,
+ maturity_date: loan.maturity_date,
+ follow_up_loan_officer: loan.loanOfficerDisplayName || "—",
+ branch_manager: "—",
+ })),
+ payments: payments.map((payment) => ({
+ payment_number: payment.payment_number,
+ amount: payment.amount,
+ payment_method: payment.payment_method,
+ payment_status: payment.status,
+ payment_date: payment.payment_date,
+ received_by: payment.received_by || "—",
+ loan_number: loanNumberById.get(payment.loan_id) ?? payment.loan_id,
+ follow_up_loan_officer: "—",
+ })),
  });
 }

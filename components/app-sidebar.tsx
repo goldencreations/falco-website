@@ -21,7 +21,6 @@ import {
  Calculator,
  MapPin,
  DatabaseBackup,
- Users2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -46,7 +45,9 @@ import {
  CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { currentUser } from "@/lib/mock-data";
+import { useLanguage } from "@/components/language-provider";
+import { tLabel } from "@/lib/i18n/labels";
+import { useSessionUser } from "@/lib/use-session-user";
 
 type SidebarNavItem =
  | {
@@ -97,7 +98,7 @@ const navigation: { title: string; items: SidebarNavItem[] }[] = [
  subItems: [
  { title: "All Applications", href: "/applications" },
  { title: "New Application", href: "/applications/new" },
- { title: "Pending Review", href: "/applications?status=under_review" },
+ { title: "Pending Review", href: "/applications/pending-review" },
  ],
  },
  {
@@ -141,6 +142,11 @@ const navigation: { title: string; items: SidebarNavItem[] }[] = [
  icon: CreditCard,
  },
  {
+ title: "Reconciliation",
+ href: "/reconciliation",
+ icon: Scale,
+ },
+ {
  title: "Collections",
  href: "/collections",
  icon: AlertTriangle,
@@ -154,12 +160,6 @@ const navigation: { title: string; items: SidebarNavItem[] }[] = [
  title: "Reports",
  href: "/reports",
  icon: BarChart3,
- subItems: [
- { title: "Portfolio Summary", href: "/reports" },
- { title: "Aging Analysis", href: "/reports/aging" },
- { title: "Disbursement Report", href: "/reports/disbursements" },
- { title: "Collection Report", href: "/reports/collections" },
- ],
  },
  {
  title: "Loan Products",
@@ -188,20 +188,13 @@ const navigation: { title: string; items: SidebarNavItem[] }[] = [
 export function AppSidebar() {
  const pathname = usePathname();
  const router = useRouter();
+ const { user } = useSessionUser();
+ const { language } = useLanguage();
+ const L = (text: string) => tLabel(text, language);
  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
  const visibleNavigation = useMemo(() => {
- const role = currentUser.role;
- const staffGroup: { title: string; items: SidebarNavItem[] } = {
- title: "Staff",
- items: [
- {
- title: "Team & assignments",
- href: "/staff/team",
- icon: Users2,
- },
- ],
- };
+ const role = user?.role ?? "loan_officer";
  return navigation
  .map((group) => ({
  ...group,
@@ -210,13 +203,8 @@ export function AppSidebar() {
  return true;
  }),
  }))
- .filter((group) => group.items.length > 0)
- .flatMap((group) =>
- group.title === "Collections" && (role === "branch_manager" || role === "super_admin")
- ? [group, staffGroup]
- : [group]
- );
- }, []);
+ .filter((group) => group.items.length > 0);
+ }, [user?.role]);
 
  const handleLogout = async () => {
  setIsLoggingOut(true);
@@ -238,10 +226,10 @@ export function AppSidebar() {
  </div>
  <div className="flex flex-col">
  <span className="text-sm font-bold text-sidebar-foreground tracking-tight">
- Falco Financial
+ {L("Falco Financial")}
  </span>
  <span className="text-[11px] text-sidebar-foreground/50 font-medium">
- Loan Management System
+ {L("Loan Management System")}
  </span>
  </div>
  </div>
@@ -251,7 +239,7 @@ export function AppSidebar() {
  {visibleNavigation.map((group) => (
  <SidebarGroup key={group.title}>
  <SidebarGroupLabel className="px-2 text-[10px] font-semibold uppercase tracking-widest text-sidebar-foreground/40">
- {group.title}
+ {L(group.title)}
  </SidebarGroupLabel>
  <SidebarGroupContent>
  <SidebarMenu>
@@ -268,7 +256,7 @@ export function AppSidebar() {
  )}
  >
  <item.icon className="h-4 w-4" />
- <span>{item.title}</span>
+ <span>{L(item.title)}</span>
  <ChevronDown className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-180" />
  </SidebarMenuButton>
  </CollapsibleTrigger>
@@ -284,7 +272,7 @@ export function AppSidebar() {
  )}
  >
  <Link href={subItem.href}>
- {subItem.title}
+ {L(subItem.title)}
  </Link>
  </SidebarMenuSubButton>
  </SidebarMenuSubItem>
@@ -305,7 +293,7 @@ export function AppSidebar() {
  >
  <Link href={item.href}>
  <item.icon className="h-4 w-4" />
- <span>{item.title}</span>
+ <span>{L(item.title)}</span>
  </Link>
  </SidebarMenuButton>
  </SidebarMenuItem>
@@ -321,7 +309,7 @@ export function AppSidebar() {
  <div className="flex items-center gap-3">
  <Avatar className="h-10 w-10 ring-2 ring-sidebar-primary/20">
  <AvatarFallback className="bg-gradient-to-br from-sidebar-primary to-sidebar-primary/70 text-sidebar-primary-foreground text-sm font-semibold">
- {currentUser.full_name
+ {(user?.full_name ?? "?")
  .split(" ")
  .map((n) => n[0])
  .join("")}
@@ -329,10 +317,10 @@ export function AppSidebar() {
  </Avatar>
  <div className="flex flex-1 flex-col">
  <span className="text-sm font-semibold text-sidebar-foreground">
- {currentUser.full_name}
+ {user?.full_name ?? "—"}
  </span>
  <span className="text-[11px] capitalize text-sidebar-primary/80 font-medium">
- {currentUser.role.replace("_", " ")}
+ {(user?.role ?? "").replace("_", " ")}
  </span>
  </div>
  <button
@@ -340,8 +328,8 @@ export function AppSidebar() {
  onClick={handleLogout}
  disabled={isLoggingOut}
  className="rounded-lg p-2 text-sidebar-foreground/50 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground disabled:cursor-not-allowed disabled:opacity-60"
- aria-label="Logout"
- title="Logout"
+ aria-label={L("Logout")}
+ title={L("Logout")}
  >
  <LogOut className="h-4 w-4" />
  </button>

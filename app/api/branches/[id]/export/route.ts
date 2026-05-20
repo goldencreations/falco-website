@@ -13,7 +13,7 @@ export async function GET(
  request: Request,
  { params }: { params: Promise<{ id: string }> }
 ) {
- const auth = requireApiUser(request, ["branch_manager", "super_admin"]);
+ const auth = await requireApiUser(request, ["branch_manager", "super_admin"]);
  if ("response" in auth) return auth.response;
  const user = auth.user;
  const { id } = await params;

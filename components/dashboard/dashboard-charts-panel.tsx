@@ -14,10 +14,12 @@ import {
  SelectTrigger,
  SelectValue,
 } from "@/components/ui/select";
+import { useTranslations } from "@/lib/i18n/use-translations";
 import type { DashboardBranchScope } from "@/lib/dashboard-analytics";
 import { useState } from "react";
 
 export function DashboardChartsPanel() {
+ const { t } = useTranslations();
  const { branches } = useBranchAssignment();
  const [scope, setScope] = useState<DashboardBranchScope>("all");
 
@@ -27,17 +29,17 @@ export function DashboardChartsPanel() {
  <div className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
  <div className="flex items-center gap-2 text-sm font-medium text-foreground">
  <Filter className="h-4 w-4 shrink-0 text-muted-foreground" />
- <span className="truncate">Analysis scope</span>
+ <span className="truncate">{t("charts.analysisScope")}</span>
  </div>
  <Select
  value={scope}
  onValueChange={(v) => setScope(v as DashboardBranchScope)}
  >
  <SelectTrigger className="w-full min-w-0 sm:w-[min(100%,280px)] touch-manipulation">
- <SelectValue placeholder="Branch" />
+ <SelectValue placeholder={t("charts.branchPlaceholder")} />
  </SelectTrigger>
  <SelectContent>
- <SelectItem value="all">All branches (platform)</SelectItem>
+ <SelectItem value="all">{t("charts.allBranches")}</SelectItem>
  {branches
  .filter((b) => b.is_active)
  .map((b) => (
@@ -49,7 +51,7 @@ export function DashboardChartsPanel() {
  </Select>
  </div>
  <Button variant="outline" size="sm" className="shrink-0 touch-manipulation" asChild>
- <Link href="/reports">Full reports overview</Link>
+ <Link href="/reports">{t("charts.fullReports")}</Link>
  </Button>
  </div>
 

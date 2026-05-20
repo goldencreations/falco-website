@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
  CalendarClock,
  DatabaseBackup,
  Download,
  FileDown,
- FileText,
  HardDriveDownload,
  Play,
  RefreshCcw,
@@ -52,8 +52,10 @@ import {
  TableHeader,
  TableRow,
 } from "@/components/ui/table";
-import { currentUser } from "@/lib/mock-data";
+import { schedulePatchBody } from "@/lib/backup-adapters";
 import type { BackupFlowPoint, BackupPoint, BackupSchedule, BackupScope } from "@/lib/backup-types";
+import { formatApiResponseError } from "@/lib/falco-api";
+import { useSessionUser } from "@/lib/use-session-user";
 
 type PointsResponse = {
  backup_points: BackupPoint[];
@@ -62,6 +64,19 @@ type PointsResponse = {
 };
 
 const SCOPE_OPTIONS: BackupScope[] = ["all", "customers", "applications", "payments", "loans", "users"];
+
+const DEFAULT_SCHEDULE: BackupSchedule = {
+ enabled: true,
+ frequency: "daily",
+ run_time_24h: "23:30",
+ day_of_week: null,
+ day_of_month: null,
+ retention_days: 30,
+ destination_mode: "zip",
+ notify_user_id: null,
+ updated_at: new Date().toISOString(),
+ updated_by: "",
+};
 
 function formatBytes(sizeBytes: number) {
  const units = ["B", "KB", "MB", "GB"];
@@ -75,6 +90,8 @@ function formatBytes(sizeBytes: number) {
 }
 
 export default function BackupPage() {
+ const router = useRouter();
+ const { user, loaded } = useSessionUser();
  const [points, setPoints] = useState<BackupPoint[]>([]);
  const [flow, setFlow] = useState<BackupFlowPoint[]>([]);
  const [summary, setSummary] = useState<{ totals: Record<string, number>; total_backup_size_bytes: number }>({
@@ -87,46 +104,98 @@ export default function BackupPage() {
  const [restoreOpen, setRestoreOpen] = useState(false);
  const [selectedPoint, setSelectedPoint] = useState<BackupPoint | null>(null);
  const [restoreReason, setRestoreReason] = useState("");
- const [fromDate, setFromDate] = useState("");
- const [toDate, setToDate] = useState("");
  const [busy, setBusy] = useState(false);
+ const [listError, setListError] = useState("");
+ const [scheduleError, setScheduleError] = useState("");
+ const [actionMessage, setActionMessage] = useState<string | null>(null);
+ const [actionError, setActionError] = useState<string | null>(null);
 
- const canAccess = currentUser.role === "super_admin";
+ const canAccess = user?.role === "super_admin";
 
  const loadPoints = async () => {
- const response = await fetch("/api/backup/points");
- const payload = (await response.json()) as PointsResponse;
- setPoints(payload.backup_points);
- setFlow(payload.flow);
- setSummary(payload.summary);
+ setListError("");
+ const response = await fetch("/api/backup/points", { credentials: "include" });
+ if (response.status === 401) {
+ router.replace("/login");
+ return;
+ }
+ const payload = (await response.json()) as PointsResponse & { message?: string };
+ if (!response.ok) {
+ setListError(typeof payload.message === "string" ? payload.message : `Could not load backups (${response.status})`);
+ setPoints([]);
+ setFlow([]);
+ setSummary({ totals: {}, total_backup_size_bytes: 0 });
+ return;
+ }
+ setPoints(payload.backup_points ?? []);
+ setFlow(payload.flow ?? []);
+ setSummary(
+ payload.summary ?? {
+ totals: {},
+ total_backup_size_bytes: 0,
+ }
+ );
  };
 
  const loadSchedule = async () => {
- const response = await fetch("/api/backup/schedule");
- const payload = (await response.json()) as { schedule: BackupSchedule };
- setSchedule(payload.schedule);
+ setScheduleError("");
+ const response = await fetch("/api/backup/schedule", { credentials: "include" });
+ if (response.status === 401) {
+ router.replace("/login");
+ return;
+ }
+ const payload = (await response.json()) as { schedule?: BackupSchedule; message?: string };
+ if (!response.ok) {
+ setScheduleError(typeof payload.message === "string" ? payload.message : "Could not load schedule");
+ setSchedule({ ...DEFAULT_SCHEDULE });
+ return;
+ }
+ setSchedule(payload.schedule ? { ...DEFAULT_SCHEDULE, ...payload.schedule } : { ...DEFAULT_SCHEDULE });
  };
 
  useEffect(() => {
- if (!canAccess) return;
+ if (!loaded || !canAccess) return;
  void loadPoints();
  void loadSchedule();
- }, [canAccess]);
+ }, [loaded, canAccess]);
 
  const latestPoint = useMemo(() => points[0] ?? null, [points]);
 
  const runBackup = async () => {
+ if (!user?.id) return;
  setBusy(true);
+ setActionError(null);
+ setActionMessage(null);
  try {
- await fetch("/api/backup/run", {
+ const notifyId = Number(user.id);
+ const response = await fetch("/api/backup/run", {
  method: "POST",
+ credentials: "include",
  headers: { "Content-Type": "application/json" },
  body: JSON.stringify({
  scope: scope === "all" ? ["all"] : [scope],
  artifact_format: artifactFormat,
- notify_user_id: currentUser.id,
+ ...(Number.isFinite(notifyId) ? { notify_user_id: notifyId } : {}),
  }),
  });
+ if (response.status === 401) {
+ router.replace("/login");
+ return;
+ }
+ const payload = (await response.json().catch(() => ({}))) as {
+ ok?: boolean;
+ backup_point?: BackupPoint;
+ message?: string;
+ };
+ if (!response.ok) {
+ setActionError(formatApiResponseError(payload, "Backup creation failed"));
+ return;
+ }
+ setActionMessage(
+ payload.backup_point
+ ? `Backup ${payload.backup_point.id} recorded (${payload.backup_point.status}).`
+ : "Backup job accepted."
+ );
  await loadPoints();
  } finally {
  setBusy(false);
@@ -136,18 +205,39 @@ export default function BackupPage() {
  const runRestore = async () => {
  if (!selectedPoint) return;
  setBusy(true);
+ setActionError(null);
+ setActionMessage(null);
  try {
- await fetch("/api/backup/restore", {
+ const response = await fetch("/api/backup/restore", {
  method: "POST",
+ credentials: "include",
  headers: { "Content-Type": "application/json" },
  body: JSON.stringify({
  backup_point_id: selectedPoint.id,
- reason: restoreReason || "Manual recovery point selected by top admin",
+ reason: restoreReason.trim() || "Manual recovery point selected by super admin",
  }),
  });
+ if (response.status === 401) {
+ router.replace("/login");
+ return;
+ }
+ const payload = (await response.json().catch(() => ({}))) as {
+ ok?: boolean;
+ restore_result?: { action?: string; details?: string };
+ message?: string;
+ };
+ if (!response.ok) {
+ setActionError(formatApiResponseError(payload, "Restore simulation failed"));
+ return;
+ }
  setRestoreOpen(false);
  setRestoreReason("");
  setSelectedPoint(null);
+ setActionMessage(
+ payload.restore_result?.action === "restore_simulated"
+ ? `Restore simulated for backup ${selectedPoint.id}. No live data was overwritten (V1 policy).`
+ : "Restore request accepted."
+ );
  await loadPoints();
  } finally {
  setBusy(false);
@@ -157,27 +247,87 @@ export default function BackupPage() {
  const saveSchedule = async () => {
  if (!schedule) return;
  setBusy(true);
+ setActionError(null);
  try {
- await fetch("/api/backup/schedule", {
- method: "POST",
+ const response = await fetch("/api/backup/schedule", {
+ method: "PATCH",
+ credentials: "include",
  headers: { "Content-Type": "application/json" },
- body: JSON.stringify(schedule),
+ body: JSON.stringify(schedulePatchBody(schedule)),
  });
+ if (response.status === 401) {
+ router.replace("/login");
+ return;
+ }
+ const payload = (await response.json().catch(() => ({}))) as { message?: string };
+ if (!response.ok) {
+ setActionError(formatApiResponseError(payload, "Could not save schedule"));
+ return;
+ }
+ setActionMessage("Backup schedule updated.");
  await loadSchedule();
  } finally {
  setBusy(false);
  }
  };
 
- const exportFile = (format: "csv" | "pdf", exportScope: BackupScope) => {
- const params = new URLSearchParams({
- format,
- scope: exportScope,
- from: fromDate,
- to: toDate,
+ const downloadBackup = async (id: string) => {
+ setActionError(null);
+ const response = await fetch(`/api/backup/download/${encodeURIComponent(id)}`, {
+ credentials: "include",
  });
- window.location.href = `/api/backup/export?${params.toString()}`;
+ if (response.status === 401) {
+ router.replace("/login");
+ return;
+ }
+ if (!response.ok) {
+ const data = (await response.json().catch(() => ({}))) as { message?: string };
+ setActionError(formatApiResponseError(data, "Download failed"));
+ return;
+ }
+ const blob = await response.blob();
+ const url = URL.createObjectURL(blob);
+ const a = document.createElement("a");
+ a.href = url;
+ a.download = `backup-${id}-metadata.json`;
+ a.click();
+ URL.revokeObjectURL(url);
+ setActionMessage(`Downloaded metadata for backup ${id}.`);
  };
+
+ const exportCsv = async () => {
+ setActionError(null);
+ const params = new URLSearchParams({ format: "csv" });
+ const response = await fetch(`/api/backup/export?${params.toString()}`, { credentials: "include" });
+ if (response.status === 401) {
+ router.replace("/login");
+ return;
+ }
+ if (!response.ok) {
+ const err = (await response.json().catch(() => ({}))) as { message?: string };
+ setActionError(formatApiResponseError(err, "Export failed"));
+ return;
+ }
+ const blob = await response.blob();
+ const url = URL.createObjectURL(blob);
+ const a = document.createElement("a");
+ a.href = url;
+ a.download = `backups-export-${Date.now()}.csv`;
+ a.click();
+ URL.revokeObjectURL(url);
+ setActionMessage("Backup metadata CSV exported.");
+ };
+
+ if (!loaded) {
+ return (
+ <>
+ <DashboardHeader title="Backup Management" description="Loading…" />
+ <main className="flex-1 p-4 lg:p-6">
+ <p className="text-sm text-muted-foreground">Loading session…</p>
+ </main>
+ </>
+ );
+ }
 
  if (!canAccess) {
  return (
@@ -216,8 +366,41 @@ export default function BackupPage() {
  Top Admin Backup Console
  </p>
  <p className="text-sm text-muted-foreground">
- Manually back up system data, see available backup points, choose recovery points, and download stored files.
+ Back up metadata, simulate recovery, and download JSON/CSV artifacts. V1 does not overwrite live data or
+ stream binary ZIP files yet.
  </p>
+ <div className="mt-3 flex flex-wrap items-end gap-3">
+ <div className="space-y-1">
+ <Label className="text-xs">Scope</Label>
+ <Select value={scope} onValueChange={(value) => setScope(value as BackupScope)}>
+ <SelectTrigger className="w-[160px]">
+ <SelectValue />
+ </SelectTrigger>
+ <SelectContent>
+ {SCOPE_OPTIONS.map((item) => (
+ <SelectItem key={item} value={item}>
+ {item}
+ </SelectItem>
+ ))}
+ </SelectContent>
+ </Select>
+ </div>
+ <div className="space-y-1">
+ <Label className="text-xs">Artifact format</Label>
+ <Select
+ value={artifactFormat}
+ onValueChange={(value) => setArtifactFormat(value as "zip" | "folder")}
+ >
+ <SelectTrigger className="w-[140px]">
+ <SelectValue />
+ </SelectTrigger>
+ <SelectContent>
+ <SelectItem value="zip">ZIP</SelectItem>
+ <SelectItem value="folder">Folder</SelectItem>
+ </SelectContent>
+ </Select>
+ </div>
+ </div>
  </div>
  <div className="flex flex-wrap gap-2">
  <Button onClick={runBackup} disabled={busy}>
@@ -227,21 +410,21 @@ export default function BackupPage() {
  <Button
  variant="outline"
  disabled={!latestPoint}
- onClick={() => latestPoint && (window.location.href = `/api/backup/download/${latestPoint.id}`)}
+ onClick={() => latestPoint && void downloadBackup(latestPoint.id)}
  >
  <HardDriveDownload className="mr-2 h-4 w-4" />
  Download Latest
  </Button>
- <Button variant="outline" onClick={() => exportFile("csv", "all")}>
+ <Button variant="outline" onClick={() => void exportCsv()}>
  <FileDown className="mr-2 h-4 w-4" />
  Export CSV
  </Button>
- <Button variant="outline" onClick={() => exportFile("pdf", "all")}>
- <FileText className="mr-2 h-4 w-4" />
- Export PDF
- </Button>
  </div>
  </div>
+ {listError ? <p className="text-sm text-destructive">{listError}</p> : null}
+ {scheduleError ? <p className="text-sm text-amber-700">{scheduleError}</p> : null}
+ {actionError ? <p className="text-sm text-destructive">{actionError}</p> : null}
+ {actionMessage ? <p className="text-sm text-emerald-700">{actionMessage}</p> : null}
  <div className="mt-4 grid gap-3 sm:grid-cols-3">
  <div className="rounded-lg border bg-background p-3">
  <p className="text-xs text-muted-foreground">Backup points</p>
@@ -290,6 +473,22 @@ export default function BackupPage() {
  <CardDescription>Configure periodic backup creation and destination mode.</CardDescription>
  </CardHeader>
  <CardContent className="space-y-3">
+ <div className="flex items-center justify-between rounded-lg border p-3">
+ <div>
+ <p className="text-sm font-medium">Schedule enabled</p>
+ <p className="text-xs text-muted-foreground">Maps to PATCH /backups/schedule</p>
+ </div>
+ <Button
+ type="button"
+ variant={schedule?.enabled ? "default" : "outline"}
+ size="sm"
+ onClick={() =>
+ setSchedule((prev) => (prev ? { ...prev, enabled: !prev.enabled } : prev))
+ }
+ >
+ {schedule?.enabled ? "On" : "Off"}
+ </Button>
+ </div>
  <div className="space-y-2">
  <Label>Frequency</Label>
  <Select
@@ -361,41 +560,23 @@ export default function BackupPage() {
  <CardHeader>
  <CardTitle>Export Center</CardTitle>
  <CardDescription>
- Select category and time range. CSV and PDF are downloadable and ready for backend data sources.
+ Exports all backup point metadata as CSV via <span className="font-mono">GET /backups/export?format=csv</span>.
  </CardDescription>
  </CardHeader>
  <CardContent>
- <div className="grid gap-3 md:grid-cols-4">
- <Select value={scope} onValueChange={(value) => setScope(value as BackupScope)}>
- <SelectTrigger>
- <SelectValue />
- </SelectTrigger>
- <SelectContent>
- {SCOPE_OPTIONS.map((item) => (
- <SelectItem key={item} value={item}>
- {item}
- </SelectItem>
- ))}
- </SelectContent>
- </Select>
- <Input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
- <Input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} />
- <div className="flex gap-2">
- <Button variant="outline" className="flex-1" onClick={() => exportFile("csv", scope)}>
- CSV
+ <Button variant="outline" onClick={() => void exportCsv()}>
+ <FileDown className="mr-2 h-4 w-4" />
+ Download backup index (CSV)
  </Button>
- <Button variant="outline" className="flex-1" onClick={() => exportFile("pdf", scope)}>
- PDF
- </Button>
- </div>
- </div>
  </CardContent>
  </Card>
 
  <Card>
  <CardHeader>
  <CardTitle>Available Backup Points</CardTitle>
- <CardDescription>Select and recover from backup points. Files are downloadable to local device.</CardDescription>
+ <CardDescription>
+ Restore runs a simulation only (POST /backups/restore). Download saves JSON metadata per point (V1).
+ </CardDescription>
  </CardHeader>
  <CardContent className="p-0">
  <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
@@ -412,7 +593,14 @@ export default function BackupPage() {
  </TableRow>
  </TableHeader>
  <TableBody>
- {points.map((point) => (
+ {points.length === 0 ? (
+ <TableRow>
+ <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+ No backup points yet. Create one to register metadata.
+ </TableCell>
+ </TableRow>
+ ) : (
+ points.map((point) => (
  <TableRow key={point.id}>
  <TableCell className="font-mono text-xs">{point.id}</TableCell>
  <TableCell>{new Date(point.started_at).toLocaleString()}</TableCell>
@@ -420,7 +608,15 @@ export default function BackupPage() {
  <TableCell className="uppercase">{point.artifact_format}</TableCell>
  <TableCell>{formatBytes(point.size_bytes)}</TableCell>
  <TableCell>
- <Badge variant={point.status === "completed" ? "default" : "destructive"}>
+ <Badge
+ variant={
+ point.status === "completed"
+ ? "default"
+ : point.status === "running"
+ ? "secondary"
+ : "destructive"
+ }
+ >
  {point.status}
  </Badge>
  </TableCell>
@@ -429,7 +625,7 @@ export default function BackupPage() {
  <Button
  size="sm"
  variant="outline"
- onClick={() => (window.location.href = `/api/backup/download/${point.id}`)}
+ onClick={() => void downloadBackup(point.id)}
  >
  <Download className="mr-1 h-3 w-3" />
  Download
@@ -448,7 +644,8 @@ export default function BackupPage() {
  </div>
  </TableCell>
  </TableRow>
- ))}
+ ))
+ )}
  </TableBody>
  </Table>
  </div>
@@ -462,7 +659,8 @@ export default function BackupPage() {
  <DialogHeader>
  <DialogTitle>Simulate Restore</DialogTitle>
  <DialogDescription>
- Recovery point: {selectedPoint?.id}. This is simulated now and ready for backend restore integration.
+ Recovery point: {selectedPoint?.id}. POST /backups/restore records a simulation only — no live data is
+ overwritten in V1.
  </DialogDescription>
  </DialogHeader>
  <div className="space-y-2">

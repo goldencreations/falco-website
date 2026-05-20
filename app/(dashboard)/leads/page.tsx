@@ -1,7 +1,17 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { ExternalLink, LocateFixed, MapPin, Navigation, Phone, Plus, UserRound } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+ ExternalLink,
+ Loader2,
+ LocateFixed,
+ MapPin,
+ Navigation,
+ Phone,
+ Plus,
+ RefreshCcw,
+ UserRound,
+} from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,49 +34,20 @@ import {
  SelectTrigger,
  SelectValue,
 } from "@/components/ui/select";
-import { customers } from "@/lib/mock-data";
+import { extractBranchesList } from "@/lib/branch-adapters";
+import { extractCustomersList } from "@/lib/customer-adapters";
+import { formatApiResponseError } from "@/lib/falco-api";
+import {
+ extractLeadsList,
+ mapUiLeadCreateToApi,
+ type LeadLocationType,
+ type LeadStatus,
+ type LeadView,
+} from "@/lib/lead-adapters";
+import { reverseGeocodeNominatim } from "@/lib/nominatim";
+import { parseJsonResponse } from "@/lib/parse-json-response";
+import type { Branch, Customer } from "@/lib/types";
 import { useSessionUser } from "@/lib/use-session-user";
-
-type LeadStatus = "new" | "follow_up" | "contacted" | "converted";
-type LeadLocationType = "home" | "work" | "sponsor";
-
-interface Lead {
- id: string;
- customerId?: string;
- fullName: string;
- phoneNumber: string;
- alternatePhone?: string;
- locationType: LeadLocationType;
- locationName: string;
- region?: string;
- district?: string;
- ward?: string;
- latitude?: string;
- longitude?: string;
- notes: string;
- followUpDate?: string;
- status: LeadStatus;
- createdAt: string;
-}
-
-const initialLeads: Lead[] = [
- {
- id: "lead-001",
- fullName: "Mariam Charles",
- phoneNumber: "+255 742 100 101",
- locationType: "home",
- locationName: "Mbezi Mwisho",
- region: "Dar es Salaam",
- district: "Kinondoni",
- ward: "Mbezi",
- latitude: "-6.709132",
- longitude: "39.130426",
- notes: "Owns a small grocery kiosk, interested in stock financing.",
- followUpDate: "2026-05-02",
- status: "follow_up",
- createdAt: "2026-04-26",
- },
-];
 
 const statusLabel: Record<LeadStatus, string> = {
  new: "New",
@@ -101,13 +82,21 @@ function getSeedFromText(value: string): number {
 
 export default function LeadsPage() {
  const { user } = useSessionUser();
- const scopeBranchId = user?.role === "branch_manager" ? user.branch_id : null;
- const [leads, setLeads] = useState<Lead[]>(initialLeads);
- const [selectedLeadId, setSelectedLeadId] = useState<string>(initialLeads[0]?.id || "");
+ const scopeBranchId =
+ user?.role === "branch_manager" || user?.role === "loan_officer" ? user.branch_id : null;
+ const [leads, setLeads] = useState<LeadView[]>([]);
+ const [customers, setCustomers] = useState<Customer[]>([]);
+ const [branches, setBranches] = useState<Branch[]>([]);
+ const [loading, setLoading] = useState(true);
+ const [saving, setSaving] = useState(false);
+ const [error, setError] = useState<string | null>(null);
+ const [selectedLeadId, setSelectedLeadId] = useState<string>("");
  const [showAddLeadForm, setShowAddLeadForm] = useState(false);
  const [isLocating, setIsLocating] = useState(false);
+ const needsBranchPicker = user?.role === "super_admin";
  const [formData, setFormData] = useState({
  customerId: "",
+ branchId: "",
  fullName: "",
  phoneNumber: "",
  alternatePhone: "",
@@ -126,9 +115,83 @@ export default function LeadsPage() {
  const visibleCustomers = scopeBranchId
  ? customers.filter((customer) => customer.branch_id === scopeBranchId)
  : customers;
- const visibleLeads = scopeBranchId
- ? leads.filter((lead) => !lead.customerId || visibleCustomers.some((customer) => customer.id === lead.customerId))
- : leads;
+ const visibleLeads = leads;
+
+ useEffect(() => {
+ if (user?.branch_id && !formData.branchId) {
+ setFormData((prev) => ({ ...prev, branchId: user.branch_id }));
+ }
+ }, [user?.branch_id, formData.branchId]);
+
+ const load = useCallback(async () => {
+ setLoading(true);
+ setError(null);
+ try {
+ const custParams = new URLSearchParams();
+ custParams.set("page_size", "100");
+ if (scopeBranchId) custParams.set("branch_id", scopeBranchId);
+
+ const fetches: [Promise<Response>, Promise<Response>, Promise<Response> | null] = [
+ fetch("/api/leads?page_size=100", { credentials: "include", cache: "no-store" }),
+ fetch(`/api/customers?${custParams.toString()}`, {
+ credentials: "include",
+ cache: "no-store",
+ }),
+ user?.role === "super_admin"
+ ? fetch("/api/falco/branches", { credentials: "include", cache: "no-store" })
+ : null,
+ ];
+
+ const [leadsRes, custRes, branchRes] = await Promise.all([
+ fetches[0],
+ fetches[1],
+ fetches[2] ?? Promise.resolve(null),
+ ]);
+
+ const { data: leadsJson } = await parseJsonResponse<unknown>(leadsRes);
+ if (!leadsRes.ok) {
+ if (leadsRes.status === 401) {
+ throw new Error("Your session expired. Please sign out and sign in again.");
+ }
+ throw new Error(formatApiResponseError(leadsJson, "Failed to load leads"));
+ }
+
+ const custJson = await custRes.json().catch(() => null);
+ if (!custRes.ok) {
+ const msg =
+ typeof custJson === "object" && custJson && "message" in custJson
+ ? String((custJson as { message: unknown }).message)
+ : "Failed to load customers";
+ throw new Error(msg);
+ }
+
+ if (branchRes) {
+ const branchJson = await branchRes.json().catch(() => null);
+ if (branchRes.ok && branchJson) {
+ const branchList = extractBranchesList(branchJson);
+ setBranches(branchList);
+ setFormData((prev) => ({
+ ...prev,
+ branchId: prev.branchId || branchList[0]?.id || "",
+ }));
+ }
+ }
+
+ const list = extractLeadsList(leadsJson);
+ setLeads(list);
+ setCustomers(extractCustomersList(custJson));
+ setSelectedLeadId((prev) => prev || list[0]?.id || "");
+ } catch (e) {
+ setError(e instanceof Error ? e.message : "Failed to load leads");
+ setLeads([]);
+ } finally {
+ setLoading(false);
+ }
+ }, [scopeBranchId, user?.role]);
+
+ useEffect(() => {
+ void load();
+ }, [load]);
 
  const customerLocationOptions = useMemo(() => {
  const selectedCustomer = visibleCustomers.find((customer) => customer.id === formData.customerId);
@@ -183,30 +246,65 @@ export default function LeadsPage() {
  };
 
  const handleCaptureLocation = () => {
- if (!navigator.geolocation) return;
+ if (!navigator.geolocation) {
+ setError("Geolocation is not supported in this browser.");
+ return;
+ }
  setIsLocating(true);
+ setError(null);
  navigator.geolocation.getCurrentPosition(
  (position) => {
+ const lat = position.coords.latitude;
+ const lng = position.coords.longitude;
+ const latStr = lat.toFixed(6);
+ const lngStr = lng.toFixed(6);
+
+ void (async () => {
+ try {
+ const place = await reverseGeocodeNominatim(lat, lng);
  setFormData((prev) => ({
  ...prev,
- latitude: position.coords.latitude.toFixed(6),
- longitude: position.coords.longitude.toFixed(6),
+ latitude: latStr,
+ longitude: lngStr,
+ locationName: place.locationName || prev.locationName,
+ district: place.district || prev.district,
+ region: place.region || prev.region,
+ ward: place.ward || prev.ward,
  }));
+ } catch {
+ setFormData((prev) => ({
+ ...prev,
+ latitude: latStr,
+ longitude: lngStr,
+ }));
+ setError(
+ "Coordinates captured, but street and district could not be resolved. Enter them manually."
+ );
+ } finally {
  setIsLocating(false);
+ }
+ })();
  },
  () => {
  setIsLocating(false);
+ setError("Could not get your location. Allow location access in the browser and try again.");
  },
- { enableHighAccuracy: true, timeout: 10000 }
+ { enableHighAccuracy: true, timeout: 15000 }
  );
  };
 
- const handleAddLead = () => {
+ const handleAddLead = async () => {
  if (!formData.fullName || !formData.phoneNumber || !formData.locationName) return;
+ const branchId = formData.branchId.trim() || user?.branch_id?.trim() || "";
+ if (needsBranchPicker && !branchId) {
+ setError("Select a branch for this lead.");
+ return;
+ }
 
- const newLead: Lead = {
- id: `lead-${Date.now()}`,
- customerId: formData.customerId || undefined,
+ setSaving(true);
+ setError(null);
+ try {
+ const body = mapUiLeadCreateToApi({
  fullName: formData.fullName,
  phoneNumber: formData.phoneNumber,
  alternatePhone: formData.alternatePhone || undefined,
@@ -220,14 +318,31 @@ export default function LeadsPage() {
  notes: formData.notes,
  followUpDate: formData.followUpDate || undefined,
  status: formData.status,
- createdAt: new Date().toISOString().slice(0, 10),
- };
+ });
 
- setLeads((prev) => [newLead, ...prev]);
- setSelectedLeadId(newLead.id);
+ const res = await fetch("/api/leads", {
+ method: "POST",
+ credentials: "include",
+ cache: "no-store",
+ headers: { "Content-Type": "application/json" },
+ body: JSON.stringify({
+ ...body,
+ ...(branchId ? { branch_id: branchId } : {}),
+ }),
+ });
+ const { data } = await parseJsonResponse<unknown>(res);
+ if (!res.ok) {
+ if (res.status === 401) {
+ throw new Error("Your session expired. Please sign out and sign in again, then retry.");
+ }
+ throw new Error(formatApiResponseError(data, "Failed to save lead"));
+ }
+
+ await load();
  setShowAddLeadForm(false);
  setFormData({
  customerId: "",
+ branchId: formData.branchId || user?.branch_id || branches[0]?.id || "",
  fullName: "",
  phoneNumber: "",
  alternatePhone: "",
@@ -242,6 +357,11 @@ export default function LeadsPage() {
  followUpDate: "",
  status: "new",
  });
+ } catch (e) {
+ setError(e instanceof Error ? e.message : "Failed to save lead");
+ } finally {
+ setSaving(false);
+ }
  };
 
  const selectedLead = visibleLeads.find((lead) => lead.id === selectedLeadId);
@@ -250,7 +370,7 @@ export default function LeadsPage() {
  ? selectedLead
  : visibleLeads.find((lead) => lead.latitude && lead.longitude);
 
- const openMapDirections = (lead: Lead) => {
+ const openMapDirections = (lead: LeadView) => {
  if (!lead.latitude || !lead.longitude) return;
  window.open(
  `https://www.google.com/maps/dir/?api=1&destination=${lead.latitude},${lead.longitude}`,
@@ -259,7 +379,7 @@ export default function LeadsPage() {
  );
  };
 
- const openMapView = (lead: Lead) => {
+ const openMapView = (lead: LeadView) => {
  if (!lead.latitude || !lead.longitude) return;
  window.open(
  `https://www.google.com/maps/search/?api=1&query=${lead.latitude},${lead.longitude}`,
@@ -289,7 +409,13 @@ export default function LeadsPage() {
  Pick an existing customer, choose location type, and save ready-to-navigate lead points.
  </p>
  </div>
+ <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+ <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => void load()}>
+ <RefreshCcw className="mr-2 h-4 w-4" />
+ Refresh
+ </Button>
  <Button
+ type="button"
  className="w-full bg-emerald-600 hover:bg-emerald-700 sm:w-auto"
  onClick={() => setShowAddLeadForm((prev) => !prev)}
  >
@@ -298,7 +424,21 @@ export default function LeadsPage() {
  </Button>
  </div>
  </div>
+ </div>
 
+ {error && (
+ <Card className="border-destructive/50 bg-destructive/5">
+ <CardContent className="py-3 text-sm text-destructive">{error}</CardContent>
+ </Card>
+ )}
+
+ {loading ? (
+ <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
+ <Loader2 className="h-5 w-5 animate-spin" />
+ Loading leads from server…
+ </div>
+ ) : (
+ <>
  <Card className="overflow-hidden border-emerald-100">
  <CardHeader>
  <div className="flex flex-wrap items-center justify-between gap-3">
@@ -375,7 +515,14 @@ export default function LeadsPage() {
  </TableRow>
  </TableHeader>
  <TableBody>
- {visibleLeads.map((lead) => (
+ {visibleLeads.length === 0 ? (
+ <TableRow>
+ <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
+ No leads yet. Add a field lead to get started.
+ </TableCell>
+ </TableRow>
+ ) : (
+ visibleLeads.map((lead) => (
  <TableRow
  key={lead.id}
  className="cursor-pointer"
@@ -443,7 +590,8 @@ export default function LeadsPage() {
  </div>
  </TableCell>
  </TableRow>
- ))}
+ ))
+ )}
  </TableBody>
  </Table>
  </div>
@@ -470,6 +618,7 @@ export default function LeadsPage() {
  setFormData((prev) => ({
  ...prev,
  customerId: value,
+ branchId: selectedCustomer?.branch_id ?? prev.branchId,
  fullName: selectedCustomer
  ? `${selectedCustomer.first_name} ${selectedCustomer.last_name}`
  : prev.fullName,
@@ -490,6 +639,29 @@ export default function LeadsPage() {
  </SelectContent>
  </Select>
  </Field>
+ {needsBranchPicker && (
+ <Field>
+ <FieldLabel>Branch</FieldLabel>
+ <Select
+ value={formData.branchId}
+ onValueChange={(value) =>
+ setFormData((prev) => ({ ...prev, branchId: value }))
+ }
+ >
+ <SelectTrigger>
+ <SelectValue placeholder="Select branch" />
+ </SelectTrigger>
+ <SelectContent>
+ {branches.map((branch) => (
+ <SelectItem key={branch.id} value={branch.id}>
+ {branch.name}
+ {branch.code ? ` (${branch.code})` : ""}
+ </SelectItem>
+ ))}
+ </SelectContent>
+ </Select>
+ </Field>
+ )}
  <Field>
  <FieldLabel>Location Type</FieldLabel>
  <Select
@@ -539,9 +711,9 @@ export default function LeadsPage() {
  />
  </Field>
  <Field>
- <FieldLabel>Location Name</FieldLabel>
+ <FieldLabel>Street / Location</FieldLabel>
  <Input
- placeholder="Area/Street/Market"
+ placeholder="Street, area, or landmark"
  value={formData.locationName}
  onChange={(e) =>
  setFormData((prev) => ({ ...prev, locationName: e.target.value }))
@@ -666,11 +838,25 @@ export default function LeadsPage() {
  <div className="flex flex-wrap gap-2">
  <Button variant="outline" onClick={handleCaptureLocation} disabled={isLocating}>
  <LocateFixed className="mr-2 h-4 w-4" />
- {isLocating ? "Capturing Location..." : "Use Current Location"}
+ {isLocating ? "Getting location…" : "Use browser location"}
  </Button>
- <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={handleAddLead}>
+ <Button
+ type="button"
+ className="bg-emerald-600 hover:bg-emerald-700"
+ disabled={saving}
+ onClick={() => void handleAddLead()}
+ >
+ {saving ? (
+ <>
+ <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+ Saving…
+ </>
+ ) : (
+ <>
  <Plus className="mr-2 h-4 w-4" />
  Save Lead
+ </>
+ )}
  </Button>
  </div>
 
@@ -734,6 +920,8 @@ export default function LeadsPage() {
  )}
  </CardContent>
  </Card>
+ </>
+ )}
  </div>
  </main>
  </>

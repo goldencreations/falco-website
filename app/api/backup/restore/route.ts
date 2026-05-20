@@ -1,17 +1,35 @@
 import { NextResponse } from "next/server";
-import { simulateRestore } from "@/lib/mock-backup-data";
+import { requireApiUser } from "@/lib/authorization";
+import { falcoServerFetch } from "@/lib/server-falco";
 
+/** Proxies `POST /backups/restore` — restore simulation. */
 export async function POST(request: Request) {
- const body = (await request.json()) as { backup_point_id?: string; reason?: string };
- if (!body.backup_point_id) {
- return NextResponse.json({ message: "backup_point_id is required" }, { status: 400 });
+ const auth = await requireApiUser(request);
+ if ("response" in auth) return auth.response;
+
+ let body: Record<string, unknown>;
+ try {
+ body = (await request.json()) as Record<string, unknown>;
+ } catch {
+ return NextResponse.json({ message: "Invalid JSON" }, { status: 400 });
  }
- const result = simulateRestore({
- backup_point_id: body.backup_point_id,
- reason: body.reason?.trim() || "Manual recovery point selection",
+
+ if (body.backup_point_id != null) {
+ const n = Number(body.backup_point_id);
+ if (Number.isFinite(n)) body.backup_point_id = n;
+ }
+
+ const res = await falcoServerFetch<unknown>("/backups/restore", {
+ method: "POST",
+ body,
+ request,
  });
- if (!result) {
- return NextResponse.json({ message: "Backup point not found" }, { status: 404 });
+
+ if (!res.ok) {
+ return NextResponse.json(
+ { message: res.error.message, details: res.error.details },
+ { status: res.error.status }
+ );
  }
- return NextResponse.json({ ok: true, restore_result: result });
+ return NextResponse.json(res.data);
 }

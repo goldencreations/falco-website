@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -22,7 +22,12 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
-import { branches, currentUser, users } from "@/lib/mock-data";
+import type { Branch, User } from "@/lib/types";
+import {
+ activeBranchesForAssignment,
+ loanOfficersForBranch,
+} from "@/lib/customer-assignment-options";
+import { formatValidationDetails } from "@/lib/falco-api";
 import { useSessionUser } from "@/lib/use-session-user";
 
 const CustomerLocationMapPicker = dynamic(
@@ -157,13 +162,13 @@ const defaultForm: CustomerCreateForm = {
  notes: "",
  branch_id: "",
  loan_officer_id: "",
- created_by: currentUser.id,
+ created_by: "",
 };
 
 export default function NewCustomerPage() {
  const router = useRouter();
  const { user } = useSessionUser();
- const effectiveUserId = user?.id ?? currentUser.id;
+ const effectiveUserId = user?.id ?? "";
  const isManagerView = user?.role === "branch_manager";
  const isOfficerView = user?.role === "loan_officer";
  const isScopedRole = isManagerView || isOfficerView;
@@ -179,6 +184,111 @@ export default function NewCustomerPage() {
  const [loadingStreetSuggestions, setLoadingStreetSuggestions] = useState(false);
  const [activePlaceSuggestionIndex, setActivePlaceSuggestionIndex] = useState(-1);
  const [activeStreetSuggestionIndex, setActiveStreetSuggestionIndex] = useState(-1);
+ const [branchRecords, setBranchRecords] = useState<Branch[]>([]);
+ const [branchesLoading, setBranchesLoading] = useState(false);
+ const [branchesError, setBranchesError] = useState("");
+ const [loanOfficers, setLoanOfficers] = useState<User[]>([]);
+ const [officersLoading, setOfficersLoading] = useState(false);
+ const [officersError, setOfficersError] = useState("");
+
+ const loadBranches = useCallback(async () => {
+ if (lockedBranchId) {
+ setBranchesError("");
+ setBranchRecords([
+ {
+ id: lockedBranchId,
+ name: `Branch ${lockedBranchId}`,
+ code: lockedBranchId,
+ region: "",
+ address: "",
+ phone: "",
+ manager_id: "",
+ is_active: true,
+ },
+ ]);
+ return;
+ }
+ setBranchesLoading(true);
+ setBranchesError("");
+ try {
+ const r = await fetch("/api/falco/branches", { credentials: "include" });
+ const d = (await r.json()) as { branches?: Branch[]; message?: string };
+ if (!r.ok) {
+ setBranchesError(d.message ?? "Could not load branches");
+ setBranchRecords([]);
+ return;
+ }
+ setBranchRecords(d.branches ?? []);
+ } catch {
+ setBranchesError("Could not load branches");
+ setBranchRecords([]);
+ } finally {
+ setBranchesLoading(false);
+ }
+ }, [lockedBranchId]);
+
+ const loadOfficersForBranch = useCallback(
+ async (branchId?: string) => {
+ if (lockedOfficerId && user) {
+ setOfficersError("");
+ setOfficersLoading(false);
+ setLoanOfficers([
+ {
+ id: user.id,
+ email: user.email,
+ full_name: user.full_name,
+ role: "loan_officer",
+ branch_id: user.branch_id ?? "",
+ phone: user.phone ?? "",
+ employee_id: user.employee_id ?? "",
+ is_active: user.is_active ?? true,
+ created_at: new Date().toISOString(),
+ last_login: null,
+ },
+ ]);
+ return;
+ }
+ const targetBranchId = String(branchId ?? form.branch_id).trim();
+ if (!targetBranchId) {
+ setLoanOfficers([]);
+ setOfficersError("");
+ setOfficersLoading(false);
+ return;
+ }
+ setOfficersLoading(true);
+ setOfficersError("");
+ try {
+ const params = new URLSearchParams({
+ branch_id: targetBranchId,
+ role: "loan_officer",
+ is_active: "true",
+ page_size: "100",
+ });
+ const r = await fetch(`/api/staff/directory?${params.toString()}`, { credentials: "include" });
+ const d = (await r.json()) as { users?: User[]; error?: string; message?: string };
+ if (!r.ok) {
+ setOfficersError(d.error ?? d.message ?? `Could not load officers (${r.status})`);
+ setLoanOfficers([]);
+ return;
+ }
+ setLoanOfficers(loanOfficersForBranch(d.users ?? [], targetBranchId));
+ } catch {
+ setOfficersError("Could not load loan officers");
+ setLoanOfficers([]);
+ } finally {
+ setOfficersLoading(false);
+ }
+ },
+ [form.branch_id, lockedOfficerId, user]
+ );
+
+ useEffect(() => {
+ void loadBranches();
+ }, [loadBranches]);
+
+ useEffect(() => {
+ void loadOfficersForBranch();
+ }, [loadOfficersForBranch]);
 
  useEffect(() => {
  setForm((prev) => ({
@@ -190,21 +300,12 @@ export default function NewCustomerPage() {
  }, [effectiveUserId, lockedBranchId, lockedOfficerId]);
 
  const branchOptions = useMemo(
- () =>
- branches.filter(
- (branch) => branch.is_active && (!lockedBranchId || branch.id === lockedBranchId)
- ),
- [lockedBranchId]
+ () => activeBranchesForAssignment(branchRecords, lockedBranchId),
+ [branchRecords, lockedBranchId]
  );
  const loanOfficerOptions = useMemo(
- () =>
- users.filter(
- (user) =>
- user.role === "loan_officer" &&
- user.is_active &&
- (!form.branch_id || user.branch_id === form.branch_id)
- ),
- [form.branch_id]
+ () => loanOfficersForBranch(loanOfficers, form.branch_id),
+ [loanOfficers, form.branch_id]
  );
 
  const selectedBranch = branchOptions.find((branch) => branch.id === form.branch_id);
@@ -417,20 +518,38 @@ export default function NewCustomerPage() {
  try {
  const response = await fetch(customerEndpoint, {
  method: "POST",
+ credentials: "include",
  headers: { "Content-Type": "application/json" },
  body: JSON.stringify(payload),
  });
 
+ const errBody = (await response.json().catch(() => ({}))) as {
+ message?: string;
+ error?: string | { message?: string; details?: { field?: string; message?: string }[] };
+ details?: { field?: string; message?: string }[];
+ code?: string;
+ };
  if (!response.ok) {
- throw new Error(`Customer create failed with status ${response.status}`);
+ const nested =
+ typeof errBody.error === "object" && errBody.error !== null
+ ? (errBody.error as { message?: string; details?: { field?: string; message?: string }[] })
+ : null;
+ const baseMsg =
+ typeof errBody.message === "string"
+ ? errBody.message
+ : typeof errBody.error === "string"
+ ? errBody.error
+ : nested?.message ?? `Customer create failed (${response.status})`;
+ const rawDetails = errBody.details ?? nested?.details;
+ const detailStr = formatValidationDetails(rawDetails);
+ setError(detailStr ? `${baseMsg} ${detailStr}` : baseMsg);
+ return;
  }
 
  router.push(customersBasePath);
  } catch (submitError) {
  console.error("create customer request", payload, submitError);
- setError(
- "Unable to submit to backend now. Form payload is backend-ready and logged in console for integration checks."
- );
+ setError("Unable to create customer. Check your connection and try again.");
  } finally {
  setSubmitting(false);
  }
@@ -466,18 +585,37 @@ export default function NewCustomerPage() {
  <CardHeader>
  <CardTitle>Assignment & System Controls</CardTitle>
  <CardDescription>
- Required system linkage fields for backend processing and workflow ownership.
+ Branch and loan officer come from the LMS: <span className="font-mono text-[11px]">GET /branches</span> and{" "}
+ <span className="font-mono text-[11px]">GET /users</span> (staff directory). Customer{" "}
+ <span className="font-mono text-[11px]">branch_id</span> is sent on{" "}
+ <span className="font-mono text-[11px]">POST /customers</span> per customers controller docs.
  </CardDescription>
  </CardHeader>
  <CardContent className="space-y-4">
  <div className="grid gap-4 md:grid-cols-2">
  <div className="space-y-2">
  <Label htmlFor="branch">Branch</Label>
- <Select value={form.branch_id} onValueChange={(value) => updateField("branch_id", value)}>
- <SelectTrigger id="branch" disabled={Boolean(lockedBranchId)}>
- <SelectValue placeholder="Select branch" />
+ <p className="text-xs text-muted-foreground">
+ Active branches from the database. Open the list to refresh after new branches are created.
+ </p>
+ <Select
+ value={form.branch_id}
+ onValueChange={(value) => {
+ updateField("branch_id", value);
+ if (!lockedOfficerId) void loadOfficersForBranch(value);
+ }}
+ onOpenChange={(open) => {
+ if (open && !lockedBranchId) void loadBranches();
+ }}
+ disabled={Boolean(lockedBranchId)}
+ >
+ <SelectTrigger id="branch">
+ <SelectValue placeholder={branchesLoading ? "Loading branches…" : "Select branch"} />
  </SelectTrigger>
  <SelectContent>
+ {branchOptions.length === 0 && !branchesLoading ? (
+ <div className="px-2 py-3 text-sm text-muted-foreground">No branches available.</div>
+ ) : null}
  {branchOptions.map((branch) => (
  <SelectItem key={branch.id} value={branch.id}>
  {branch.name} ({branch.code})
@@ -485,20 +623,40 @@ export default function NewCustomerPage() {
  ))}
  </SelectContent>
  </Select>
+ {branchesError ? <p className="text-xs text-destructive">{branchesError}</p> : null}
  </div>
  <div className="space-y-2">
  <Label htmlFor="loan-officer">Loan Officer</Label>
+ <p className="text-xs text-muted-foreground">
+ Loan officers assigned to the selected branch (<span className="font-mono text-[11px]">GET /users</span> with{" "}
+ <span className="font-mono text-[11px]">branch_id</span> + <span className="font-mono text-[11px]">role=loan_officer</span>
+ ).
+ </p>
  <Select
  value={form.loan_officer_id}
  onValueChange={(value) => updateField("loan_officer_id", value)}
+ onOpenChange={(open) => {
+ if (open && form.branch_id && !lockedOfficerId) void loadOfficersForBranch(form.branch_id);
+ }}
  disabled={!form.branch_id || Boolean(lockedOfficerId)}
  >
  <SelectTrigger id="loan-officer">
  <SelectValue
- placeholder={form.branch_id ? "Select loan officer" : "Select branch first"}
+ placeholder={
+ !form.branch_id
+ ? "Select branch first"
+ : officersLoading
+ ? "Loading officers…"
+ : "Select loan officer"
+ }
  />
  </SelectTrigger>
  <SelectContent>
+ {loanOfficerOptions.length === 0 && !officersLoading ? (
+ <div className="px-2 py-3 text-sm text-muted-foreground">
+ No active loan officers for this branch in the directory.
+ </div>
+ ) : null}
  {loanOfficerOptions.map((officer) => (
  <SelectItem key={officer.id} value={officer.id}>
  {officer.full_name}
@@ -506,6 +664,7 @@ export default function NewCustomerPage() {
  ))}
  </SelectContent>
  </Select>
+ {officersError ? <p className="text-xs text-destructive">{officersError}</p> : null}
  </div>
  </div>
  <div className="grid gap-4 md:grid-cols-2">

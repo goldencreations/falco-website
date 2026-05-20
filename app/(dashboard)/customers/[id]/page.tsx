@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useMemo, useState } from "react";
+import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import {
  ArrowLeft,
@@ -48,6 +48,7 @@ import {
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
@@ -62,16 +63,24 @@ import {
 } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
 import {
- customers,
- getLoansByCustomerId,
- getProductById,
- loanApplications,
- payments,
- formatCurrency,
- formatDate,
- formatDateTime,
-} from "@/lib/mock-data";
-import type { RiskGrade, LoanStatus } from "@/lib/types";
+ AlertDialog,
+ AlertDialogAction,
+ AlertDialogCancel,
+ AlertDialogContent,
+ AlertDialogDescription,
+ AlertDialogFooter,
+ AlertDialogHeader,
+ AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { CustomerEditDialog } from "@/components/customers/customer-edit-dialog";
+import { formatCurrency, formatDate, formatDateTime } from "@/lib/formatters";
+import { adaptApiCustomerRowToCustomer, extractCustomerDetail } from "@/lib/customer-adapters";
+import type { CustomerPortfolioData } from "@/lib/customer-portfolio-detail";
+import { customerToFormPayload } from "@/lib/customer-payload";
+import type { LoanListRow } from "@/lib/loan-adapters";
+import { useSessionUser } from "@/lib/use-session-user";
+import type { Customer, Payment, RiskGrade, LoanStatus } from "@/lib/types";
 
 const riskGradeConfig: Record<RiskGrade, { label: string; color: string; bgColor: string }> = {
  A: { label: "Grade A - Low Risk", color: "text-emerald-700", bgColor: "bg-emerald-100" },
@@ -82,6 +91,7 @@ const riskGradeConfig: Record<RiskGrade, { label: string; color: string; bgColor
 };
 
 const loanStatusConfig: Record<LoanStatus, { label: string; variant: "default" | "secondary" | "destructive" | "outline"; color: string }> = {
+ draft: { label: "Draft", variant: "outline", color: "bg-slate-400" },
  pending_disbursement: { label: "Pending", variant: "secondary", color: "bg-slate-500" },
  active: { label: "Active", variant: "default", color: "bg-emerald-500" },
  in_arrears: { label: "In Arrears", variant: "destructive", color: "bg-amber-500" },
@@ -91,40 +101,15 @@ const loanStatusConfig: Record<LoanStatus, { label: string; variant: "default" |
  restructured: { label: "Restructured", variant: "secondary", color: "bg-purple-500" },
 };
 
-// Generate mock payment history trend data
-function generatePaymentTrend(customerId: string) {
- const months = ["Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb"];
- return months.map((month, i) => ({
- month,
- expected: 400000 + Math.random() * 200000,
- actual: 350000 + Math.random() * 250000,
- onTime: Math.floor(70 + Math.random() * 30),
- }));
-}
-
-// Generate credit score history
-function generateCreditScoreHistory(currentScore: number) {
- const months = ["Aug 23", "Sep 23", "Oct 23", "Nov 23", "Dec 23", "Jan 24", "Feb 24", "Mar 24"];
- let score = currentScore - 80;
- return months.map((month) => {
- score += Math.floor(Math.random() * 20 - 5);
- score = Math.max(300, Math.min(850, score));
- return { month, score };
- });
-}
-
-// Generate loan distribution data
-function generateLoanDistribution(loans: { product_id: string; principal_amount: number }[]) {
- const distribution: Record<string, number> = {};
- loans.forEach((loan) => {
- const product = getProductById(loan.product_id);
- const name = product?.name || "Unknown";
- distribution[name] = (distribution[name] || 0) + loan.principal_amount;
- });
- return Object.entries(distribution).map(([name, value]) => ({ name, value }));
-}
-
 const CHART_COLORS = ["#0d9488", "#0891b2", "#6366f1", "#f59e0b", "#ef4444"];
+
+function ChartEmpty({ message }: { message: string }) {
+ return (
+ <div className="flex h-[280px] items-center justify-center rounded-lg border border-dashed bg-muted/30 px-4 text-center text-sm text-muted-foreground">
+ {message}
+ </div>
+ );
+}
 
 type CustomerExportPayload = {
  generated_at: string;
@@ -185,44 +170,136 @@ export default function CustomerDetailPage({
  params: Promise<{ id: string }>;
 }) {
  const resolvedParams = use(params);
+ const { user } = useSessionUser();
+ const customersListPath =
+ user?.role === "branch_manager"
+ ? "/manager/customers"
+ : user?.role === "loan_officer"
+ ? "/officer/customers"
+ : "/customers";
  const [isExporting, setIsExporting] = useState(false);
- const customer = customers.find((c) => c.id === resolvedParams.id);
+ const [customer, setCustomer] = useState<Customer | null>(null);
+ const [loading, setLoading] = useState(true);
+ const [loadError, setLoadError] = useState("");
+ const [portfolioLoading, setPortfolioLoading] = useState(true);
+ const [portfolioError, setPortfolioError] = useState("");
+ const [customerLoans, setCustomerLoans] = useState<LoanListRow[]>([]);
+ const [customerPayments, setCustomerPayments] = useState<Payment[]>([]);
+ const [paymentTrend, setPaymentTrend] = useState<CustomerPortfolioData["paymentTrend"]>([]);
+ const [loanDistribution, setLoanDistribution] = useState<CustomerPortfolioData["loanDistribution"]>([]);
+ const [creditHistory, setCreditHistory] = useState<CustomerPortfolioData["creditHistory"]>([]);
+ const [balanceSnapshot, setBalanceSnapshot] = useState<CustomerPortfolioData["balanceSnapshot"]>([]);
+ const [applicationCount, setApplicationCount] = useState(0);
+ const [sourceRow, setSourceRow] = useState<Record<string, unknown> | null>(null);
+ const [editOpen, setEditOpen] = useState(false);
+ const [blacklistOpen, setBlacklistOpen] = useState(false);
+ const [blacklistReason, setBlacklistReason] = useState("");
+ const [blacklistSaving, setBlacklistSaving] = useState(false);
+ const [blacklistError, setBlacklistError] = useState("");
 
- const customerLoans = useMemo(
- () => (customer ? getLoansByCustomerId(customer.id) : []),
- [customer]
- );
- const customerApplications = useMemo(
- () => (customer ? loanApplications.filter((app) => app.customer_id === customer.id) : []),
- [customer]
- );
- const customerPayments = useMemo(
- () => (customer ? payments.filter((p) => p.customer_id === customer.id) : []),
- [customer]
- );
+ useEffect(() => {
+ let cancelled = false;
+ const id = resolvedParams.id;
+ (async () => {
+ setLoading(true);
+ setLoadError("");
+ try {
+ const r = await fetch(`/api/customers/${encodeURIComponent(id)}`, { credentials: "include" });
+ const body = (await r.json().catch(() => ({}))) as { message?: string };
+ if (cancelled) return;
+ if (!r.ok) {
+ setLoadError(typeof body.message === "string" ? body.message : `Could not load customer (${r.status})`);
+ setCustomer(null);
+ setSourceRow(null);
+ return;
+ }
+ const row = extractCustomerDetail(body);
+ if (!row) {
+ setLoadError("Unexpected response from server.");
+ setCustomer(null);
+ setSourceRow(null);
+ return;
+ }
+ setSourceRow(row);
+ setCustomer(adaptApiCustomerRowToCustomer(row));
+ } catch {
+ if (!cancelled) setLoadError("Network error");
+ setCustomer(null);
+ setSourceRow(null);
+ } finally {
+ if (!cancelled) setLoading(false);
+ }
+ })();
+ return () => {
+ cancelled = true;
+ };
+ }, [resolvedParams.id]);
 
- const paymentTrend = useMemo(
- () => (customer ? generatePaymentTrend(customer.id) : []),
- [customer]
- );
- const creditHistory = useMemo(
- () => (customer?.credit_score ? generateCreditScoreHistory(customer.credit_score) : []),
- [customer?.credit_score]
- );
- const loanDistribution = useMemo(
- () => generateLoanDistribution(customerLoans),
- [customerLoans]
- );
+ useEffect(() => {
+ let cancelled = false;
+ const id = resolvedParams.id;
+ (async () => {
+ setPortfolioLoading(true);
+ setPortfolioError("");
+ try {
+ const r = await fetch(`/api/customers/${encodeURIComponent(id)}/portfolio`, {
+ credentials: "include",
+ cache: "no-store",
+ });
+ const body = (await r.json().catch(() => ({}))) as CustomerPortfolioData & { message?: string };
+ if (cancelled) return;
+ if (!r.ok) {
+ setPortfolioError(typeof body.message === "string" ? body.message : "Could not load loan portfolio");
+ setCustomerLoans([]);
+ setCustomerPayments([]);
+ setPaymentTrend([]);
+ setLoanDistribution([]);
+ setCreditHistory([]);
+ setBalanceSnapshot([]);
+ return;
+ }
+ setCustomerLoans(body.loans ?? []);
+ setCustomerPayments(body.payments ?? []);
+ setPaymentTrend(body.paymentTrend ?? []);
+ setLoanDistribution(body.loanDistribution ?? []);
+ setCreditHistory(body.creditHistory ?? []);
+ setBalanceSnapshot(body.balanceSnapshot ?? []);
+ setApplicationCount(body.applications?.length ?? 0);
+ } catch {
+ if (!cancelled) {
+ setPortfolioError("Network error loading portfolio");
+ setCustomerLoans([]);
+ setCustomerPayments([]);
+ }
+ } finally {
+ if (!cancelled) setPortfolioLoading(false);
+ }
+ })();
+ return () => {
+ cancelled = true;
+ };
+ }, [resolvedParams.id]);
 
- if (!customer) {
+ if (loading) {
+ return (
+ <>
+ <DashboardHeader title="Customer" description="Loading customer profile…" />
+ <main className="flex min-h-0 flex-1 overflow-y-auto p-6">
+ <p className="text-muted-foreground">Loading…</p>
+ </main>
+ </>
+ );
+ }
+
+ if (loadError || !customer) {
  return (
  <>
  <DashboardHeader title="Customer Not Found" />
  <main className="flex min-h-0 flex-1 overflow-y-auto p-6">
  <div className="text-center py-12">
- <p className="text-muted-foreground">Customer not found</p>
+ <p className="text-muted-foreground">{loadError || "Customer not found"}</p>
  <Button asChild className="mt-4">
- <Link href="/customers">Back to Customers</Link>
+ <Link href={customersListPath}>Back to Customers</Link>
  </Button>
  </div>
  </main>
@@ -242,7 +319,9 @@ export default function CustomerDetailPage({
  const handleExportPdf = async () => {
  try {
  setIsExporting(true);
- const response = await fetch(`/api/customers/${resolvedParams.id}/export`);
+ const response = await fetch(`/api/customers/${resolvedParams.id}/export`, {
+ credentials: "include",
+ });
  if (!response.ok) {
  throw new Error(`Export endpoint returned ${response.status}`);
  }
@@ -351,11 +430,7 @@ export default function CustomerDetailPage({
  ]),
  didDrawPage: () => {
  doc.setFontSize(8);
- doc.text(
- "Falco Financial Services - customer report export (backend route ready: /api/customers/:id/export)",
- 14,
- doc.internal.pageSize.getHeight() - 6
- );
+ doc.text("Falco Financial Services — customer portfolio report", 14, doc.internal.pageSize.getHeight() - 6);
  doc.text(
  `Page ${doc.getNumberOfPages()}`,
  pageWidth - 28,
@@ -372,6 +447,40 @@ export default function CustomerDetailPage({
  }
  };
 
+ const handleBlacklistConfirm = async () => {
+ setBlacklistSaving(true);
+ setBlacklistError("");
+ try {
+ const body = {
+ ...customerToFormPayload(customer, sourceRow),
+ is_blacklisted: true,
+ blacklist_reason: blacklistReason.trim() || undefined,
+ };
+ const r = await fetch(`/api/customers/${encodeURIComponent(resolvedParams.id)}`, {
+ method: "PATCH",
+ credentials: "include",
+ headers: { "Content-Type": "application/json" },
+ body: JSON.stringify(body),
+ });
+ const j = (await r.json().catch(() => ({}))) as { message?: string };
+ if (!r.ok) {
+ setBlacklistError(typeof j.message === "string" ? j.message : `Blacklist failed (${r.status})`);
+ return;
+ }
+ const row = extractCustomerDetail(j);
+ if (row) {
+ setCustomer(adaptApiCustomerRowToCustomer(row));
+ setSourceRow(row);
+ }
+ setBlacklistOpen(false);
+ setBlacklistReason("");
+ } catch {
+ setBlacklistError("Network error. Try again.");
+ } finally {
+ setBlacklistSaving(false);
+ }
+ };
+
  return (
  <>
  <DashboardHeader
@@ -382,7 +491,7 @@ export default function CustomerDetailPage({
  <div className="mx-auto max-w-7xl space-y-6">
  <div className="flex items-center justify-between">
  <Button variant="ghost" size="sm" asChild>
- <Link href="/customers">
+ <Link href={customersListPath}>
  <ArrowLeft className="mr-2 h-4 w-4" />
  Back to Customers
  </Link>
@@ -392,12 +501,19 @@ export default function CustomerDetailPage({
  <Download className="mr-2 h-4 w-4" />
  {isExporting ? "Exporting..." : "Export Report"}
  </Button>
- <Button variant="outline" size="sm">
+ <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
  <Edit className="mr-2 h-4 w-4" />
  Edit
  </Button>
  {!customer.is_blacklisted && (
- <Button variant="destructive" size="sm">
+ <Button
+ variant="destructive"
+ size="sm"
+ onClick={() => {
+ setBlacklistError("");
+ setBlacklistOpen(true);
+ }}
+ >
  <Ban className="mr-2 h-4 w-4" />
  Blacklist
  </Button>
@@ -454,6 +570,16 @@ export default function CustomerDetailPage({
  </div>
  </CardContent>
  </Card>
+
+ {portfolioError ? (
+ <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+ {portfolioError}
+ </div>
+ ) : null}
+
+ {portfolioLoading ? (
+ <p className="text-sm text-muted-foreground">Loading loans and payment history…</p>
+ ) : null}
 
  {/* Key Metrics Cards */}
  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
@@ -570,6 +696,9 @@ export default function CustomerDetailPage({
  <CardDescription>Expected vs actual payments over time</CardDescription>
  </CardHeader>
  <CardContent>
+ {paymentTrend.length === 0 || customerPayments.length === 0 ? (
+ <ChartEmpty message="Payment trend appears when this customer has recorded payments." />
+ ) : (
  <ResponsiveContainer width="100%" height={280}>
  <AreaChart data={paymentTrend}>
  <defs>
@@ -608,6 +737,7 @@ export default function CustomerDetailPage({
  />
  </AreaChart>
  </ResponsiveContainer>
+ )}
  </CardContent>
  </Card>
 
@@ -621,6 +751,10 @@ export default function CustomerDetailPage({
  <CardDescription>Score progression over time</CardDescription>
  </CardHeader>
  <CardContent>
+ {creditHistory.length === 0 ? (
+ <ChartEmpty message="Credit score history is shown when a credit score is on file." />
+ ) : (
+ <>
  <ResponsiveContainer width="100%" height={280}>
  <LineChart data={creditHistory}>
  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
@@ -652,6 +786,36 @@ export default function CustomerDetailPage({
  <span className="text-xs text-muted-foreground">Good (670-850)</span>
  </div>
  </div>
+ </>
+ )}
+ </CardContent>
+ </Card>
+
+ {/* Paid vs Outstanding */}
+ <Card>
+ <CardHeader>
+ <CardTitle className="flex items-center gap-2 text-base">
+ <Wallet className="h-5 w-5 text-amber-600" />
+ Repaid vs Outstanding
+ </CardTitle>
+ <CardDescription>Live balances from the customer&apos;s loan book</CardDescription>
+ </CardHeader>
+ <CardContent>
+ {customerLoans.length === 0 ? (
+ <ChartEmpty message="No loans on record for this customer yet." />
+ ) : (
+ <ResponsiveContainer width="100%" height={280}>
+ <BarChart data={balanceSnapshot} layout="vertical" margin={{ left: 8, right: 16 }}>
+ <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+ <XAxis type="number" tick={{ fontSize: 12 }} tickFormatter={(v) => `${(v / 1000000).toFixed(1)}M`} />
+ <YAxis type="category" dataKey="name" width={72} tick={{ fontSize: 12 }} />
+ <Tooltip formatter={(value: number) => formatCurrency(value)} />
+ <Legend />
+ <Bar dataKey="paid" name="Total repaid" fill="#10b981" radius={[0, 4, 4, 0]} />
+ <Bar dataKey="outstanding" name="Outstanding" fill="#f59e0b" radius={[0, 4, 4, 0]} />
+ </BarChart>
+ </ResponsiveContainer>
+ )}
  </CardContent>
  </Card>
 
@@ -665,6 +829,9 @@ export default function CustomerDetailPage({
  <CardDescription>Breakdown of loans by product type</CardDescription>
  </CardHeader>
  <CardContent>
+ {loanDistribution.length === 0 ? (
+ <ChartEmpty message="Loan mix by product appears when the customer has disbursed loans." />
+ ) : (
  <ResponsiveContainer width="100%" height={280}>
  <RechartsPie>
  <Pie
@@ -685,6 +852,7 @@ export default function CustomerDetailPage({
  <Tooltip formatter={(value: number) => formatCurrency(value)} />
  </RechartsPie>
  </ResponsiveContainer>
+ )}
  </CardContent>
  </Card>
 
@@ -698,13 +866,16 @@ export default function CustomerDetailPage({
  <CardDescription>On-time payment rate by month</CardDescription>
  </CardHeader>
  <CardContent>
+ {paymentTrend.length === 0 || customerPayments.length === 0 ? (
+ <ChartEmpty message="Payment completion rate by month requires payment history." />
+ ) : (
  <ResponsiveContainer width="100%" height={280}>
  <BarChart data={paymentTrend}>
  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
  <XAxis dataKey="month" tick={{ fontSize: 12 }} stroke="#6b7280" />
  <YAxis domain={[0, 100]} tick={{ fontSize: 12 }} stroke="#6b7280" tickFormatter={(v) => `${v}%`} />
  <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb" }} />
- <Bar dataKey="onTime" name="On-Time Rate" radius={[4, 4, 0, 0]}>
+ <Bar dataKey="onTime" name="Completed share" radius={[4, 4, 0, 0]}>
  {paymentTrend.map((entry, index) => (
  <Cell
  key={`cell-${index}`}
@@ -714,6 +885,7 @@ export default function CustomerDetailPage({
  </Bar>
  </BarChart>
  </ResponsiveContainer>
+ )}
  </CardContent>
  </Card>
  </div>
@@ -768,8 +940,8 @@ export default function CustomerDetailPage({
  <span className="font-semibold text-amber-600">{customerPayments.length - onTimePayments}</span>
  </div>
  <div className="flex justify-between">
- <span className="text-muted-foreground">Avg Days to Payment</span>
- <span className="font-semibold">5 days</span>
+ <span className="text-muted-foreground">Applications</span>
+ <span className="font-semibold">{applicationCount}</span>
  </div>
  </div>
  </div>
@@ -976,13 +1148,14 @@ export default function CustomerDetailPage({
  </TableRow>
  ) : (
  customerLoans.map((loan) => {
- const product = getProductById(loan.product_id);
+ const productLabel = loan.productName || loan.product_id || "—";
  const status = loanStatusConfig[loan.status];
- const progress = (loan.total_paid / loan.total_amount) * 100;
+ const progress =
+ loan.total_amount > 0 ? Math.min(100, (loan.total_paid / loan.total_amount) * 100) : 0;
  return (
  <TableRow key={loan.id} className="hover:bg-slate-50">
  <TableCell className="font-mono text-sm">{loan.loan_number}</TableCell>
- <TableCell>{product?.name}</TableCell>
+ <TableCell>{productLabel}</TableCell>
  <TableCell className="text-right">{formatCurrency(loan.principal_amount)}</TableCell>
  <TableCell className="text-right font-medium">{formatCurrency(loan.total_outstanding)}</TableCell>
  <TableCell>
@@ -1078,6 +1251,60 @@ export default function CustomerDetailPage({
  </Tabs>
  </div>
  </main>
+
+ <CustomerEditDialog
+ open={editOpen}
+ onOpenChange={setEditOpen}
+ customerId={resolvedParams.id}
+ customer={customer}
+ sourceRow={sourceRow}
+ onSaved={(next, row) => {
+ setCustomer(next);
+ setSourceRow(row);
+ }}
+ />
+
+ <AlertDialog
+ open={blacklistOpen}
+ onOpenChange={(o) => {
+ setBlacklistOpen(o);
+ if (!o) {
+ setBlacklistError("");
+ setBlacklistReason("");
+ }
+ }}
+ >
+ <AlertDialogContent>
+ <AlertDialogHeader>
+ <AlertDialogTitle>Blacklist this customer?</AlertDialogTitle>
+ <AlertDialogDescription>
+ This flags the customer in the LMS. You can add an internal reason below (stored with the record when supported).
+ </AlertDialogDescription>
+ </AlertDialogHeader>
+ <div className="space-y-2 py-2">
+ <Label htmlFor="blacklist-reason">Reason (optional)</Label>
+ <Textarea
+ id="blacklist-reason"
+ value={blacklistReason}
+ onChange={(e) => setBlacklistReason(e.target.value)}
+ rows={3}
+ placeholder="e.g. Fraudulent documents, repeated default…"
+ />
+ {blacklistError ? <p className="text-sm text-destructive">{blacklistError}</p> : null}
+ </div>
+ <AlertDialogFooter>
+ <AlertDialogCancel disabled={blacklistSaving}>Cancel</AlertDialogCancel>
+ <Button
+ type="button"
+ variant="destructive"
+ disabled={blacklistSaving}
+ onClick={() => void handleBlacklistConfirm()}
+ >
+ {blacklistSaving ? "Saving…" : "Confirm blacklist"}
+ </Button>
+ </AlertDialogFooter>
+ </AlertDialogContent>
+ </AlertDialog>
  </>
  );
 }

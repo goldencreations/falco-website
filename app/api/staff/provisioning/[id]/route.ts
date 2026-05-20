@@ -1,34 +1,38 @@
 import { NextResponse } from "next/server";
-import { currentUser } from "@/lib/mock-data";
-import { patchProvisioningRequest } from "@/lib/mock-staff-requests";
-import type { StaffRequestStatus } from "@/lib/staff-requests-types";
+import { requireApiUser } from "@/lib/authorization";
+import { extractProvisioningApproveResult } from "@/lib/staff-provisioning-adapters";
+import { falcoServerFetch } from "@/lib/server-falco";
 
 export async function PATCH(
  request: Request,
  context: { params: Promise<{ id: string }> }
 ) {
+ const auth = await requireApiUser(request, ["super_admin"]);
+ if ("response" in auth) return auth.response;
+
  const { id } = await context.params;
- if (currentUser.role !== "super_admin") {
- return NextResponse.json({ error: "Only super admin can approve provisioning" }, { status: 403 });
- }
+ const body = (await request.json()) as Record<string, unknown>;
 
- const body = (await request.json()) as {
- status?: StaffRequestStatus;
- notes?: string | null;
+ const status = String(body.status ?? "");
+ const patchBody: Record<string, unknown> = {
+ status,
+ notes: body.notes ?? body.resolution_notes ?? null,
  };
-
- if (!body.status || !["approved", "rejected"].includes(body.status)) {
- return NextResponse.json({ error: "status must be approved or rejected" }, { status: 400 });
+ if (status === "approved" && typeof body.temporary_password === "string" && body.temporary_password.trim()) {
+ patchBody.temporary_password = body.temporary_password.trim();
  }
 
- const result = patchProvisioningRequest(id, {
- status: body.status,
- reviewed_by: currentUser.id,
- notes: body.notes ?? null,
+ const res = await falcoServerFetch<unknown>(`/users/provisioning-requests/${encodeURIComponent(id)}`, {
+ method: "PATCH",
+ body: patchBody,
  });
 
- if (!result.ok) {
- return NextResponse.json({ error: result.error }, { status: 400 });
+ if (!res.ok) {
+ return NextResponse.json(
+ { error: res.error.message, details: res.error.details },
+ { status: res.error.status }
+ );
  }
- return NextResponse.json({ request: result.request });
+ const parsed = extractProvisioningApproveResult(res.data);
+ return NextResponse.json(parsed ?? res.data);
 }

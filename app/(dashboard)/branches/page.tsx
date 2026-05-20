@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
+import Link from "next/link";
 import {
  Cell,
  Pie,
@@ -13,6 +14,7 @@ import {
  CalendarRange,
  Download,
  Eye,
+ Loader2,
  PencilLine,
  Plus,
  UserCheck,
@@ -86,14 +88,17 @@ export default function BranchesPage() {
  const {
  branches: branchRecords,
  users,
- addBranch,
  updateBranch,
  assignManager,
  assignLoanOfficer,
  removeLoanOfficer,
+ refresh,
  } = useBranchAssignment();
  const [createOpen, setCreateOpen] = useState(false);
+ const [createSaving, setCreateSaving] = useState(false);
  const [editBranchId, setEditBranchId] = useState<string | null>(null);
+ const [editSaving, setEditSaving] = useState(false);
+ const [editError, setEditError] = useState("");
  const [createForm, setCreateForm] = useState<BranchFormState>(defaultForm);
  const [createError, setCreateError] = useState("");
  const [overviewBranchId, setOverviewBranchId] = useState<string | null>(null);
@@ -103,9 +108,20 @@ export default function BranchesPage() {
  const [toDate, setToDate] = useState("");
  const [newOfficerId, setNewOfficerId] = useState("");
  const [exportingBranchId, setExportingBranchId] = useState<string | null>(null);
+ const [assignmentError, setAssignmentError] = useState("");
+ const [assignmentBusy, setAssignmentBusy] = useState(false);
 
- const branchManagers = useMemo(() => users.filter((u) => u.role === "branch_manager"), [users]);
- const loanOfficers = useMemo(() => users.filter((u) => u.role === "loan_officer"), [users]);
+ const branchManagers = useMemo(
+ () => users.filter((u) => u.role === "branch_manager" && u.is_active !== false),
+ [users]
+ );
+
+ const createManagerOptions = useMemo(() => branchManagers, [branchManagers]);
+
+ const loanOfficers = useMemo(
+ () => users.filter((u) => u.role === "loan_officer" && u.is_active !== false),
+ [users]
+ );
 
  const editingBranch = useMemo(
  () => branchRecords.find((branch) => branch.id === editBranchId) ?? null,
@@ -239,54 +255,88 @@ export default function BranchesPage() {
  { label: "Expected Profit", amount: expectedProfit, color: "#10b981" },
  ];
 
- const createBranch = (event: FormEvent<HTMLFormElement>) => {
+ const createBranch = async (event: FormEvent<HTMLFormElement>) => {
  event.preventDefault();
- if (!createForm.name.trim() || !createForm.code.trim() || !createForm.manager_id) {
- setCreateError("Branch name, code and manager are required.");
+ if (!createForm.name.trim() || !createForm.code.trim()) {
+ setCreateError("Branch name and code are required.");
  return;
  }
  const duplicate = branchRecords.some(
  (branch) => branch.code.toLowerCase() === createForm.code.trim().toLowerCase()
  );
  if (duplicate) {
- setCreateError("Branch code already exists.");
+ setCreateError("Branch code already exists in the current list.");
  return;
  }
 
- const payload = {
+ setCreateSaving(true);
+ setCreateError("");
+ try {
+ const res = await fetch("/api/falco/branches", {
+ method: "POST",
+ credentials: "include",
+ headers: { "Content-Type": "application/json" },
+ body: JSON.stringify({
  name: createForm.name.trim(),
- location: createForm.address.trim(),
- phone: createForm.phone.trim(),
- manager_id: createForm.manager_id,
- is_active: true,
- };
- void payload;
-
- const newBranch: Branch = {
- id: `br-${Date.now()}`,
- name: createForm.name.trim(),
- code: createForm.code.trim().toUpperCase(),
+ code: createForm.code.trim(),
  region: createForm.region.trim() || "Not specified",
  address: createForm.address.trim() || "Not specified",
  phone: createForm.phone.trim() || "N/A",
- manager_id: createForm.manager_id,
+ ...(createForm.manager_id ? { manager_id: createForm.manager_id } : {}),
  is_active: true,
- };
- addBranch(newBranch);
+ }),
+ });
+ const json = (await res.json()) as { message?: string; details?: unknown };
+ if (!res.ok) {
+ setCreateError(json.message ?? "Could not create branch");
+ return;
+ }
+ await refresh();
  setCreateOpen(false);
  setCreateForm(defaultForm);
- setCreateError("");
+ } finally {
+ setCreateSaving(false);
+ }
  };
 
- const saveBranchEdit = (event: FormEvent<HTMLFormElement>) => {
+ const saveBranchEdit = async (event: FormEvent<HTMLFormElement>) => {
  event.preventDefault();
  if (!editingBranch) return;
- updateBranch(editingBranch.id, editingBranch);
+ setEditSaving(true);
+ setEditError("");
+ try {
+ const res = await fetch(`/api/falco/branches/${encodeURIComponent(editingBranch.id)}`, {
+ method: "PATCH",
+ credentials: "include",
+ headers: { "Content-Type": "application/json" },
+ body: JSON.stringify({
+ name: editingBranch.name,
+ code: editingBranch.code,
+ region: editingBranch.region,
+ address: editingBranch.address,
+ phone: editingBranch.phone,
+ manager_id: editingBranch.manager_id || null,
+ is_active: editingBranch.is_active,
+ }),
+ });
+ const json = (await res.json()) as { message?: string };
+ if (!res.ok) {
+ setEditError(json.message ?? "Could not update branch");
+ return;
+ }
+ await refresh();
  setEditBranchId(null);
+ } finally {
+ setEditSaving(false);
+ }
  };
 
  const managerOptions = branchManagers.filter(
- (manager) => manager.branch_id === selectedBranch?.id || manager.branch_id === "" || manager.id === selectedBranch?.manager_id
+ (manager) =>
+ !manager.branch_id ||
+ manager.branch_id === "" ||
+ manager.branch_id === selectedBranch?.id ||
+ manager.id === selectedBranch?.manager_id
  );
 
  const unassignedOrExternalOfficers = loanOfficers.filter(
@@ -542,12 +592,23 @@ export default function BranchesPage() {
  </div>
  </main>
 
- <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+ <Dialog
+ open={createOpen}
+ onOpenChange={(open) => {
+ setCreateOpen(open);
+ if (!open) {
+ setCreateError("");
+ setCreateForm(defaultForm);
+ }
+ }}
+ >
  <DialogContent className="sm:max-w-xl">
  <DialogHeader>
  <DialogTitle>Create Branch</DialogTitle>
  <DialogDescription>
- Add branch details aligned with architecture branch fields and manager assignment.
+ Saves to the LMS via <span className="font-mono text-xs">POST /branches</span> (see branches controller
+ docs). The branch appears in <span className="font-mono text-xs">GET /branches</span> for customer assignment
+ and elsewhere.
  </DialogDescription>
  </DialogHeader>
  <form className="grid gap-4" onSubmit={createBranch}>
@@ -593,19 +654,36 @@ export default function BranchesPage() {
  />
  </div>
  <div className="space-y-2 sm:col-span-2">
- <Label>Branch Manager</Label>
- <Select value={createForm.manager_id} onValueChange={(value) => setCreateForm((prev) => ({ ...prev, manager_id: value }))}>
+ <Label>Branch Manager (optional)</Label>
+ <Select
+ value={createForm.manager_id || "none"}
+ onValueChange={(value) =>
+ setCreateForm((prev) => ({ ...prev, manager_id: value === "none" ? "" : value }))
+ }
+ >
  <SelectTrigger>
- <SelectValue placeholder="Select manager" />
+ <SelectValue placeholder="Assign later from branch overview" />
  </SelectTrigger>
  <SelectContent>
- {branchManagers.map((manager) => (
+ <SelectItem value="none">No manager — assign later</SelectItem>
+ {createManagerOptions.map((manager) => (
  <SelectItem key={manager.id} value={manager.id}>
- {manager.full_name} ({manager.employee_id})
+ {manager.full_name}
+ {manager.employee_id ? ` (${manager.employee_id})` : ""}
+ {manager.branch_id ? ` · ${branchRecords.find((b) => b.id === manager.branch_id)?.name ?? "branch"}` : ""}
  </SelectItem>
  ))}
  </SelectContent>
  </Select>
+ {createManagerOptions.length === 0 ? (
+ <p className="text-xs text-muted-foreground">
+ No branch managers in the directory yet. Create one under{" "}
+ <Link href="/staff/team" className="text-primary underline">
+ Staff Management
+ </Link>{" "}
+ with role Branch Manager, then assign them here or from the branch overview.
+ </p>
+ ) : null}
  </div>
  </div>
  {createError ? <p className="text-sm text-destructive">{createError}</p> : null}
@@ -613,19 +691,38 @@ export default function BranchesPage() {
  <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
  Cancel
  </Button>
- <Button type="submit">Create Branch</Button>
+ <Button type="submit" disabled={createSaving}>
+ {createSaving ? (
+ <>
+ <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+ Saving…
+ </>
+ ) : (
+ "Create Branch"
+ )}
+ </Button>
  </DialogFooter>
  </form>
  </DialogContent>
  </Dialog>
 
- <Dialog open={Boolean(editingBranch)} onOpenChange={(open) => !open && setEditBranchId(null)}>
+ <Dialog
+ open={Boolean(editingBranch)}
+ onOpenChange={(open) => {
+ if (!open) {
+ setEditBranchId(null);
+ setEditError("");
+ }
+ }}
+ >
  <DialogContent className="sm:max-w-xl">
  {editingBranch ? (
  <>
  <DialogHeader>
  <DialogTitle>Edit Branch</DialogTitle>
- <DialogDescription>Update branch details and assignment in one place.</DialogDescription>
+ <DialogDescription>
+ Updates the LMS via <span className="font-mono text-xs">PATCH /branches/{"{id}"}</span>.
+ </DialogDescription>
  </DialogHeader>
  <form className="grid gap-4" onSubmit={saveBranchEdit}>
  <div className="grid gap-3 sm:grid-cols-2">
@@ -650,11 +747,21 @@ export default function BranchesPage() {
  <Input value={editingBranch.address} onChange={(e) => updateBranch(editingBranch.id, { address: e.target.value })} />
  </div>
  </div>
+ {editError ? <p className="text-sm text-destructive">{editError}</p> : null}
  <DialogFooter>
- <Button type="button" variant="outline" onClick={() => setEditBranchId(null)}>
+ <Button type="button" variant="outline" onClick={() => setEditBranchId(null)} disabled={editSaving}>
  Cancel
  </Button>
- <Button type="submit">Save Changes</Button>
+ <Button type="submit" disabled={editSaving}>
+ {editSaving ? (
+ <>
+ <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+ Saving…
+ </>
+ ) : (
+ "Save Changes"
+ )}
+ </Button>
  </DialogFooter>
  </form>
  </>
@@ -791,7 +898,19 @@ export default function BranchesPage() {
  <div className="min-w-0">
  <Select
  value={selectedBranch.manager_id || "none"}
- onValueChange={(value) => assignManager(selectedBranch.id, value === "none" ? null : value)}
+ disabled={assignmentBusy}
+ onValueChange={(value) => {
+ void (async () => {
+ setAssignmentError("");
+ setAssignmentBusy(true);
+ const err = await assignManager(
+ selectedBranch.id,
+ value === "none" ? null : value
+ );
+ setAssignmentBusy(false);
+ if (err) setAssignmentError(err);
+ })();
+ }}
  >
  <SelectTrigger className="w-full touch-manipulation">
  <SelectValue placeholder="Change manager" />
@@ -805,6 +924,9 @@ export default function BranchesPage() {
  ))}
  </SelectContent>
  </Select>
+ {assignmentError ? (
+ <p className="mt-2 text-sm text-destructive">{assignmentError}</p>
+ ) : null}
  </div>
  </CardContent>
  </Card>
@@ -832,10 +954,20 @@ export default function BranchesPage() {
  </Select>
  <Button
  className="w-full touch-manipulation sm:w-auto sm:shrink-0"
+ disabled={assignmentBusy || !newOfficerId}
  onClick={() => {
  if (!newOfficerId) return;
- assignLoanOfficer(newOfficerId, selectedBranch.id);
+ void (async () => {
+ setAssignmentError("");
+ setAssignmentBusy(true);
+ const err = await assignLoanOfficer(newOfficerId, selectedBranch.id);
+ setAssignmentBusy(false);
+ if (err) {
+ setAssignmentError(err);
+ return;
+ }
  setNewOfficerId("");
+ })();
  }}
  >
  Add Officer
@@ -858,7 +990,16 @@ export default function BranchesPage() {
  variant="ghost"
  className="h-10 w-full touch-manipulation sm:h-9 sm:w-9 sm:shrink-0"
  aria-label={`Remove ${officer.full_name} from branch`}
- onClick={() => removeLoanOfficer(officer.id)}
+ disabled={assignmentBusy}
+ onClick={() => {
+ void (async () => {
+ setAssignmentError("");
+ setAssignmentBusy(true);
+ const err = await removeLoanOfficer(officer.id, selectedBranch.id);
+ setAssignmentBusy(false);
+ if (err) setAssignmentError(err);
+ })();
+ }}
  >
  <UserMinus className="h-4 w-4" />
  </Button>
