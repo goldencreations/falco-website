@@ -59,6 +59,7 @@ import type {
 import type { PaymentMethod, PaymentStatus } from "@/lib/types";
 import { extractLoansList, type LoanListRow } from "@/lib/loan-adapters";
 import { formatApiResponseError } from "@/lib/falco-api";
+import { forceCachedReload } from "@/lib/client-fetch-cache";
 import { formatCurrency, formatDateTime } from "@/lib/formatters";
 import { parseJsonResponse } from "@/lib/parse-json-response";
 import { isBranchScopedStaffRole, rolePortalBase } from "@/lib/role-portal";
@@ -405,7 +406,7 @@ export default function PaymentsPage() {
  </Select>
  </div>
  <div className="flex gap-2">
- <Button type="button" variant="outline" onClick={() => void load()}>
+ <Button type="button" variant="outline" onClick={() => forceCachedReload(load)}>
  <RefreshCcw className="mr-2 h-4 w-4" />
  Refresh
  </Button>

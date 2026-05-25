@@ -15,6 +15,7 @@ import {
  LANGUAGE_STORAGE_KEY,
 } from "@/lib/preferences";
 import { parseProfileResponse } from "@/lib/settings-adapters";
+import { withCacheBypass } from "@/lib/client-fetch-cache";
 
 export const LANGUAGE_CHANGE_EVENT = "falco-language-change";
 
@@ -45,9 +46,9 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
 
  const refreshFromServer = useCallback(async () => {
  try {
- const sessionRes = await fetch("/api/session", { credentials: "include" });
+ const sessionRes = await fetch("/api/session", withCacheBypass({ credentials: "include" }));
  if (!sessionRes.ok) return;
- const res = await fetch("/api/settings/profile", { credentials: "include" });
+ const res = await fetch("/api/settings/profile", withCacheBypass({ credentials: "include" }));
  if (!res.ok) return;
  const json = (await res.json().catch(() => ({}))) as unknown;
  const { preferences } = parseProfileResponse(json);

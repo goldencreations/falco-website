@@ -45,6 +45,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatCurrency } from "@/lib/formatters";
+import { forceCachedReload } from "@/lib/client-fetch-cache";
 import { extractApplicationsList } from "@/lib/application-adapters";
 import { extractCustomersList } from "@/lib/customer-adapters";
 import { extractLoansList } from "@/lib/loan-adapters";
@@ -355,8 +356,10 @@ export default function StaffTeamPage() {
  variant="outline"
  size="sm"
  onClick={() => {
+ forceCachedReload(() => {
  void load();
  void loadProvisioning();
+ });
  }}
  disabled={loading}
  >

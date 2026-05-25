@@ -33,6 +33,7 @@ import {
  type CalculatorResultView,
 } from "@/lib/calculator-adapters";
 import { formatApiResponseError } from "@/lib/falco-api";
+import { forceCachedReload } from "@/lib/client-fetch-cache";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import { parseJsonResponse } from "@/lib/parse-json-response";
 import { extractProductsList } from "@/lib/product-adapters";
@@ -453,7 +454,7 @@ export default function LoanCalculatorPage() {
  type="button"
  variant="outline"
  disabled={loadingProducts}
- onClick={() => void loadProducts()}
+ onClick={() => forceCachedReload(loadProducts)}
  >
  <RefreshCcw className="mr-2 h-4 w-4" />
  Refresh products

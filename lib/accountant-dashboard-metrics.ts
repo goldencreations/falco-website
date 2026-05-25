@@ -15,6 +15,8 @@ import {
  type ReconciliationSummary,
 } from "@/lib/payment-adapters";
 import { formatCurrency } from "@/lib/formatters";
+import { translate } from "@/lib/i18n/translate";
+import type { AppLanguage } from "@/lib/preferences";
 import type { Payment } from "@/lib/types";
 
 const ACTIVE_LOAN_STATUSES = new Set([
@@ -115,8 +117,11 @@ function sumPaymentsToday(payments: Payment[], today: string): number {
 }
 
 export function buildAccountantDashboardStats(
- snapshot: AccountantFinanceSnapshot
+ snapshot: AccountantFinanceSnapshot,
+ language: AppLanguage = "en"
 ): AccountantDashboardStats {
+ const t = (key: string, params?: Record<string, string | number>) =>
+ translate(language, key, params);
  const payments = snapshot.payments;
  const completed = payments.filter((p) => p.status === "completed");
  const pending = payments.filter((p) => p.status === "pending");
@@ -195,17 +200,33 @@ export function buildAccountantDashboardStats(
  const nplRate = Number(risk?.npl_rate ?? 0);
  const parAmount = Number(risk?.par_amount ?? 0);
 
- let insightText = `${snapshot.branchLabel}: Portfolio outstanding ${formatCurrency(outstandingPortfolio)} across ${activeLoansCount} active loans.`;
- insightText += ` Collected ${formatCurrency(paymentsCollectedTotal)} (${completed.length} payments)`;
+ let insightText = t("accountant.insightLead", {
+ branch: snapshot.branchLabel,
+ portfolio: formatCurrency(outstandingPortfolio),
+ active: activeLoansCount,
+ });
+ insightText += t("accountant.insightCollected", {
+ total: formatCurrency(paymentsCollectedTotal),
+ count: completed.length,
+ });
  if (paymentsCollectedToday > 0) {
- insightText += `, including ${formatCurrency(paymentsCollectedToday)} today`;
+ insightText += t("accountant.insightToday", {
+ amount: formatCurrency(paymentsCollectedToday),
+ });
  }
- insightText += `. Reconciliation: ${recon.matched} matched, ${anomaliesDetected} need review.`;
+ insightText += t("accountant.insightRecon", {
+ matched: recon.matched,
+ review: anomaliesDetected,
+ });
  if (disbursementsMtdVolume > 0) {
- insightText += ` Disbursements MTD: ${formatCurrency(disbursementsMtdVolume)}.`;
+ insightText += t("accountant.insightDisburse", {
+ amount: formatCurrency(disbursementsMtdVolume),
+ });
  }
  if (disbursementsPendingCount > 0) {
- insightText += ` ${disbursementsPendingCount} disbursement(s) pending action.`;
+ insightText += t("accountant.insightDisbursePending", {
+ count: disbursementsPendingCount,
+ });
  }
 
  return {

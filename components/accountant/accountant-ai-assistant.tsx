@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Bot, Send, Sparkles } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -10,64 +10,112 @@ import { Progress } from "@/components/ui/progress";
 import { formatCurrency } from "@/lib/formatters";
 import type { AccountantDashboardStats } from "@/lib/accountant-dashboard-metrics";
 import type { SessionUser } from "@/lib/auth";
+import { useTranslations } from "@/lib/i18n/use-translations";
+import type { MessageKey } from "@/lib/i18n/messages";
 
 type ChatMessage = { id: string; role: "user" | "assistant"; content: string };
 
-function buildAssistantReply(prompt: string, stats: AccountantDashboardStats, userName: string): string {
+function buildAssistantReply(
+ prompt: string,
+ stats: AccountantDashboardStats,
+ userName: string,
+ t: (key: MessageKey | string, params?: Record<string, string | number>) => string
+): string {
  const q = prompt.toLowerCase();
+ const firstName = userName.split(" ")[0] || "there";
  if (q.includes("discrep") || q.includes("reconcil") || q.includes("mismatch")) {
  return [
- `Hi ${userName.split(" ")[0] || "there"}, reconciliation for your branch:`,
- `• Matched: ${stats.reconciliation.matched}`,
- `• Manual review: ${stats.reconciliation.manual_review}`,
- `• Unmatched: ${stats.reconciliation.unmatched}`,
- `• Underpaid / overpaid: ${stats.reconciliation.underpaid} / ${stats.reconciliation.overpaid}`,
- `Payments collected (branch): ${formatCurrency(stats.paymentsCollectedTotal)}.`,
- "Open Reconciliation for payment-level detail.",
+ t("accountant.aiReconIntro", { name: firstName }),
+ t("accountant.aiReconMatched", { count: stats.reconciliation.matched }),
+ t("accountant.aiReconManual", { count: stats.reconciliation.manual_review }),
+ t("accountant.aiReconUnmatched", { count: stats.reconciliation.unmatched }),
+ t("accountant.aiReconPaid", {
+ under: stats.reconciliation.underpaid,
+ over: stats.reconciliation.overpaid,
+ }),
+ t("accountant.aiReconCollected", {
+ amount: formatCurrency(stats.paymentsCollectedTotal),
+ }),
+ t("accountant.aiReconCta"),
  ].join("\n");
  }
  if (q.includes("disburse")) {
  return [
- `Disbursements MTD: ${formatCurrency(stats.disbursementsMtdVolume)}.`,
- `${stats.disbursementsCompletedCount} completed, ${stats.disbursementsPendingCount} pending approval.`,
- `Portfolio outstanding: ${formatCurrency(stats.outstandingPortfolio)}.`,
+ t("accountant.aiDisburse", { amount: formatCurrency(stats.disbursementsMtdVolume) }),
+ t("accountant.aiDisburseStatus", {
+ completed: stats.disbursementsCompletedCount,
+ pending: stats.disbursementsPendingCount,
+ }),
+ t("accountant.aiDisbursePortfolio", {
+ amount: formatCurrency(stats.outstandingPortfolio),
+ }),
  ].join(" ");
  }
  if (q.includes("collection") || q.includes("arrear")) {
  return [
- `Collections (metrics): ${formatCurrency(stats.collectionsAmount)}.`,
- `Collected today via payments: ${formatCurrency(stats.paymentsCollectedToday)}.`,
- `Collections queue: ${stats.collectionsQueueCount} loans, ${formatCurrency(stats.collectionsQueueOutstanding)} outstanding.`,
- `PAR ${stats.parRate.toFixed(1)}%, NPL ${stats.nplRate.toFixed(1)}%.`,
+ t("accountant.aiCollectionMetrics", {
+ amount: formatCurrency(stats.collectionsAmount),
+ }),
+ t("accountant.aiCollectionToday", {
+ amount: formatCurrency(stats.paymentsCollectedToday),
+ }),
+ t("accountant.aiCollectionQueue", {
+ count: stats.collectionsQueueCount,
+ outstanding: formatCurrency(stats.collectionsQueueOutstanding),
+ }),
+ t("accountant.aiCollectionRisk", {
+ par: stats.parRate.toFixed(1),
+ npl: stats.nplRate.toFixed(1),
+ }),
  ].join(" ");
  }
  if (q.includes("payment") || q.includes("loan")) {
  return [
- `Payments: ${formatCurrency(stats.paymentsCollectedTotal)} collected (${stats.paymentsCompletedCount} completed).`,
- `Active loans: ${stats.activeLoansCount} · Outstanding book: ${formatCurrency(stats.outstandingPortfolio)}.`,
+ t("accountant.aiPayments", {
+ amount: formatCurrency(stats.paymentsCollectedTotal),
+ count: stats.paymentsCompletedCount,
+ }),
+ t("accountant.aiLoans", {
+ count: stats.activeLoansCount,
+ amount: formatCurrency(stats.outstandingPortfolio),
+ }),
  ].join(" ");
  }
  return [
  stats.insightText,
- `Totals — Payments: ${formatCurrency(stats.paymentsCollectedTotal)}, Collections: ${formatCurrency(stats.collectionsAmount)}, Disbursements MTD: ${formatCurrency(stats.disbursementsMtdVolume)}.`,
+ t("accountant.aiTotals", {
+ payments: formatCurrency(stats.paymentsCollectedTotal),
+ collections: formatCurrency(stats.collectionsAmount),
+ disbursements: formatCurrency(stats.disbursementsMtdVolume),
+ }),
  ].join("\n");
 }
 
 export function AccountantAiAssistant({
  user,
  stats,
+ dataVersion = 0,
 }: {
  user: SessionUser;
  stats: AccountantDashboardStats;
+ /** Bumps when dashboard data is reloaded so summaries stay in sync. */
+ dataVersion?: number;
 }) {
- const [messages, setMessages] = useState<ChatMessage[]>([
- {
- id: "welcome",
- role: "assistant",
- content: buildAssistantReply("", stats, user.full_name),
- },
+ const { t, language } = useTranslations();
+ const makeReply = useCallback(
+ (prompt: string) => buildAssistantReply(prompt, stats, user.full_name, t),
+ [stats, user.full_name, t]
+ );
+
+ const [messages, setMessages] = useState<ChatMessage[]>(() => [
+ { id: "welcome", role: "assistant", content: makeReply("") },
  ]);
  const [input, setInput] = useState("");
+
+ useEffect(() => {
+ setMessages([{ id: "welcome", role: "assistant", content: makeReply("") }]);
+ setInput("");
+ }, [dataVersion, stats, user.full_name, language, makeReply]);
 
  const monthlyBars = useMemo(() => {
  const max = Math.max(...stats.monthlyPaymentTotals.map((m) => m.amount), 1);
@@ -83,11 +131,7 @@ export function AccountantAiAssistant({
  setMessages((prev) => [
  ...prev,
  { id: `u-${Date.now()}`, role: "user", content: text },
- {
- id: `a-${Date.now()}`,
- role: "assistant",
- content: buildAssistantReply(text, stats, user.full_name),
- },
+ { id: `a-${Date.now()}`, role: "assistant", content: makeReply(text) },
  ]);
  setInput("");
  };
@@ -99,8 +143,8 @@ export function AccountantAiAssistant({
  <Sparkles className="h-4 w-4" />
  </div>
  <div>
- <p className="text-sm font-semibold">Finance Assistant</p>
- <p className="text-[11px] text-muted-foreground">Summaries from live branch APIs</p>
+ <p className="text-sm font-semibold">{t("accountant.aiTitle")}</p>
+ <p className="text-[11px] text-muted-foreground">{t("accountant.aiSubtitle")}</p>
  </div>
  </div>
 
@@ -140,7 +184,9 @@ export function AccountantAiAssistant({
 
  {monthlyBars.length > 0 ? (
  <div className="rounded-xl border border-border/60 bg-card/80 p-3">
- <p className="text-[11px] font-medium text-muted-foreground">Completed payments by month</p>
+ <p className="text-[11px] font-medium text-muted-foreground">
+ {t("accountant.aiPaymentsByMonth")}
+ </p>
  <div className="mt-2 space-y-2">
  {monthlyBars.map((row) => (
  <div key={row.month}>
@@ -166,10 +212,10 @@ export function AccountantAiAssistant({
  <Input
  value={input}
  onChange={(e) => setInput(e.target.value)}
- placeholder="Ask about payments, collections, disbursements…"
+ placeholder={t("accountant.aiPlaceholder")}
  className="h-9 text-xs"
  />
- <Button type="submit" size="icon" className="h-9 w-9 shrink-0" aria-label="Send">
+ <Button type="submit" size="icon" className="h-9 w-9 shrink-0" aria-label={t("accountant.aiSend")}>
  <Send className="h-4 w-4" />
  </Button>
  </form>

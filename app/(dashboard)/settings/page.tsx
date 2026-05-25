@@ -283,9 +283,7 @@ export default function SettingsPage() {
  if (displayUser.role === "branch_manager") return copy.managerDesc;
  if (displayUser.role === "super_admin") return copy.adminDesc;
  if (displayUser.role === "loan_officer") return copy.officerDesc;
- if (displayUser.role === "accountant") {
- return "Profile and preferences for your finance portal. Organization and admin settings are not available.";
- }
+ if (displayUser.role === "accountant") return copy.accountantDesc;
  return copy.defaultDesc;
  }, [displayUser, copy]);
 

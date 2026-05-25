@@ -36,18 +36,23 @@ import {
  loadAccountantFinanceEssentials,
  type AccountantFinanceSnapshot,
 } from "@/lib/accountant-dashboard-metrics";
+import { forceCachedReload } from "@/lib/client-fetch-cache";
 import { formatCurrency } from "@/lib/formatters";
+import { useTranslations } from "@/lib/i18n/use-translations";
+import { tLabel } from "@/lib/i18n/labels";
 import { loginRedirectForRole } from "@/lib/role-portal";
 import { useSessionUser } from "@/lib/use-session-user";
 
 export default function AccountantDashboardPage() {
  const router = useRouter();
+ const { t, language } = useTranslations();
  const { user, loaded } = useSessionUser();
  const branchCtx = useOptionalBranchAssignment();
  const [snapshot, setSnapshot] = useState<AccountantFinanceSnapshot | null>(null);
  const [loadingEssentials, setLoadingEssentials] = useState(true);
  const [loadingDetails, setLoadingDetails] = useState(false);
  const [error, setError] = useState<string | null>(null);
+ const [dataVersion, setDataVersion] = useState(0);
 
  const branchId = user?.branch_id?.trim() ?? "";
  const branchLabel = useMemo(() => {
@@ -58,9 +63,9 @@ export default function AccountantDashboardPage() {
 
  const load = useCallback(async () => {
  if (!branchId) {
- setError("Your account is not linked to a branch. Contact an administrator.");
+ setError(t("accountant.noBranch"));
  setSnapshot(null);
- setLoading(false);
+ setLoadingEssentials(false);
  return;
  }
  setLoadingEssentials(true);
@@ -92,14 +97,15 @@ export default function AccountantDashboardPage() {
  }
  : null
  );
+ setDataVersion((v) => v + 1);
  } catch {
- setError("Could not load finance dashboard for your branch.");
+ setError(t("accountant.loadFailed"));
  setSnapshot(null);
  } finally {
  setLoadingEssentials(false);
  setLoadingDetails(false);
  }
- }, [branchId, branchLabel]);
+ }, [branchId, branchLabel, t]);
 
  useEffect(() => {
  if (!loaded) return;
@@ -115,8 +121,8 @@ export default function AccountantDashboardPage() {
  }, [loaded, user, router, load]);
 
  const stats = useMemo(
- () => (snapshot ? buildAccountantDashboardStats(snapshot) : null),
- [snapshot]
+ () => (snapshot ? buildAccountantDashboardStats(snapshot, language) : null),
+ [snapshot, language]
  );
 
  const chartData = useMemo(() => {
@@ -147,26 +153,24 @@ export default function AccountantDashboardPage() {
  <div className="mx-auto flex max-w-[1600px] flex-wrap items-end justify-between gap-4">
  <div>
  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
- Finance overview · {branchLabel}
+ {t("accountant.financeOverview", { branch: branchLabel })}
  </p>
  <h1 className="mt-1 text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
- Dashboard Overview
+ {t("accountant.dashboardTitle")}
  </h1>
- <p className="mt-1 max-w-xl text-sm text-muted-foreground">
- Live amounts from your branch: portfolio, payments, reconciliation, collections, and disbursements.
- </p>
+ <p className="mt-1 max-w-xl text-sm text-muted-foreground">{t("accountant.dashboardDesc")}</p>
  </div>
  <div className="flex flex-wrap gap-2">
- <Button variant="outline" size="sm" onClick={() => void load()} disabled={loadingEssentials || loadingDetails}>
- Refresh
+ <Button variant="outline" size="sm" onClick={() => forceCachedReload(load)} disabled={loadingEssentials || loadingDetails}>
+ {t("accountant.refresh")}
  </Button>
  <Button variant="outline" size="sm" asChild>
- <Link href="/accountant/payments">Payments</Link>
+ <Link href="/accountant/payments">{tLabel("Payments", language)}</Link>
  </Button>
  <Button size="sm" asChild>
  <Link href="/accountant/reconciliation">
  <Scale className="mr-2 h-4 w-4" />
- Reconciliation
+ {tLabel("Reconciliation", language)}
  </Link>
  </Button>
  </div>
@@ -195,12 +199,12 @@ export default function AccountantDashboardPage() {
  <Sparkles className="h-5 w-5" />
  </div>
  <div>
- <p className="text-sm font-semibold">Branch finance insight</p>
+ <p className="text-sm font-semibold">{t("accountant.branchInsight")}</p>
  <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{stats.insightText}</p>
  </div>
  </div>
  <Badge variant="outline" className="border-primary/30 text-primary">
- Branch data
+ {t("accountant.branchData")}
  </Badge>
  </CardContent>
  </Card>
@@ -210,12 +214,15 @@ export default function AccountantDashboardPage() {
  <CardHeader className="pb-2">
  <CardDescription className="flex items-center gap-1.5">
  <Wallet className="h-3.5 w-3.5" />
- Portfolio outstanding
+ {t("accountant.portfolioOutstanding")}
  </CardDescription>
  <CardTitle className="text-2xl tabular-nums">{formatCurrency(stats.outstandingPortfolio)}</CardTitle>
  </CardHeader>
  <CardContent className="text-xs text-muted-foreground">
- {stats.activeLoansCount} active loans · {stats.totalLoansCount} total records
+ {t("accountant.activeLoansRecords", {
+ active: stats.activeLoansCount,
+ total: stats.totalLoansCount,
+ })}
  </CardContent>
  </Card>
 
@@ -223,14 +230,19 @@ export default function AccountantDashboardPage() {
  <CardHeader className="pb-2">
  <CardDescription className="flex items-center gap-1.5">
  <CreditCard className="h-3.5 w-3.5" />
- Payments collected
+ {t("accountant.paymentsCollected")}
  </CardDescription>
  <CardTitle className="text-2xl tabular-nums">{formatCurrency(stats.paymentsCollectedTotal)}</CardTitle>
  </CardHeader>
  <CardContent className="text-xs text-muted-foreground">
- Today {formatCurrency(stats.paymentsCollectedToday)} · {stats.paymentsCompletedCount} completed
+ {t("accountant.paymentsToday", {
+ today: formatCurrency(stats.paymentsCollectedToday),
+ count: stats.paymentsCompletedCount,
+ })}
  {stats.paymentsPendingCount > 0
- ? ` · ${formatCurrency(stats.paymentsPendingAmount)} pending`
+ ? t("accountant.paymentsPending", {
+ amount: formatCurrency(stats.paymentsPendingAmount),
+ })
  : ""}
  </CardContent>
  </Card>
@@ -239,13 +251,15 @@ export default function AccountantDashboardPage() {
  <CardHeader className="pb-2">
  <CardDescription className="flex items-center gap-1.5">
  <ShieldCheck className="h-3.5 w-3.5" />
- Collections
+ {t("accountant.collections")}
  </CardDescription>
  <CardTitle className="text-2xl tabular-nums">{formatCurrency(stats.collectionsAmount)}</CardTitle>
  </CardHeader>
  <CardContent className="text-xs text-muted-foreground">
- Queue: {stats.collectionsQueueCount} loans · {formatCurrency(stats.collectionsQueueOutstanding)}{" "}
- outstanding in arrears
+ {t("accountant.collectionsQueue", {
+ count: stats.collectionsQueueCount,
+ outstanding: formatCurrency(stats.collectionsQueueOutstanding),
+ })}
  </CardContent>
  </Card>
 
@@ -253,12 +267,15 @@ export default function AccountantDashboardPage() {
  <CardHeader className="pb-2">
  <CardDescription className="flex items-center gap-1.5">
  <WalletCards className="h-3.5 w-3.5" />
- Disbursements (MTD)
+ {t("accountant.disbursementsMtd")}
  </CardDescription>
  <CardTitle className="text-2xl tabular-nums">{formatCurrency(stats.disbursementsMtdVolume)}</CardTitle>
  </CardHeader>
  <CardContent className="text-xs text-muted-foreground">
- {stats.disbursementsCompletedCount} completed · {stats.disbursementsPendingCount} pending approval
+ {t("accountant.disbursementsStatus", {
+ completed: stats.disbursementsCompletedCount,
+ pending: stats.disbursementsPendingCount,
+ })}
  </CardContent>
  </Card>
 
@@ -266,13 +283,18 @@ export default function AccountantDashboardPage() {
  <CardHeader className="pb-2">
  <CardDescription className="flex items-center gap-1.5">
  <Scale className="h-3.5 w-3.5" />
- Reconciliation
+ {t("accountant.reconciliation")}
  </CardDescription>
- <CardTitle className="text-2xl tabular-nums">{stats.reconciliation.matched} matched</CardTitle>
+ <CardTitle className="text-2xl tabular-nums">
+ {t("accountant.reconciliationMatched", { matched: stats.reconciliation.matched })}
+ </CardTitle>
  </CardHeader>
  <CardContent className="text-xs text-muted-foreground">
- {stats.anomaliesDetected} need review · {stats.reconciliation.unmatched} unmatched ·{" "}
- {stats.reconciliation.manual_review} manual
+ {t("accountant.reconciliationDetail", {
+ review: stats.anomaliesDetected,
+ unmatched: stats.reconciliation.unmatched,
+ manual: stats.reconciliation.manual_review,
+ })}
  </CardContent>
  </Card>
 
@@ -280,14 +302,17 @@ export default function AccountantDashboardPage() {
  <CardHeader className="pb-2">
  <CardDescription className="flex items-center gap-1.5">
  <TrendingUp className="h-3.5 w-3.5" />
- Portfolio risk
+ {t("accountant.portfolioRisk")}
  </CardDescription>
  <CardTitle className="text-2xl tabular-nums">
  PAR {stats.parRate.toFixed(1)}%
  </CardTitle>
  </CardHeader>
  <CardContent className="text-xs text-muted-foreground">
- NPL {stats.nplRate.toFixed(1)}% · PAR exposure {formatCurrency(stats.parAmount)}
+ {t("accountant.parNpl", {
+ npl: stats.nplRate.toFixed(1),
+ amount: formatCurrency(stats.parAmount),
+ })}
  </CardContent>
  </Card>
  </div>
@@ -295,10 +320,8 @@ export default function AccountantDashboardPage() {
  {chartData.length > 0 ? (
  <Card>
  <CardHeader>
- <CardTitle className="text-base">Collections & disbursements trend</CardTitle>
- <CardDescription>
- GET /dashboard/timeseries — branch {branchLabel}
- </CardDescription>
+ <CardTitle className="text-base">{t("accountant.trendTitle")}</CardTitle>
+ <CardDescription>{t("accountant.trendDesc", { branch: branchLabel })}</CardDescription>
  </CardHeader>
  <CardContent className="h-[240px]">
  <ResponsiveContainer width="100%" height="100%">
@@ -311,7 +334,7 @@ export default function AccountantDashboardPage() {
  <Area
  type="monotone"
  dataKey="collections"
- name="Collections"
+ name={t("accountant.chartCollections")}
  stroke="hsl(var(--primary))"
  fill="hsl(var(--primary))"
  fillOpacity={0.15}
@@ -319,7 +342,7 @@ export default function AccountantDashboardPage() {
  <Area
  type="monotone"
  dataKey="disbursements"
- name="Disbursements"
+ name={t("accountant.chartDisbursements")}
  stroke="#0d9488"
  fill="#0d9488"
  fillOpacity={0.12}
@@ -331,8 +354,8 @@ export default function AccountantDashboardPage() {
  ) : stats.monthlyPaymentTotals.length > 0 ? (
  <Card>
  <CardHeader>
- <CardTitle className="text-base">Payments by month</CardTitle>
- <CardDescription>Sum of completed payments from GET /payments (branch-scoped)</CardDescription>
+ <CardTitle className="text-base">{t("accountant.paymentsByMonth")}</CardTitle>
+ <CardDescription>{t("accountant.paymentsByMonthDesc")}</CardDescription>
  </CardHeader>
  <CardContent className="grid gap-2 sm:grid-cols-3">
  {stats.monthlyPaymentTotals.map((row) => (
@@ -350,7 +373,7 @@ export default function AccountantDashboardPage() {
  <Link href="/accountant/payments">
  <CreditCard className="h-4 w-4 text-primary" />
  <span className="text-left">
- <span className="block font-semibold">Payments</span>
+ <span className="block font-semibold">{t("accountant.quickPayments")}</span>
  <span className="block text-xs text-muted-foreground">{formatCurrency(stats.paymentsCollectedTotal)}</span>
  </span>
  </Link>
@@ -359,8 +382,10 @@ export default function AccountantDashboardPage() {
  <Link href="/accountant/reconciliation">
  <Scale className="h-4 w-4 text-primary" />
  <span className="text-left">
- <span className="block font-semibold">Reconciliation</span>
- <span className="block text-xs text-muted-foreground">{stats.reconciliationTotal} items</span>
+ <span className="block font-semibold">{t("accountant.quickReconciliation")}</span>
+ <span className="block text-xs text-muted-foreground">
+ {t("accountant.quickReconciliationItems", { count: stats.reconciliationTotal })}
+ </span>
  </span>
  </Link>
  </Button>
@@ -368,8 +393,10 @@ export default function AccountantDashboardPage() {
  <Link href="/accountant/collections">
  <ShieldCheck className="h-4 w-4 text-primary" />
  <span className="text-left">
- <span className="block font-semibold">Collections</span>
- <span className="block text-xs text-muted-foreground">{stats.collectionsQueueCount} in queue</span>
+ <span className="block font-semibold">{t("accountant.quickCollections")}</span>
+ <span className="block text-xs text-muted-foreground">
+ {t("accountant.quickCollectionsQueue", { count: stats.collectionsQueueCount })}
+ </span>
  </span>
  </Link>
  </Button>
@@ -377,8 +404,10 @@ export default function AccountantDashboardPage() {
  <Link href="/accountant/loans">
  <Wallet className="h-4 w-4 text-primary" />
  <span className="text-left">
- <span className="block font-semibold">Active loans</span>
- <span className="block text-xs text-muted-foreground">{stats.activeLoansCount} loans</span>
+ <span className="block font-semibold">{t("accountant.quickActiveLoans")}</span>
+ <span className="block text-xs text-muted-foreground">
+ {t("accountant.quickLoansCount", { count: stats.activeLoansCount })}
+ </span>
  </span>
  </Link>
  </Button>
@@ -388,7 +417,9 @@ export default function AccountantDashboardPage() {
  </div>
 
  <div className="lg:sticky lg:top-4 lg:self-start">
- {stats && user ? <AccountantAiAssistant user={user} stats={stats} /> : null}
+ {stats && user ? (
+ <AccountantAiAssistant user={user} stats={stats} dataVersion={dataVersion} />
+ ) : null}
  </div>
  </div>
  </main>
