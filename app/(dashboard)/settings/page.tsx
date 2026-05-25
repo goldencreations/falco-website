@@ -42,6 +42,7 @@ import { useSessionUser, type SessionUserClient } from "@/lib/use-session-user";
 function roleLabel(role: string): string {
  if (role === "branch_manager") return "Branch manager";
  if (role === "loan_officer") return "Loan officer";
+ if (role === "accountant") return "Accountant";
  if (role === "super_admin") return "Super admin";
  return role.replace(/_/g, " ");
 }
@@ -49,6 +50,7 @@ function roleLabel(role: string): string {
 function roleBadgeLabel(role: string): string {
  if (role === "branch_manager") return "Manager Controls";
  if (role === "loan_officer") return "Loan Officer Controls";
+ if (role === "accountant") return "Finance Controls";
  return "Super Admin Controls";
 }
 
@@ -281,6 +283,9 @@ export default function SettingsPage() {
  if (displayUser.role === "branch_manager") return copy.managerDesc;
  if (displayUser.role === "super_admin") return copy.adminDesc;
  if (displayUser.role === "loan_officer") return copy.officerDesc;
+ if (displayUser.role === "accountant") {
+ return "Profile and preferences for your finance portal. Organization and admin settings are not available.";
+ }
  return copy.defaultDesc;
  }, [displayUser, copy]);
 

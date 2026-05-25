@@ -313,7 +313,10 @@ export default function DisbursementsPage() {
  permissions: user.permissions ?? [],
  })
  : false;
- const isBranchScoped = user?.role === "branch_manager" || user?.role === "loan_officer";
+ const isBranchScoped =
+ user?.role === "branch_manager" ||
+ user?.role === "loan_officer" ||
+ user?.role === "accountant";
  const [searchQuery, setSearchQuery] = useState("");
  const [statusFilter, setStatusFilter] = useState<string>("all");
  const [rows, setRows] = useState<DisbursementViewRow[]>([]);

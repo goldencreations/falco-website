@@ -146,7 +146,7 @@ const defaultForm: CustomerCreateForm = {
 
 export default function NewCustomerPage() {
  const router = useRouter();
- const { user } = useSessionUser();
+ const { user, loaded: sessionLoaded } = useSessionUser();
  const effectiveUserId = user?.id ?? "";
  const isManagerView = user?.role === "branch_manager";
  const isOfficerView = user?.role === "loan_officer";
@@ -430,13 +430,17 @@ export default function NewCustomerPage() {
  };
 
  const validate = () => {
+ if (!sessionLoaded || !user) return "Session is still loading. Please wait a moment and try again.";
+ if (isOfficerView && !user.branch_id?.trim()) {
+ return "Your account is not linked to a branch. Contact an administrator.";
+ }
  if (!form.full_name.trim()) return "Full name is required.";
  if (!form.phone.trim()) return "Primary phone number is required.";
  if (!form.physical_address.trim()) return "Physical address is required.";
  if (!form.national_id.trim()) return "National ID is required.";
  if (!form.payment_reference.trim()) return "Payment reference is required.";
- if (!form.branch_id) return "Please select a branch.";
- if (!form.loan_officer_id) return "Please assign a loan officer.";
+ if (!form.branch_id && !lockedBranchId) return "Please select a branch.";
+ if (!isOfficerView && !form.loan_officer_id) return "Please assign a loan officer.";
  return "";
  };
 
@@ -521,7 +525,7 @@ export default function NewCustomerPage() {
  return;
  }
 
- router.push(customersBasePath);
+ router.replace(customersBasePath);
  } catch (submitError) {
  console.error("create customer request", payload, submitError);
  setError("Unable to create customer. Check your connection and try again.");
@@ -536,6 +540,20 @@ export default function NewCustomerPage() {
  title="Create Customer"
  description="Capture complete customer details aligned with the customers database table."
  />
+ {!sessionLoaded ? (
+ <main className="flex-1 p-4 lg:p-6">
+ <p className="text-sm text-muted-foreground">Loading your session…</p>
+ </main>
+ ) : isOfficerView && !user?.branch_id?.trim() ? (
+ <main className="flex-1 p-4 lg:p-6">
+ <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+ Your account is not linked to a branch. You cannot register customers until an administrator assigns you to a branch.
+ </p>
+ <Button variant="outline" className="mt-4" asChild>
+ <Link href={customersBasePath}>Back to Customers</Link>
+ </Button>
+ </main>
+ ) : (
  <main className="flex min-h-0 flex-1 overflow-y-auto overflow-x-hidden scroll-smooth p-4 pb-10 lg:p-6 lg:pb-8">
  <div className="mx-auto max-w-6xl space-y-6">
  <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-100 bg-gradient-to-r from-emerald-50 to-background p-4">
@@ -1087,7 +1105,7 @@ export default function NewCustomerPage() {
 
  <Separator />
 
- <Button className="w-full" type="submit" disabled={submitting}>
+ <Button className="w-full" type="submit" disabled={submitting || !sessionLoaded}>
  <UserPlus className="mr-2 h-4 w-4" />
  {submitting ? "Submitting..." : "Create Customer"}
  </Button>
@@ -1114,6 +1132,7 @@ export default function NewCustomerPage() {
  </form>
  </div>
  </main>
+ )}
  </>
  );
 }

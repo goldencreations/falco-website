@@ -7,6 +7,7 @@ import {
 import { FalcoApiError, formatValidationDetails } from "@/lib/falco-api";
 import { postStaffLoginToApi, type StaffLoginApiResponse } from "@/lib/falco-staff-login";
 import { mapApiRoleToAppRole } from "@/lib/api-roles";
+import { loginRedirectForRole } from "@/lib/role-portal";
 import type { UserRole } from "@/lib/types";
 
 type LoginBody = {
@@ -20,9 +21,7 @@ function cookieMaxAgeSeconds(rememberMe: boolean, expiresIn?: number): number {
 }
 
 function redirectForRole(role: UserRole): string {
- if (role === "branch_manager") return "/manager/dashboard";
- if (role === "loan_officer") return "/officer/dashboard";
- return "/dashboard";
+ return loginRedirectForRole(role);
 }
 
 export async function POST(request: Request) {

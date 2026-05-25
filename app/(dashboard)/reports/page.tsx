@@ -59,6 +59,7 @@ import {
  normalizeTimeseries,
  type MonthlyActivityRow,
 } from "@/lib/reports-timeseries";
+import { isBranchScopedStaffRole } from "@/lib/role-portal";
 import { useSessionUser } from "@/lib/use-session-user";
 
 function formatYAxis(value: number) {
@@ -99,7 +100,7 @@ export default function ReportsPage() {
  const isSuperAdmin = user?.role === "super_admin";
  const isOfficerView = user?.role === "loan_officer";
  const isManagerView = user?.role === "branch_manager";
- const isScopedRole = isManagerView || isOfficerView;
+ const isScopedRole = isBranchScopedStaffRole(user?.role);
  const scopedBranchId = isScopedRole && user?.branch_id?.trim() ? user.branch_id.trim() : null;
 
  const [period, setPeriod] = useState("6m");

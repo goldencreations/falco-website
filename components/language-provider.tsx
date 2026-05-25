@@ -45,6 +45,8 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
 
  const refreshFromServer = useCallback(async () => {
  try {
+ const sessionRes = await fetch("/api/session", { credentials: "include" });
+ if (!sessionRes.ok) return;
  const res = await fetch("/api/settings/profile", { credentials: "include" });
  if (!res.ok) return;
  const json = (await res.json().catch(() => ({}))) as unknown;
@@ -62,6 +64,8 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
  document.documentElement.setAttribute("lang", saved === "sw" ? "sw" : "en");
  }
  setReady(true);
+ const path = window.location.pathname;
+ if (path === "/" || path === "/login") return;
  void refreshFromServer();
  }, [refreshFromServer]);
 
