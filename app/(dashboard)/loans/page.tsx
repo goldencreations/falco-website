@@ -63,6 +63,7 @@ import { formatCurrency, formatDate, formatDateTime } from "@/lib/formatters";
 import type { PaymentViewRow } from "@/lib/payment-adapters";
 import type { Customer, LoanStatus, RepaymentSchedule, RiskClassification } from "@/lib/types";
 import { loanMatchesOfficerPortfolio } from "@/lib/loan-officer-portfolio";
+import { isBranchScopedStaffRole, rolePortalBase } from "@/lib/role-portal";
 import { useSessionUser } from "@/lib/use-session-user";
 
 const statusConfig: Record<
@@ -91,8 +92,9 @@ export default function LoansPage() {
  const { user } = useSessionUser();
  const isOfficerView = user?.role === "loan_officer";
  const isManagerView = user?.role === "branch_manager";
- const scopeBranchId = isManagerView || isOfficerView ? user?.branch_id : null;
- const paymentsBasePath = isOfficerView ? "/officer/payments" : isManagerView ? "/manager/payments" : "/payments";
+ const scopeBranchId = isBranchScopedStaffRole(user?.role) ? user?.branch_id ?? null : null;
+ const portalBase = rolePortalBase(user?.role);
+ const paymentsBasePath = portalBase ? `${portalBase}/payments` : "/payments";
 
  const [loans, setLoans] = useState<LoanListRow[]>([]);
  const [assignedCustomerIds, setAssignedCustomerIds] = useState<Set<string> | null>(null);

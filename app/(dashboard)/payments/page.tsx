@@ -59,8 +59,10 @@ import type {
 import type { PaymentMethod, PaymentStatus } from "@/lib/types";
 import { extractLoansList, type LoanListRow } from "@/lib/loan-adapters";
 import { formatApiResponseError } from "@/lib/falco-api";
+import { forceCachedReload } from "@/lib/client-fetch-cache";
 import { formatCurrency, formatDateTime } from "@/lib/formatters";
 import { parseJsonResponse } from "@/lib/parse-json-response";
+import { isBranchScopedStaffRole, rolePortalBase } from "@/lib/role-portal";
 import { useSessionUser } from "@/lib/use-session-user";
 
 const methodConfig: Record<PaymentMethod, { label: string; icon: typeof CreditCard }> = {
@@ -102,8 +104,9 @@ const emptyReconciliation: ReconciliationSummary = {
 export default function PaymentsPage() {
  const { user } = useSessionUser();
  const isOfficerView = user?.role === "loan_officer";
- const scopeBranchId =
- user?.role === "branch_manager" || user?.role === "loan_officer" ? user.branch_id : null;
+ const portalBase = rolePortalBase(user?.role);
+ const reconciliationHref = portalBase ? `${portalBase}/reconciliation` : "/reconciliation";
+ const scopeBranchId = isBranchScopedStaffRole(user?.role) ? user?.branch_id ?? null : null;
 
  const [payments, setPayments] = useState<PaymentViewRow[]>([]);
  const [loans, setLoans] = useState<LoanListRow[]>([]);
@@ -355,7 +358,7 @@ export default function PaymentsPage() {
  Payment Reconciliation (from server)
  </span>
  <Button variant="link" size="sm" className="h-auto px-0" asChild>
- <Link href={isOfficerView ? "/officer/reconciliation" : user?.role === "branch_manager" ? "/manager/reconciliation" : "/reconciliation"}>
+ <Link href={reconciliationHref}>
  Full reconciliation page
  </Link>
  </Button>
@@ -403,7 +406,7 @@ export default function PaymentsPage() {
  </Select>
  </div>
  <div className="flex gap-2">
- <Button type="button" variant="outline" onClick={() => void load()}>
+ <Button type="button" variant="outline" onClick={() => forceCachedReload(load)}>
  <RefreshCcw className="mr-2 h-4 w-4" />
  Refresh
  </Button>

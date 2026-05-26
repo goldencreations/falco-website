@@ -121,12 +121,21 @@ function branchScopedQuery(scopeBranchId: string | null, pageSize: string): stri
  return params.toString();
 }
 
-const BRANCH_SCOPED_ROLES = new Set(["branch_manager", "loan_officer", "collections_officer"]);
+const BRANCH_SCOPED_ROLES = new Set([
+ "branch_manager",
+ "loan_officer",
+ "accountant",
+ "collections_officer",
+]);
 
 export default function CollectionsPage() {
  const { t } = useTranslations();
  const pathname = usePathname();
- const basePath = pathname.startsWith("/manager") ? "/manager" : "";
+ const basePath = pathname.startsWith("/accountant")
+ ? "/accountant"
+ : pathname.startsWith("/manager")
+ ? "/manager"
+ : "";
  const { user, loaded: sessionLoaded } = useSessionUser();
  const [queueLoans, setQueueLoans] = useState<CollectionQueueRow[]>([]);
  const [disbursedLoans, setDisbursedLoans] = useState<LoanListRow[]>([]);

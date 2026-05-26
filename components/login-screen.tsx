@@ -2,6 +2,8 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { loginRedirectForRole } from "@/lib/role-portal";
+import type { UserRole } from "@/lib/types";
 import Image from "next/image";
 import { Building2, Eye, EyeOff, Globe, Languages } from "lucide-react";
 
@@ -93,14 +95,20 @@ export function LoginScreen() {
  body: JSON.stringify({ email, password, rememberMe }),
  });
 
- const payload = (await response.json()) as { message?: string; redirectTo?: string };
+ const payload = (await response.json()) as {
+ message?: string;
+ redirectTo?: string;
+ role?: UserRole;
+ };
  if (!response.ok) {
  setError(payload.message ?? t.invalidCredentials);
  return;
  }
 
- router.push(payload.redirectTo ?? "/dashboard");
- router.refresh();
+ const target =
+ payload.redirectTo ??
+ (payload.role ? loginRedirectForRole(payload.role) : "/dashboard");
+ router.replace(target);
  } catch {
  setError(t.unableToLogin);
  } finally {
@@ -235,10 +243,10 @@ export function LoginScreen() {
  src="/login.jpg"
  alt=""
  fill
- priority
- quality={85}
+ loading="lazy"
+ quality={55}
  className="object-cover"
- sizes="(min-width: 768px) 60vw, 100vw"
+ sizes="(min-width: 768px) 50vw, 0px"
  />
  </div>
  <div

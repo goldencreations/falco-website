@@ -90,6 +90,7 @@ export function StaffDirectory({
  const onlineCount = staffMembers.filter((staff) => isOnline(staff.last_login)).length;
  const branchManagerCount = staffMembers.filter((staff) => staff.role === "branch_manager").length;
  const loanOfficerCount = staffMembers.filter((staff) => staff.role === "loan_officer").length;
+ const accountantCount = staffMembers.filter((staff) => staff.role === "accountant").length;
 
  return (
  <div className="space-y-6">
@@ -121,7 +122,7 @@ export function StaffDirectory({
  </div>
  </div>
  <p className="mt-3 text-xs text-muted-foreground">
- Includes {loanOfficerCount} loan officers across all branches.
+ Includes {loanOfficerCount} loan officers and {accountantCount} accountants across all branches.
  </p>
  </CardContent>
  </Card>

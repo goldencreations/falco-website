@@ -2,6 +2,7 @@ export type StaffRole =
  | "super_admin"
  | "branch_manager"
  | "loan_officer"
+ | "accountant"
  | "credit_analyst"
  | "collections_officer";
 

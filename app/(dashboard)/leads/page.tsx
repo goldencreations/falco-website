@@ -37,6 +37,7 @@ import {
 import { extractBranchesList } from "@/lib/branch-adapters";
 import { extractCustomersList } from "@/lib/customer-adapters";
 import { formatApiResponseError } from "@/lib/falco-api";
+import { forceCachedReload } from "@/lib/client-fetch-cache";
 import {
  extractLeadsList,
  mapUiLeadCreateToApi,
@@ -410,7 +411,7 @@ export default function LeadsPage() {
  </p>
  </div>
  <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
- <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => void load()}>
+ <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => forceCachedReload(load)}>
  <RefreshCcw className="mr-2 h-4 w-4" />
  Refresh
  </Button>

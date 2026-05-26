@@ -11,6 +11,9 @@ function permissionsFor(user: Pick<SessionUser, "role" | "permissions">): string
  if (user.role === "loan_officer") {
  return ["disbursements.prepare", "loans.view"];
  }
+ if (user.role === "accountant") {
+ return ["disbursements.approve", "disbursements.prepare", "loans.view", "loans.disburse"];
+ }
  return [];
 }
 
@@ -18,11 +21,17 @@ export function canPrepareDisbursement(user: Pick<SessionUser, "role" | "permiss
  const perms = permissionsFor(user);
  if (perms.includes("disbursements.prepare")) return true;
  if (perms.includes("loans.disburse")) return true;
- return user.role === "super_admin" || user.role === "branch_manager" || user.role === "loan_officer";
+ return (
+ user.role === "super_admin" ||
+ user.role === "branch_manager" ||
+ user.role === "loan_officer" ||
+ user.role === "accountant"
+ );
 }
 
 export function canApproveDisbursement(user: Pick<SessionUser, "role" | "permissions">): boolean {
  const perms = permissionsFor(user);
  if (perms.includes("disbursements.approve")) return true;
+ if (user.role === "accountant") return true;
  return user.role === "super_admin";
 }

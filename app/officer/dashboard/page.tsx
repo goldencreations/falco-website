@@ -33,6 +33,8 @@ import { useTranslations } from "@/lib/i18n/use-translations";
 
 import { formatCurrency } from "@/lib/formatters";
 
+import { loginRedirectForRole } from "@/lib/role-portal";
+
 import { useSessionUser } from "@/lib/use-session-user";
 
 type MetricsPayload = {
@@ -79,9 +81,7 @@ export default function OfficerDashboardPage() {
     }
 
     if (user.role !== "loan_officer") {
-      router.replace(
-        user.role === "branch_manager" ? "/manager/dashboard" : "/dashboard",
-      );
+      router.replace(loginRedirectForRole(user.role));
     }
   }, [loaded, user, router]);
 

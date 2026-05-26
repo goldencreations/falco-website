@@ -17,12 +17,30 @@ interface BranchAssignmentContextValue {
 
 const BranchAssignmentContext = createContext<BranchAssignmentContextValue | null>(null);
 
-export function BranchAssignmentProvider({ children }: { children: ReactNode }) {
+type BranchAssignmentMode = "light" | "full";
+
+export function BranchAssignmentProvider({
+ children,
+ mode = "full",
+}: {
+ children: ReactNode;
+ /** `light` = branches only (portal dashboards). `full` = admin team/assignment screens. */
+ mode?: BranchAssignmentMode;
+}) {
  const [branches, setBranches] = useState<Branch[]>([]);
  const [users, setUsers] = useState<User[]>([]);
 
  const refresh = async () => {
  try {
+ if (mode === "light") {
+ const branchesRes = await fetch("/api/falco/branches", { credentials: "include" });
+ if (branchesRes.ok) {
+ const b = await branchesRes.json();
+ setBranches(extractBranchesList(b));
+ }
+ return;
+ }
+
  const [branchesRes, usersRes, managersRes, officersRes] = await Promise.all([
  fetch("/api/falco/branches", { credentials: "include" }),
  fetch("/api/staff/directory?page_size=500", { credentials: "include" }),

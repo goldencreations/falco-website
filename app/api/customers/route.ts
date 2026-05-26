@@ -1,5 +1,11 @@
 import { NextResponse } from "next/server";
-import { requireApiUser, resolvedBranchIdForListQuery, isBranchDataScoped } from "@/lib/authorization";
+import { extractCustomerDetail } from "@/lib/customer-adapters";
+import { patchCustomerLoanOfficerOnServer } from "@/lib/customer-assignment";
+import {
+ isBranchDataScoped,
+ requireApiUser,
+ resolvedBranchIdForListQuery,
+} from "@/lib/authorization";
 import { mapFormPayloadToCustomerApi } from "@/lib/customer-payload";
 import { falcoServerFetch } from "@/lib/server-falco";
 
@@ -37,9 +43,19 @@ export async function GET(request: Request) {
  return NextResponse.json(res.data);
 }
 
+function resolveLoanOfficerIdForCreate(
+ user: { id: string; role: string },
+ body: Record<string, unknown>
+): string {
+ if (user.role === "loan_officer") return user.id.trim();
+ const fromBody = body.loan_officer_id != null ? String(body.loan_officer_id).trim() : "";
+ return fromBody;
+}
+
 export async function POST(request: Request) {
  const auth = await requireApiUser(request);
  if ("response" in auth) return auth.response;
+ const user = auth.user;
 
  let body: Record<string, unknown>;
  try {
@@ -48,14 +64,35 @@ export async function POST(request: Request) {
  return NextResponse.json({ message: "Invalid JSON" }, { status: 400 });
  }
 
- const apiBody = mapFormPayloadToCustomerApi(body);
- if (isBranchDataScoped(auth.user)) {
- apiBody.branch_id = auth.user.branch_id;
+ if (user.role === "loan_officer" && !user.branch_id?.trim()) {
+ return NextResponse.json(
+ { message: "Your account is not linked to a branch. Contact an administrator." },
+ { status: 400 }
+ );
  }
+
+ const officerId = resolveLoanOfficerIdForCreate(user, body);
+ const apiBody = mapFormPayloadToCustomerApi(body);
+
+ if (isBranchDataScoped(user)) {
+ apiBody.branch_id = user.branch_id.trim();
+ }
+
+ const metadata =
+ apiBody.metadata && typeof apiBody.metadata === "object" && apiBody.metadata !== null
+ ? (apiBody.metadata as Record<string, unknown>)
+ : {};
+ metadata.created_by = user.id;
+ if (officerId) {
+ metadata.loan_officer_id = officerId;
+ metadata.assigned_loan_officer_id = officerId;
+ }
+ apiBody.metadata = metadata;
 
  const res = await falcoServerFetch<unknown>("/customers", {
  method: "POST",
  body: apiBody,
+ request,
  });
 
  if (!res.ok) {
@@ -69,5 +106,20 @@ export async function POST(request: Request) {
  );
  }
 
- return NextResponse.json(res.data);
+ let responseData = res.data;
+ if (officerId) {
+ const createdRow = extractCustomerDetail(res.data);
+ const customerId = createdRow?.id != null ? String(createdRow.id) : "";
+ if (customerId) {
+ const assigned = await patchCustomerLoanOfficerOnServer(request, customerId, officerId);
+ if (assigned.ok) {
+ responseData = {
+ ...(typeof res.data === "object" && res.data !== null ? res.data : {}),
+ customer: assigned.customer,
+ };
+ }
+ }
+ }
+
+ return NextResponse.json(responseData);
 }

@@ -29,6 +29,7 @@ import {
  settingsRowsToBranches,
 } from "@/lib/branch-adapters";
 import { parseSettingsBranches } from "@/lib/settings-adapters";
+import { forceCachedReload } from "@/lib/client-fetch-cache";
 import { extractCustomersList } from "@/lib/customer-adapters";
 import { extractGroupDetail } from "@/lib/group-adapters";
 import { extractUsersListPayload } from "@/lib/user-adapters";
@@ -423,7 +424,7 @@ export default function NewGroupPage() {
  </p>
  ) : null}
  {branchesError ? <p className="text-xs text-destructive">{branchesError}</p> : null}
- <Button type="button" variant="outline" size="sm" onClick={() => void loadBranches()} disabled={branchesLoading}>
+ <Button type="button" variant="outline" size="sm" onClick={() => forceCachedReload(loadBranches)} disabled={branchesLoading}>
  {branchesLoading ? "Refreshing…" : "Refresh branch list"}
  </Button>
  </div>

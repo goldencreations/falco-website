@@ -65,6 +65,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
+import { forceCachedReload } from "@/lib/client-fetch-cache";
 import { exportDisbursementToPdf } from "@/lib/disbursement-pdf";
 import {
  type DisbursementKpis,
@@ -313,7 +314,10 @@ export default function DisbursementsPage() {
  permissions: user.permissions ?? [],
  })
  : false;
- const isBranchScoped = user?.role === "branch_manager" || user?.role === "loan_officer";
+ const isBranchScoped =
+ user?.role === "branch_manager" ||
+ user?.role === "loan_officer" ||
+ user?.role === "accountant";
  const [searchQuery, setSearchQuery] = useState("");
  const [statusFilter, setStatusFilter] = useState<string>("all");
  const [rows, setRows] = useState<DisbursementViewRow[]>([]);
@@ -959,7 +963,7 @@ export default function DisbursementsPage() {
  </Select>
  </div>
  <div className="flex flex-wrap gap-2">
- <Button type="button" variant="outline" size="sm" onClick={() => load()} disabled={loading}>
+ <Button type="button" variant="outline" size="sm" onClick={() => forceCachedReload(load)} disabled={loading}>
  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
  <span className="ml-2">Refresh</span>
  </Button>
@@ -1115,7 +1119,7 @@ export default function DisbursementsPage() {
  <button
  type="button"
  className="text-primary hover:underline"
- onClick={() => void loadEligibleLoans()}
+ onClick={() => forceCachedReload(loadEligibleLoans)}
  >
  refresh
  </button>
