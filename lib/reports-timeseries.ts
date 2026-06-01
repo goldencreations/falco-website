@@ -12,8 +12,23 @@ export type MonthlyActivityRow = {
  disbursements: number;
  collections: number;
  newLoans: number;
- closedLoans: number;
+ /** Payment / collection transaction count from timeseries (when provided). */
+ collectionCount: number;
  outstanding: number;
+};
+
+export type MonthlyActivitySummary = {
+ /** Months with at least one non-zero metric (capped for display). */
+ displayRows: MonthlyActivityRow[];
+ periodTotals: {
+ disbursements: number;
+ collections: number;
+ newLoans: number;
+ collectionCount: number;
+ netLoanGrowth: number;
+ };
+ activeMonths: number;
+ hiddenEmptyMonths: number;
 };
 
 function num(value: unknown, fallback = 0): number {
@@ -74,10 +89,54 @@ export function mergeMonthlyActivity(input: {
  disbursements: disb?.amount ?? 0,
  collections: coll?.amount ?? 0,
  newLoans: disb?.count ?? 0,
- closedLoans: coll?.count ?? 0,
+ collectionCount: coll?.count ?? 0,
  outstanding: out?.amount ?? 0,
  };
  });
+}
+
+export function hasMonthlyActivity(row: MonthlyActivityRow): boolean {
+ return (
+ row.disbursements > 0 ||
+ row.collections > 0 ||
+ row.newLoans > 0 ||
+ row.collectionCount > 0
+ );
+}
+
+/** Drop zero-only months and compute period totals for summary tables. */
+export function buildMonthlyActivityView(
+ rows: MonthlyActivityRow[],
+ maxDisplayMonths = 12
+): MonthlyActivitySummary {
+ const active = rows.filter(hasMonthlyActivity);
+ const hiddenEmptyMonths = Math.max(0, rows.length - active.length);
+ const displayRows = active.slice(-maxDisplayMonths);
+
+ const periodTotals = rows.reduce(
+ (acc, row) => ({
+ disbursements: acc.disbursements + row.disbursements,
+ collections: acc.collections + row.collections,
+ newLoans: acc.newLoans + row.newLoans,
+ collectionCount: acc.collectionCount + row.collectionCount,
+ netLoanGrowth: 0,
+ }),
+ {
+ disbursements: 0,
+ collections: 0,
+ newLoans: 0,
+ collectionCount: 0,
+ netLoanGrowth: 0,
+ }
+ );
+ periodTotals.netLoanGrowth = periodTotals.newLoans - periodTotals.collectionCount;
+
+ return {
+ displayRows,
+ periodTotals,
+ activeMonths: active.length,
+ hiddenEmptyMonths,
+ };
 }
 
 export function getPeriodRange(
