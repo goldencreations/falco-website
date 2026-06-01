@@ -246,8 +246,8 @@ export default function CollectionsPage() {
  if (!q) return activityLoanOptions;
  return activityLoanOptions.filter(
  (loan) =>
- loan.loan_number.toLowerCase().includes(q) ||
- loan.customerName.toLowerCase().includes(q)
+ (loan.loanNumber ?? "").toLowerCase().includes(q) ||
+ (loan.customerName ?? "").toLowerCase().includes(q)
  );
  }, [activityLoanOptions, loanPickerSearch]);
 
@@ -278,8 +278,8 @@ export default function CollectionsPage() {
  return queueLoans.filter((loan) => {
  const matchesSearch =
  q === "" ||
- loan.loan_number.toLowerCase().includes(q) ||
- loan.customer_name.toLowerCase().includes(q);
+ (loan.loan_number ?? "").toLowerCase().includes(q) ||
+ (loan.customer_name ?? "").toLowerCase().includes(q);
  const matchesClassification = matchesClassificationFilter(loan, classificationFilter);
  return matchesSearch && matchesClassification;
  });
@@ -422,10 +422,10 @@ export default function CollectionsPage() {
  </Card>
  </div>
 
- <Tabs defaultValue="queue" className="space-y-4">
+ <Tabs defaultValue="activities" className="space-y-4">
  <TabsList>
- <TabsTrigger value="queue">{t("collections.queueTab")}</TabsTrigger>
  <TabsTrigger value="activities">{t("collections.activitiesTab")}</TabsTrigger>
+ <TabsTrigger value="queue">{t("collections.queueTab")}</TabsTrigger>
  </TabsList>
 
  <TabsContent value="queue" className="space-y-4">

@@ -50,6 +50,7 @@ import {
  TableRow,
 } from "@/components/ui/table";
 import { exportBranchReportPdf } from "@/lib/branch-report-pdf";
+import { loadReportExportDetailRows } from "@/lib/report-export-data";
 import { formatCurrency, formatDateTime } from "@/lib/formatters";
 import { normalizePortfolioSummary, type PortfolioSummaryView } from "@/lib/portfolio-summary";
 import { agingColor, normalizeAgingReport, type AgingReportView } from "@/lib/reports-aging";
@@ -248,6 +249,12 @@ export default function ReportsPage() {
  if (!portfolio || !metrics) return;
  setExporting(true);
  try {
+ const detailRows = await loadReportExportDetailRows({
+ branchId: effectiveBranchId,
+ from: range.from,
+ to: range.to,
+ });
+
  const payload = {
  branchName: scopeLabel,
  periodLabel: range.label,
@@ -280,10 +287,10 @@ export default function ReportsPage() {
  outstanding: b.outstanding,
  collectionRate: b.collectionRate,
  })),
- applications: [],
- customers: [],
- loans: [],
- collections: [],
+ applications: detailRows.applications,
+ customers: detailRows.customers,
+ loans: detailRows.loans,
+ collections: detailRows.collections,
  };
 
  if (exportOption === "json") {

@@ -44,8 +44,8 @@ export default function AccountantDashboardPage() {
  setError(null);
  try {
  const essentials = await loadAccountantFinanceEssentials(branchId);
- setSnapshot({
- branchLabel,
+ setSnapshot((prev) => ({
+ branchLabel: prev?.branchLabel ?? branchLabel,
  metrics: essentials.metrics,
  reconciliation: essentials.reconciliation,
  payments: [],
@@ -56,7 +56,7 @@ export default function AccountantDashboardPage() {
  collectionsQueueOutstanding: 0,
  timeseriesCollections: [],
  timeseriesDisbursements: [],
- });
+ }));
  setLoadingEssentials(false);
  setLoadingDetails(true);
  const details = await loadAccountantFinanceDetails(branchId);
@@ -65,7 +65,6 @@ export default function AccountantDashboardPage() {
  ? {
  ...prev,
  ...details,
- branchLabel,
  }
  : null
  );
@@ -76,7 +75,11 @@ export default function AccountantDashboardPage() {
  setLoadingEssentials(false);
  setLoadingDetails(false);
  }
- }, [branchId, branchLabel, t]);
+ }, [branchId, t]);
+
+ useEffect(() => {
+ setSnapshot((prev) => (prev ? { ...prev, branchLabel } : prev));
+ }, [branchLabel]);
 
  useEffect(() => {
  if (!loaded) return;

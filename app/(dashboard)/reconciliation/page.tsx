@@ -190,7 +190,7 @@ export default function ReconciliationPage() {
  }
  if (!q) return true;
  return (
- payment.payment_number.toLowerCase().includes(q) ||
+ (payment.payment_number ?? "").toLowerCase().includes(q) ||
  (payment.loan_number ?? "").toLowerCase().includes(q) ||
  (payment.customer_display_name ?? "").toLowerCase().includes(q) ||
  (payment.reference_number ?? "").toLowerCase().includes(q)
