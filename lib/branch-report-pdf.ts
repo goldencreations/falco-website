@@ -1,7 +1,7 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 
-type ReportApplicationRow = {
+export type ReportApplicationRow = {
  application_number: string;
  customer_name: string;
  status: string;
@@ -9,7 +9,7 @@ type ReportApplicationRow = {
  created_at: string;
 };
 
-type ReportCustomerRow = {
+export type ReportCustomerRow = {
  customer_number: string;
  customer_name: string;
  phone: string;
@@ -17,7 +17,7 @@ type ReportCustomerRow = {
  district: string;
 };
 
-type ReportLoanRow = {
+export type ReportLoanRow = {
  loan_number: string;
  customer_name: string;
  product_name: string;
@@ -26,14 +26,14 @@ type ReportLoanRow = {
  status: string;
 };
 
-type ReportCollectionRow = {
+export type ReportCollectionRow = {
  action: string;
  customer_name: string;
  notes: string;
  performed_at: string;
 };
 
-type ExportBranchReportInput = {
+export type ExportBranchReportInput = {
  branchName: string;
  periodLabel: string;
  generatedAt: string;
@@ -84,6 +84,28 @@ function nextY(doc: jsPDF, gap = 6): number {
  return (tableDoc.lastAutoTable?.finalY ?? 24) + gap;
 }
 
+function sectionTitle(doc: jsPDF, title: string, y: number): number {
+ doc.setFont("helvetica", "bold");
+ doc.setFontSize(10);
+ doc.setTextColor(15, 118, 110);
+ doc.text(title, 12, y);
+ doc.setFont("helvetica", "normal");
+ doc.setTextColor(20, 20, 20);
+ return y + 4;
+}
+
+function tableBody<T>(rows: T[], emptyCols: number, emptyMessage: string): T[] | string[][] {
+ if (rows.length > 0) return rows;
+ return [Array.from({ length: emptyCols }, (_, i) => (i === 0 ? emptyMessage : "—"))];
+}
+
+const tableDefaults = {
+ styles: { fontSize: 7, cellPadding: 1.8, overflow: "linebreak" as const },
+ headStyles: { fillColor: [15, 118, 110] as [number, number, number], fontSize: 7 },
+ showHead: "everyPage" as const,
+ margin: { left: 12, right: 12 },
+};
+
 export function exportBranchReportPdf(input: ExportBranchReportInput): void {
  const doc = new jsPDF({ unit: "mm", format: "a4" });
  const pageWidth = doc.internal.pageSize.getWidth();
@@ -93,13 +115,14 @@ export function exportBranchReportPdf(input: ExportBranchReportInput): void {
  doc.rect(0, 0, pageWidth, 28, "F");
  doc.setTextColor(255, 255, 255);
  doc.setFontSize(14);
- doc.text("Falco Financial Branch Report", margin, 12);
+ doc.text("Falco Financial Portfolio Report", margin, 12);
  doc.setFontSize(10);
  doc.text(`${input.branchName} • ${input.periodLabel}`, margin, 19);
  doc.text(`Generated: ${input.generatedAt}`, margin, 24);
 
  doc.setTextColor(20, 20, 20);
  autoTable(doc, {
+ ...tableDefaults,
  startY: 34,
  head: [["Metric", "Value"]],
  body: [
@@ -108,47 +131,56 @@ export function exportBranchReportPdf(input: ExportBranchReportInput): void {
  ["PAR Ratio", `${input.summary.parRatio.toFixed(1)}%`],
  ["NPL Ratio", `${input.summary.nplRatio.toFixed(1)}%`],
  ["Required Provision", fmtMoney(input.summary.requiredProvision)],
- ["Applications", String(input.applications.length)],
- ["Customers", String(input.customers.length)],
- ["Loans", String(input.loans.length)],
- ["Collections", String(input.collections.length)],
+ ["Applications (period)", String(input.applications.length)],
+ ["Customers (branch)", String(input.customers.length)],
+ ["Loans (branch)", String(input.loans.length)],
+ ["Collection activities (period)", String(input.collections.length)],
  ],
- styles: { fontSize: 8 },
- headStyles: { fillColor: [15, 118, 110] },
- columnStyles: { 0: { cellWidth: 60 } },
+ columnStyles: { 0: { cellWidth: 62 } },
  });
 
+ let y = sectionTitle(doc, "Product performance", nextY(doc));
  autoTable(doc, {
- startY: nextY(doc),
+ ...tableDefaults,
+ startY: y,
  head: [["Product", "Loans", "Outstanding", "PAR", "PAR Rate"]],
- body: input.productPerformance.map((row) => [
+ body: tableBody(
+ input.productPerformance.map((row) => [
  row.name,
  String(row.loanCount),
  fmtMoney(row.outstanding),
  fmtMoney(row.par),
  `${row.parRate.toFixed(1)}%`,
  ]),
- styles: { fontSize: 8 },
- headStyles: { fillColor: [15, 118, 110] },
+ 5,
+ "No product breakdown"
+ ),
  });
 
+ y = sectionTitle(doc, "Portfolio aging (BOT)", nextY(doc));
  autoTable(doc, {
- startY: nextY(doc),
+ ...tableDefaults,
+ startY: y,
  head: [["Aging Class", "Outstanding", "Rate", "Provision"]],
- body: input.agingReport.map((row) => [
+ body: tableBody(
+ input.agingReport.map((row) => [
  row.classificationLabel,
  fmtMoney(row.outstanding),
  `${row.rate}%`,
  fmtMoney(row.provision),
  ]),
- styles: { fontSize: 8 },
- headStyles: { fillColor: [15, 118, 110] },
+ 4,
+ "No aging data"
+ ),
  });
 
+ y = sectionTitle(doc, "Branch performance", nextY(doc));
  autoTable(doc, {
- startY: nextY(doc),
+ ...tableDefaults,
+ startY: y,
  head: [["Branch", "Loans", "Disbursed", "Collected", "Outstanding", "Collection Rate"]],
- body: input.branchPerformance.map((row) => [
+ body: tableBody(
+ input.branchPerformance.map((row) => [
  row.name,
  String(row.loanCount),
  fmtMoney(row.disbursed),
@@ -156,42 +188,54 @@ export function exportBranchReportPdf(input: ExportBranchReportInput): void {
  fmtMoney(row.outstanding),
  `${row.collectionRate.toFixed(1)}%`,
  ]),
- styles: { fontSize: 8 },
- headStyles: { fillColor: [15, 118, 110] },
+ 6,
+ "No branch performance rows"
+ ),
  });
 
+ y = sectionTitle(doc, `Loan applications (${input.applications.length})`, nextY(doc));
  autoTable(doc, {
- startY: nextY(doc),
+ ...tableDefaults,
+ startY: y,
  head: [["Application #", "Customer", "Status", "Amount", "Created"]],
- body: input.applications.map((row) => [
+ body: tableBody(
+ input.applications.map((row) => [
  row.application_number,
  row.customer_name,
  row.status.replace(/_/g, " "),
  fmtMoney(row.amount),
  row.created_at,
  ]),
- styles: { fontSize: 8 },
- headStyles: { fillColor: [15, 118, 110] },
+ 5,
+ "No applications in this period"
+ ),
  });
 
+ y = sectionTitle(doc, `Customers (${input.customers.length})`, nextY(doc));
  autoTable(doc, {
- startY: nextY(doc),
+ ...tableDefaults,
+ startY: y,
  head: [["Customer #", "Name", "Phone", "Region", "District"]],
- body: input.customers.map((row) => [
+ body: tableBody(
+ input.customers.map((row) => [
  row.customer_number,
  row.customer_name,
  row.phone,
  row.region,
  row.district,
  ]),
- styles: { fontSize: 8 },
- headStyles: { fillColor: [15, 118, 110] },
+ 5,
+ "No customers in scope"
+ ),
  });
 
+ y = sectionTitle(doc, `Loans (${input.loans.length})`, nextY(doc));
  autoTable(doc, {
- startY: nextY(doc),
+ ...tableDefaults,
+ startY: y,
  head: [["Loan #", "Customer", "Product", "Principal", "Outstanding", "Status"]],
- body: input.loans.map((row) => [
+ body: tableBody(
+ input.loans.map((row) => [
  row.loan_number,
  row.customer_name,
  row.product_name,
@@ -199,22 +243,37 @@ export function exportBranchReportPdf(input: ExportBranchReportInput): void {
  fmtMoney(row.outstanding),
  row.status.replace(/_/g, " "),
  ]),
- styles: { fontSize: 8 },
- headStyles: { fillColor: [15, 118, 110] },
+ 6,
+ "No loans in scope"
+ ),
  });
 
+ y = sectionTitle(doc, `Collection activities (${input.collections.length})`, nextY(doc));
  autoTable(doc, {
- startY: nextY(doc),
+ ...tableDefaults,
+ startY: y,
  head: [["Action", "Customer", "Notes", "Performed At"]],
- body: input.collections.map((row) => [
+ body: tableBody(
+ input.collections.map((row) => [
  row.action.replace(/_/g, " "),
  row.customer_name,
  row.notes,
  row.performed_at,
  ]),
- styles: { fontSize: 8 },
- headStyles: { fillColor: [15, 118, 110] },
+ 4,
+ "No collection activities in this period"
+ ),
  });
 
- doc.save(`branch-report-${input.periodLabel.replace(/\s+/g, "-").toLowerCase()}.pdf`);
+ const pageCount = doc.getNumberOfPages();
+ for (let i = 1; i <= pageCount; i++) {
+ doc.setPage(i);
+ doc.setFontSize(8);
+ doc.setTextColor(120, 120, 120);
+ doc.text(`Page ${i} of ${pageCount}`, pageWidth - margin, doc.internal.pageSize.getHeight() - 6, {
+ align: "right",
+ });
+ }
+
+ doc.save(`portfolio-report-${input.periodLabel.replace(/\s+/g, "-").toLowerCase()}.pdf`);
 }

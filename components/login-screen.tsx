@@ -59,8 +59,6 @@ export function LoginScreen() {
  forgot: "Umesahau nenosiri?",
  signIn: "Ingia",
  signingIn: "Inaingia...",
- noAccount: "Huna akaunti?",
- signUp: "Jisajili",
  invalidCredentials: "Taarifa za kuingia si sahihi.",
  unableToLogin: "Imeshindikana kuingia sasa. Tafadhali jaribu tena.",
     language: "Lugha",
@@ -75,8 +73,6 @@ export function LoginScreen() {
  forgot: "Forgot password?",
  signIn: "Sign in",
  signingIn: "Signing in...",
- noAccount: "Don't have an account?",
- signUp: "Sign up",
  invalidCredentials: "Invalid credentials.",
  unableToLogin: "Unable to login right now. Please try again.",
     language: "Language",
@@ -230,10 +226,6 @@ export function LoginScreen() {
  {loading ? t.signingIn : t.signIn}
  </Button>
  </form>
-
- <p className="mt-6 text-center text-sm text-muted-foreground">
- {t.noAccount} <span className="font-semibold text-primary">{t.signUp}</span>
- </p>
  </div>
  </section>
 

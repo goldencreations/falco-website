@@ -4,7 +4,8 @@ import type { Disbursement, DisbursementPaymentChannel, DisbursementStatus } fro
 const STATUSES: DisbursementStatus[] = ["pending_approval", "approved", "completed", "rejected"];
 
 function asStatus(v: string | undefined): DisbursementStatus {
- const s = (v ?? "pending_approval").toLowerCase().replace(/-/g, "_");
+ const s = (v ?? "pending_approval").toLowerCase().replace(/-/g, "_").replace(/\s+/g, "_");
+ if (s === "pending" || s === "awaiting_approval") return "pending_approval";
  return STATUSES.includes(s as DisbursementStatus) ? (s as DisbursementStatus) : "pending_approval";
 }
 
@@ -61,6 +62,33 @@ function customerDisplayFromRecord(customer: Record<string, unknown> | undefined
  return custFull || `${custFn} ${custLn}`.trim();
 }
 
+function firstNonEmptyStr(...values: unknown[]): string {
+ for (const v of values) {
+ if (v == null) continue;
+ const s = String(v).trim();
+ if (s) return s;
+ }
+ return "";
+}
+
+/** Resolve staff display name from nested user object or flat `*_name` fields (never return raw user id). */
+function staffDisplayName(
+ actor: unknown,
+ row: Record<string, unknown>,
+ nameKeys: string[]
+): string {
+ if (actor && typeof actor === "object") {
+ const o = actor as Record<string, unknown>;
+ const nested = str(o.full_name ?? o.name ?? o.display_name).trim();
+ if (nested) return nested;
+ }
+ for (const key of nameKeys) {
+ const label = str(row[key]).trim();
+ if (label) return label;
+ }
+ return "";
+}
+
 export function adaptApiDisbursementRow(raw: Record<string, unknown>): DisbursementViewRow {
  const row = unwrapDisbursement(raw);
  const loan = row.loan && typeof row.loan === "object" ? (row.loan as Record<string, unknown>) : undefined;
@@ -79,39 +107,59 @@ export function adaptApiDisbursementRow(raw: Record<string, unknown>): Disbursem
  str(row.customer_name ?? row.customer_display_name ?? row.borrower_name);
 
  const prepared = row.prepared_by_user ?? row.prepared_by;
- const prepName =
- prepared && typeof prepared === "object"
- ? str((prepared as Record<string, unknown>).full_name)
- : str(row.prepared_by_name);
+ const prepName = staffDisplayName(prepared, row, [
+ "prepared_by_name",
+ "prepared_by_display_name",
+ "creator_name",
+ "created_by_name",
+ ]);
 
  const appr = row.approved_by_user ?? row.approved_by;
- const apprName =
- appr && typeof appr === "object" ? str((appr as Record<string, unknown>).full_name) : str(row.approved_by_name);
+ const apprName = staffDisplayName(appr, row, ["approved_by_name", "approved_by_display_name"]);
 
  const rej = row.rejected_by_user ?? row.rejected_by;
- const rejName =
- rej && typeof rej === "object" ? str((rej as Record<string, unknown>).full_name) : str(row.rejected_by_name);
+ const rejName = staffDisplayName(rej, row, ["rejected_by_name", "rejected_by_display_name"]);
 
  const method = asPaymentChannel(
  row.disbursement_channel ? str(row.disbursement_channel) : undefined,
- str(row.method ?? row.payment_channel ?? "cash")
+ str(row.method ?? row.payment_channel ?? row.disbursement_method ?? "cash")
  );
+
+ const payout =
+ row.payout && typeof row.payout === "object"
+ ? (row.payout as Record<string, unknown>)
+ : row.payment_destination && typeof row.payment_destination === "object"
+ ? (row.payment_destination as Record<string, unknown>)
+ : undefined;
+
+ const accountName =
+ firstNonEmptyStr(
+ row.account_name,
+ row.bank_account_name,
+ payout?.account_name,
+ payout?.bank_account_name,
+ payout?.recipient_name
+ ) || null;
+ const accountNumber =
+ firstNonEmptyStr(
+ row.account_number,
+ row.mobile_money_phone,
+ row.bank_account_number,
+ payout?.account_number,
+ payout?.mobile_money_phone,
+ payout?.bank_account_number
+ ) || null;
+ const bankName =
+ firstNonEmptyStr(row.bank_name, row.bank, payout?.bank_name, row.bank_bic) || null;
 
  return {
  id: str(row.id),
  loan_id: str(row.loan_id ?? loan?.id),
  amount: num(row.amount ?? row.disbursed_amount ?? row.requested_amount, 0),
  method,
- account_name: row.account_name != null ? str(row.account_name) : row.bank_account_name != null ? str(row.bank_account_name) : null,
- account_number:
- row.account_number != null
- ? str(row.account_number)
- : row.mobile_money_phone != null
- ? str(row.mobile_money_phone)
- : row.bank_account_number != null
- ? str(row.bank_account_number)
- : null,
- bank_name: row.bank_name != null ? str(row.bank_name) : null,
+ account_name: accountName,
+ account_number: accountNumber,
+ bank_name: bankName,
  transaction_reference: row.transaction_reference != null ? str(row.transaction_reference) : null,
  status: asStatus(row.status ? str(row.status) : undefined),
  prepared_by: str(row.prepared_by ?? row.created_by ?? ""),
@@ -581,17 +629,32 @@ export function mergeEligibleLoanLists(...lists: EligibleLoanRow[][]): EligibleL
  return Array.from(byId.values()).sort((a, b) => a.loan_number.localeCompare(b.loan_number));
 }
 
-/** Map UI create form → `POST /disbursements` console body (amount + method, not loan gateway fields). */
+/** Map UI create form → `POST /disbursements` console body (Falco channel fields + UI aliases). */
 export function mapUiDisbursementCreateToFalco(body: Record<string, unknown>): Record<string, unknown> {
  const loanIdRaw = String(body.loan_id ?? "").trim();
  const loanIdNum = Number(loanIdRaw);
  const amount = Number(body.amount);
  const method = String(body.method ?? "cash").toLowerCase();
+ const channelPayload = mapUiLoanDisburseToFalco({
+ ...body,
+ loan_id: loanIdRaw,
+ amount,
+ disbursed_amount: amount,
+ method,
+ });
 
  const payload: Record<string, unknown> = {
  loan_id: Number.isFinite(loanIdNum) && loanIdNum > 0 ? loanIdNum : loanIdRaw,
  amount,
+ disbursed_amount: amount,
  method,
+ disbursement_channel: channelPayload.disbursement_channel,
+ disbursement_date: channelPayload.disbursement_date,
+ mobile_money_phone: channelPayload.mobile_money_phone,
+ bank_account_number: channelPayload.bank_account_number,
+ bank_account_name: channelPayload.bank_account_name,
+ bank_bic: channelPayload.bank_bic,
+ bank_transfer_type: channelPayload.bank_transfer_type,
  };
 
  const notes = body.notes != null ? String(body.notes).trim() : "";
@@ -599,8 +662,19 @@ export function mapUiDisbursementCreateToFalco(body: Record<string, unknown>): R
 
  const accountName = body.account_name != null ? String(body.account_name).trim() : "";
  const accountNumber = body.account_number != null ? String(body.account_number).trim() : "";
- if (accountName) payload.account_name = accountName;
- if (accountNumber) payload.account_number = accountNumber;
+ if (accountName) {
+ payload.account_name = accountName;
+ if (!payload.bank_account_name) payload.bank_account_name = accountName;
+ }
+ if (accountNumber) {
+ payload.account_number = accountNumber;
+ if (!payload.mobile_money_phone && channelPayload.disbursement_channel === "mobile_money") {
+ payload.mobile_money_phone = accountNumber.replace(/\s+/g, "");
+ }
+ if (!payload.bank_account_number && channelPayload.disbursement_channel === "bank_transfer") {
+ payload.bank_account_number = accountNumber;
+ }
+ }
 
  const bankName = body.bank_name != null ? String(body.bank_name).trim() : "";
  if (bankName) payload.bank_name = bankName;

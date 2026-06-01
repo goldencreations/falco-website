@@ -172,8 +172,8 @@ export default function LoansPage() {
  const q = searchQuery.toLowerCase();
  const matchesSearch =
  searchQuery === "" ||
- loan.loan_number.toLowerCase().includes(q) ||
- loanCustomerLabel(loan).toLowerCase().includes(q) ||
+ (loan.loan_number ?? "").toLowerCase().includes(q) ||
+ (loanCustomerLabel(loan) ?? "").toLowerCase().includes(q) ||
  (loan.productName ?? "").toLowerCase().includes(q) ||
  (loan.customerPhone && loan.customerPhone.toLowerCase().includes(q));
 

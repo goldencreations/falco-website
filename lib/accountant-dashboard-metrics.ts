@@ -68,7 +68,7 @@ export type AccountantDashboardStats = {
  monthlyPaymentTotals: { month: string; amount: number }[];
 };
 
-function branchQuery(branchId: string, pageSize = "500"): string {
+function branchQuery(branchId: string, pageSize = "120"): string {
  const p = new URLSearchParams();
  p.set("branch_id", branchId);
  p.set("page_size", pageSize);
@@ -292,11 +292,11 @@ export async function loadAccountantFinanceDetails(
  const [paymentsRes, loansRes, disburseRes, queueRes, tsCollRes, tsDisbRes] = await Promise.all([
  fetch(`/api/payments?${q}`, { credentials: "include", cache: "no-store" }),
  fetch(`/api/loans?${q}`, { credentials: "include", cache: "no-store" }),
- fetch(`/api/disbursements?branch_id=${encodeURIComponent(branchId)}&page_size=200`, {
+ fetch(`/api/disbursements?branch_id=${encodeURIComponent(branchId)}&page_size=120`, {
  credentials: "include",
  cache: "no-store",
  }),
- fetch(`/api/collections/queue?branch_id=${encodeURIComponent(branchId)}&page_size=200`, {
+ fetch(`/api/collections/queue?branch_id=${encodeURIComponent(branchId)}&page_size=120`, {
  credentials: "include",
  cache: "no-store",
  }),

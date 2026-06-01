@@ -5,7 +5,10 @@ import {
 } from "@/lib/disbursement-adapters";
 import { extractLoanDetail } from "@/lib/loan-adapters";
 import { formatFalcoApiError } from "@/lib/falco-api";
-import { enrichDisbursementRowsWithCustomerNames } from "@/lib/disbursement-enrichment";
+import {
+ enrichDisbursementRowsWithCustomerNames,
+ enrichDisbursementRowsWithUserNames,
+} from "@/lib/disbursement-enrichment";
 import { resolveEligibleDisbursementTargets } from "@/lib/disbursement-eligible";
 import { canPrepareDisbursement } from "@/lib/disbursement-permissions";
 import {
@@ -42,7 +45,8 @@ export async function GET(request: Request) {
  }
 
  const payload = extractDisbursementsApiPayload(res.data);
- const disbursements = await enrichDisbursementRowsWithCustomerNames(payload.disbursements);
+ const withCustomers = await enrichDisbursementRowsWithCustomerNames(payload.disbursements);
+ const disbursements = await enrichDisbursementRowsWithUserNames(withCustomers);
 
  const includeEligible = url.searchParams.get("include_eligible") !== "0";
  const eligible_loans = includeEligible

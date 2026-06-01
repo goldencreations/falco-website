@@ -167,15 +167,16 @@ function parseDate(iso?: string): number {
  return Number.isNaN(t) ? 0 : t;
 }
 
-function paymentStatusTone(status: string): FinanceActivityRow["statusTone"] {
- if (status === "completed") return "success";
- if (status === "pending") return "warning";
- if (status === "failed" || status === "reversed") return "danger";
+function paymentStatusTone(status: string | undefined | null): FinanceActivityRow["statusTone"] {
+ const s = String(status ?? "").toLowerCase();
+ if (s === "completed") return "success";
+ if (s === "pending") return "warning";
+ if (s === "failed" || s === "reversed") return "danger";
  return "muted";
 }
 
-function disbursementStatusTone(status: string): FinanceActivityRow["statusTone"] {
- const s = status.toLowerCase();
+function disbursementStatusTone(status: string | undefined | null): FinanceActivityRow["statusTone"] {
+ const s = String(status ?? "").toLowerCase();
  if (s === "completed") return "success";
  if (s === "pending_approval" || s === "approved") return "warning";
  if (s === "rejected" || s === "failed") return "danger";

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { adaptApiDisbursementRow } from "@/lib/disbursement-adapters";
+import { enrichDisbursementRowsWithUserNames } from "@/lib/disbursement-enrichment";
+import { canApproveDisbursement } from "@/lib/disbursement-permissions";
 import { requireApiUser, ensureResourceBranchAllowed } from "@/lib/authorization";
 import { falcoServerFetch } from "@/lib/server-falco";
 
@@ -77,6 +79,13 @@ export async function PATCH(
  return NextResponse.json({ error: "action must be approve, reject, or complete" }, { status: 400 });
  }
 
+ if (!canApproveDisbursement(auth.user)) {
+ return NextResponse.json(
+ { error: "You do not have permission to approve or complete disbursements." },
+ { status: 403 }
+ );
+ }
+
  const forward: Record<string, unknown> = { action };
  if (action === "reject" && body.rejection_reason != null) forward.rejection_reason = body.rejection_reason;
  if (action === "complete") {
@@ -117,8 +126,10 @@ export async function PATCH(
  if (data && typeof data === "object") {
  const o = data as Record<string, unknown>;
  const row = o.disbursement && typeof o.disbursement === "object" ? o.disbursement : data;
+ const adapted = adaptApiDisbursementRow(row as Record<string, unknown>);
+ const [enriched] = await enrichDisbursementRowsWithUserNames([adapted]);
  return NextResponse.json({
- disbursement: adaptApiDisbursementRow(row as Record<string, unknown>),
+ disbursement: enriched,
  loan_activated: true,
  loan_id: loanId,
  });
@@ -131,7 +142,9 @@ export async function PATCH(
  if (data && typeof data === "object") {
  const o = data as Record<string, unknown>;
  const row = o.disbursement && typeof o.disbursement === "object" ? o.disbursement : data;
- return NextResponse.json({ disbursement: adaptApiDisbursementRow(row as Record<string, unknown>) });
+ const adapted = adaptApiDisbursementRow(row as Record<string, unknown>);
+ const [enriched] = await enrichDisbursementRowsWithUserNames([adapted]);
+ return NextResponse.json({ disbursement: enriched });
  }
  return NextResponse.json(res.data);
 }
