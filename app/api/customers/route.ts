@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { shouldSoftEmptyApiError } from "@/lib/api-soft-fallback";
 import { extractCustomerDetail } from "@/lib/customer-adapters";
 import { patchCustomerLoanOfficerOnServer } from "@/lib/customer-assignment";
 import {
@@ -34,6 +35,9 @@ export async function GET(request: Request) {
  });
 
  if (!res.ok) {
+ if (shouldSoftEmptyApiError(auth.user, res.error.status)) {
+ return NextResponse.json({ data: [], _fallback: true, message: res.error.message });
+ }
  return NextResponse.json(
  { message: res.error.message, details: res.error.details },
  { status: res.error.status }
