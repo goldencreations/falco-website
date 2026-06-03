@@ -61,21 +61,29 @@ interface DashboardHeaderProps {
 export function DashboardHeader({ title, description }: DashboardHeaderProps) {
  const { user } = useSessionUser();
  const [branches, setBranches] = useState<Branch[]>([]);
+ const needsBranchLookup = user?.role === "super_admin";
 
  useEffect(() => {
+ if (!needsBranchLookup) return;
  let cancelled = false;
  void fetch("/api/falco/branches", { credentials: "include" })
- .then((r) => r.json())
- .then((d: { branches?: Branch[] }) => {
- if (!cancelled) setBranches(d.branches ?? []);
+ .then((r) => {
+ if (!r.ok) return null;
+ return r.json() as Promise<{ branches?: Branch[] }>;
+ })
+ .then((d) => {
+ if (!cancelled && d) setBranches(d.branches ?? []);
  })
  .catch(() => {});
  return () => {
  cancelled = true;
  };
- }, []);
+ }, [needsBranchLookup]);
 
  const currentBranch = branches.find((b) => b.id === user?.branch_id);
+ const branchBadgeLabel =
+ currentBranch?.name ??
+ (user?.branch_id?.trim() ? `Branch ${user.branch_id.trim()}` : undefined);
  const [notifications, setNotifications] = useState<Notification[]>(INITIAL_NOTIFICATIONS);
  const unreadCount = notifications.filter((n) => !n.read).length;
 
@@ -112,10 +120,12 @@ export function DashboardHeader({ title, description }: DashboardHeaderProps) {
  />
  </div>
 
+ {branchBadgeLabel ? (
  <Badge variant="outline" className="hidden text-xs lg:inline-flex gap-1.5 bg-primary/5 text-primary border-primary/20">
  <MapPin className="h-3 w-3" />
- {currentBranch?.name}
+ {branchBadgeLabel}
  </Badge>
+ ) : null}
 
  <DropdownMenu>
  <DropdownMenuTrigger asChild>

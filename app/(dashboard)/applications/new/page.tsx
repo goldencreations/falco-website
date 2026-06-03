@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
  ArrowLeft,
  Search,
@@ -58,14 +58,15 @@ import {
  runPostCreateWorkflow,
  uploadApplicationDocumentsFromForm,
 } from "@/lib/application-workflow";
+import { APPLICATION_DOCUMENTS_OPTIONAL } from "@/lib/application-workflow-config";
 import { useSessionUser } from "@/lib/use-session-user";
+import { MoneyInput } from "@/components/forms/money-input";
+import { TzValidatedInput } from "@/components/forms/tz-validated-input";
+import { formatMoneyFromNumber, parseMoneyInput } from "@/lib/money-input";
 
 function parseAmountInput(raw: string): number {
- const cleaned = String(raw ?? "")
- .replace(/,/g, "")
- .replace(/\s/g, "");
- const n = parseFloat(cleaned);
- return Number.isFinite(n) && n > 0 ? n : 0;
+ const n = parseMoneyInput(raw);
+ return n > 0 ? n : 0;
 }
 
 function parseTermInput(raw: string): number {
@@ -92,6 +93,7 @@ function NewApplicationPageFallback() {
 
 function NewApplicationPageContent() {
  const router = useRouter();
+ const pathname = usePathname();
  const searchParams = useSearchParams();
  const editId = searchParams.get("edit")?.trim() || null;
  const { user } = useSessionUser();
@@ -105,6 +107,10 @@ function NewApplicationPageContent() {
  : effectiveRole === "loan_officer"
  ? "/officer/applications"
  : "/applications";
+ const loanCalculatorPath =
+ effectiveRole === "loan_officer" ? "/officer/loan-calculator" : "/loan-calculator";
+ const creditAnalysisPath =
+ effectiveRole === "loan_officer" ? "/officer/credit-analysis" : "/credit-analysis";
  const [customers, setCustomers] = useState<Customer[]>([]);
  const [groups, setGroups] = useState<LoanGroup[]>([]);
  const [loanProducts, setLoanProducts] = useState<LoanProduct[]>([]);
@@ -142,7 +148,7 @@ function NewApplicationPageContent() {
  useEffect(() => {
  let cancelled = false;
  const params = new URLSearchParams();
- params.set("page_size", "200");
+ params.set("page_size", isScopedRole ? "80" : "150");
  if (scopeBranchId) params.set("branch_id", scopeBranchId);
  void fetch(`/api/customers?${params.toString()}`, { credentials: "include" })
  .then((r) => r.json())
@@ -157,7 +163,10 @@ function NewApplicationPageContent() {
 
  useEffect(() => {
  let cancelled = false;
- const params = new URLSearchParams({ page_size: "200", status: "active" });
+ const params = new URLSearchParams({
+ page_size: isScopedRole ? "80" : "150",
+ status: "active",
+ });
  if (scopeBranchId) params.set("branch_id", scopeBranchId);
  void fetch(`/api/groups?${params.toString()}`, { credentials: "include" })
  .then((r) => r.json())
@@ -202,6 +211,7 @@ function NewApplicationPageContent() {
 
  const [documentFiles, setDocumentFiles] = useState<Record<string, File | null>>({});
  const [isLocating, setIsLocating] = useState(false);
+ const [isSaving, setIsSaving] = useState(false);
 
  const [formData, setFormData] = useState({
  amount: "",
@@ -236,7 +246,9 @@ function NewApplicationPageContent() {
  }
  setFormData((prev) => ({
  ...prev,
- amount: String(app.requested_amount ?? ""),
+ amount: app.requested_amount
+ ? formatMoneyFromNumber(Number(app.requested_amount))
+ : "",
  term: String(app.term_days ?? ""),
  purpose: String(app.purpose ?? ""),
  }));
@@ -571,6 +583,7 @@ function NewApplicationPageContent() {
  };
 
  const handleSubmit = async (isDraft: boolean) => {
+ if (isSaving) return;
  if (!hasBorrower || !selectedCustomer || !selectedProduct) return;
  if (isGroupMode && !selectedGroup) {
  alert("Select a vikundi group before submitting.");
@@ -599,7 +612,7 @@ function NewApplicationPageContent() {
  .map((c) => ({
  type: c.type.trim(),
  description: c.description.trim() || c.type.trim(),
- estimated_value: c.value ? Number(c.value.replace(/,/g, "")) : 0,
+ estimated_value: c.value ? parseMoneyInput(c.value) : 0,
  }));
 
  const guarantorsPayload = guarantors
@@ -647,6 +660,7 @@ function NewApplicationPageContent() {
  location,
  });
 
+ setIsSaving(true);
  try {
  const isEdit = Boolean(editingApplicationId);
  const res = isEdit
@@ -677,6 +691,13 @@ function NewApplicationPageContent() {
  return;
  }
 
+ if (!editingApplicationId) {
+ setEditingApplicationId(applicationId);
+ const next = new URLSearchParams(searchParams.toString());
+ next.set("edit", applicationId);
+ router.replace(`${pathname}?${next.toString()}`, { scroll: false });
+ }
+
  const officerId =
  selectedCustomer.assigned_loan_officer_id ||
  (effectiveRole === "loan_officer" && user?.id ? user.id : undefined);
@@ -699,6 +720,10 @@ function NewApplicationPageContent() {
  );
  if (!docUpload.ok) {
  console.warn("Document upload:", docUpload.error);
+ if (!APPLICATION_DOCUMENTS_OPTIONAL) {
+ alert(`Document upload failed: ${docUpload.error}`);
+ return;
+ }
  }
 
  const workflow = await runPostCreateWorkflow({
@@ -729,6 +754,8 @@ function NewApplicationPageContent() {
  router.push(`${applicationsBasePath}?highlight=${applicationId}`);
  } catch {
  alert("Unable to reach server.");
+ } finally {
+ setIsSaving(false);
  }
  };
 
@@ -1053,13 +1080,10 @@ onValueChange={(value) => {
  <div className="grid gap-4 sm:grid-cols-2">
  <Field>
  <FieldLabel>Requested Amount (TZS)</FieldLabel>
- <Input
- type="number"
- placeholder="e.g., 1000000"
+ <MoneyInput
+ placeholder="e.g., 1,000,000"
  value={formData.amount}
- onChange={(e) =>
- setFormData({ ...formData, amount: e.target.value })
- }
+ onValueChange={(value) => setFormData({ ...formData, amount: value })}
  disabled={!selectedProduct}
  />
  </Field>
@@ -1127,11 +1151,10 @@ onValueChange={(value) => {
  </Field>
  <Field>
  <FieldLabel>Estimated Value (TZS)</FieldLabel>
- <Input
- type="number"
- placeholder="e.g., 5000000"
+ <MoneyInput
+ placeholder="e.g., 5,000,000"
  value={collateral.value}
- onChange={(e) => updateCollateral(index, "value", e.target.value)}
+ onValueChange={(value) => updateCollateral(index, "value", value)}
  />
  </Field>
  </div>
@@ -1215,20 +1238,18 @@ onValueChange={(value) => {
  </Field>
  <Field>
  <FieldLabel>National ID</FieldLabel>
- <Input
- placeholder="National ID number"
+ <TzValidatedInput
+ kind="nida"
  value={guarantor.nationalId}
- onChange={(e) =>
- updateGuarantor(index, "nationalId", e.target.value)
- }
+ onValueChange={(value) => updateGuarantor(index, "nationalId", value)}
  />
  </Field>
  <Field>
  <FieldLabel>Phone Number</FieldLabel>
- <Input
- placeholder="+255 xxx xxx xxx"
+ <TzValidatedInput
+ kind="phone"
  value={guarantor.phone}
- onChange={(e) => updateGuarantor(index, "phone", e.target.value)}
+ onValueChange={(value) => updateGuarantor(index, "phone", value)}
  />
  </Field>
  <Field>
@@ -1371,10 +1392,10 @@ onValueChange={(value) => {
  </Field>
  <Field>
  <FieldLabel>Phone Number</FieldLabel>
- <Input
- placeholder="+255 xxx xxx xxx"
+ <TzValidatedInput
+ kind="phone"
  value={reference.phone}
- onChange={(e) => updateReference(index, "phone", e.target.value)}
+ onValueChange={(value) => updateReference(index, "phone", value)}
  />
  </Field>
  <Field>
@@ -1571,10 +1592,10 @@ onValueChange={(value) => {
  )}
 
  <Button variant="outline" className="w-full" asChild>
- <Link href="/loan-calculator">Open Standalone Loan Calculator</Link>
+ <Link href={loanCalculatorPath}>Open Standalone Loan Calculator</Link>
  </Button>
  <Button variant="outline" className="w-full" asChild>
- <Link href="/credit-analysis">Go to Credit Analysis</Link>
+ <Link href={creditAnalysisPath}>Go to Credit Analysis</Link>
  </Button>
 
  <Separator />
@@ -1584,19 +1605,23 @@ onValueChange={(value) => {
  type="button"
  className="w-full"
  onClick={() => void handleSubmit(false)}
- disabled={!hasBorrower || !selectedProduct || amount <= 0 || termDays <= 0}
+ disabled={isSaving || !hasBorrower || !selectedProduct || amount <= 0 || termDays <= 0}
  >
  <Send className="mr-2 h-4 w-4" />
- {isAdminView ? "Activate & create loan" : "Submit application"}
+ {isSaving
+ ? "Saving…"
+ : isAdminView
+ ? "Activate & create loan"
+ : "Submit application"}
  </Button>
  <Button
  type="button"
  variant="outline"
  className="w-full"
  onClick={() => void handleSubmit(true)}
- disabled={!hasBorrower || !selectedProduct}
+ disabled={isSaving || !hasBorrower || !selectedProduct}
  >
- Save as draft
+ {isSaving ? "Saving…" : "Save as draft"}
  </Button>
  {!hasBorrower || !selectedProduct ? (
  <p className="text-xs text-muted-foreground">

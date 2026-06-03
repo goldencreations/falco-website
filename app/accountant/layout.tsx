@@ -15,7 +15,7 @@ export default async function AccountantLayout({ children }: { children: React.R
  const branchLabel = user.branch_id ? "Your branch" : "Branch";
 
  return (
- <BranchAssignmentProvider mode="light">
+ <BranchAssignmentProvider mode="light" sessionUser={user}>
  <SidebarProvider>
  <AccountantSidebar user={user} branchLabel={branchLabel} />
  <SidebarInset className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</SidebarInset>

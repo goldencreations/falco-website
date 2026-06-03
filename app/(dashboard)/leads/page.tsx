@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
  ExternalLink,
  Loader2,
@@ -12,6 +12,7 @@ import {
  RefreshCcw,
  UserRound,
 } from "lucide-react";
+import { TzValidatedInput } from "@/components/forms/tz-validated-input";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -39,14 +40,24 @@ import { extractCustomersList } from "@/lib/customer-adapters";
 import { formatApiResponseError } from "@/lib/falco-api";
 import { forceCachedReload } from "@/lib/client-fetch-cache";
 import {
+ extractLeadDetail,
  extractLeadsList,
  mapUiLeadCreateToApi,
  type LeadLocationType,
  type LeadStatus,
  type LeadView,
 } from "@/lib/lead-adapters";
+import {
+ leadHasMapTarget,
+ leadMapDirectionsUrl,
+ leadMapEmbedUrl,
+ leadMapViewUrl,
+ parseLeadCoordinates,
+} from "@/lib/lead-map";
 import { reverseGeocodeNominatim } from "@/lib/nominatim";
+import { apiFetch, apiErrorMessage, isSessionExpiredResponse } from "@/lib/api-client";
 import { parseJsonResponse } from "@/lib/parse-json-response";
+import { digitsOnly, TZ_PHONE_MAX_DIGITS } from "@/lib/tz-form-inputs";
 import type { Branch, Customer } from "@/lib/types";
 import { useSessionUser } from "@/lib/use-session-user";
 
@@ -82,7 +93,7 @@ function getSeedFromText(value: string): number {
 }
 
 export default function LeadsPage() {
- const { user } = useSessionUser();
+ const { user, loaded: sessionLoaded } = useSessionUser();
  const scopeBranchId =
  user?.role === "branch_manager" || user?.role === "loan_officer" ? user.branch_id : null;
  const [leads, setLeads] = useState<LeadView[]>([]);
@@ -92,6 +103,7 @@ export default function LeadsPage() {
  const [saving, setSaving] = useState(false);
  const [error, setError] = useState<string | null>(null);
  const [selectedLeadId, setSelectedLeadId] = useState<string>("");
+ const mapSectionRef = useRef<HTMLDivElement | null>(null);
  const [showAddLeadForm, setShowAddLeadForm] = useState(false);
  const [isLocating, setIsLocating] = useState(false);
  const needsBranchPicker = user?.role === "super_admin";
@@ -125,22 +137,21 @@ export default function LeadsPage() {
  }, [user?.branch_id, formData.branchId]);
 
  const load = useCallback(async () => {
+ if (!sessionLoaded) return;
  setLoading(true);
  setError(null);
  try {
  const custParams = new URLSearchParams();
+ const leadsParams = new URLSearchParams();
  custParams.set("page_size", "100");
+ leadsParams.set("page_size", "100");
  if (scopeBranchId) custParams.set("branch_id", scopeBranchId);
+ if (scopeBranchId) leadsParams.set("branch_id", scopeBranchId);
 
  const fetches: [Promise<Response>, Promise<Response>, Promise<Response> | null] = [
- fetch("/api/leads?page_size=100", { credentials: "include", cache: "no-store" }),
- fetch(`/api/customers?${custParams.toString()}`, {
- credentials: "include",
- cache: "no-store",
- }),
- user?.role === "super_admin"
- ? fetch("/api/falco/branches", { credentials: "include", cache: "no-store" })
- : null,
+ apiFetch(`/api/leads?${leadsParams.toString()}`),
+ apiFetch(`/api/customers?${custParams.toString()}`),
+ user?.role === "super_admin" ? apiFetch("/api/falco/branches") : null,
  ];
 
  const [leadsRes, custRes, branchRes] = await Promise.all([
@@ -151,10 +162,11 @@ export default function LeadsPage() {
 
  const { data: leadsJson } = await parseJsonResponse<unknown>(leadsRes);
  if (!leadsRes.ok) {
- if (leadsRes.status === 401) {
- throw new Error("Your session expired. Please sign out and sign in again.");
+ const msg = formatApiResponseError(leadsJson, "Failed to load leads");
+ if (isSessionExpiredResponse(leadsRes.status, msg)) {
+ throw new Error("Your session expired. Please sign in again.");
  }
- throw new Error(formatApiResponseError(leadsJson, "Failed to load leads"));
+ throw new Error(msg);
  }
 
  const custJson = await custRes.json().catch(() => null);
@@ -188,7 +200,7 @@ export default function LeadsPage() {
  } finally {
  setLoading(false);
  }
- }, [scopeBranchId, user?.role]);
+ }, [scopeBranchId, user?.role, sessionLoaded]);
 
  useEffect(() => {
  void load();
@@ -295,7 +307,22 @@ export default function LeadsPage() {
  };
 
  const handleAddLead = async () => {
+ if (!sessionLoaded || !user) {
+ setError("Your session is still loading. Please wait a moment and try again.");
+ return;
+ }
  if (!formData.fullName || !formData.phoneNumber || !formData.locationName) return;
+
+ const phoneDigits = digitsOnly(formData.phoneNumber);
+ if (phoneDigits.length !== TZ_PHONE_MAX_DIGITS) {
+ setError(`Phone number must be exactly ${TZ_PHONE_MAX_DIGITS} digits (e.g. 0712345678).`);
+ return;
+ }
+ const altDigits = digitsOnly(formData.alternatePhone);
+ if (formData.alternatePhone.trim() && altDigits.length !== TZ_PHONE_MAX_DIGITS) {
+ setError(`Alternate number must be exactly ${TZ_PHONE_MAX_DIGITS} digits.`);
+ return;
+ }
  const branchId = formData.branchId.trim() || user?.branch_id?.trim() || "";
  if (needsBranchPicker && !branchId) {
  setError("Select a branch for this lead.");
@@ -321,10 +348,8 @@ export default function LeadsPage() {
  status: formData.status,
  });
 
- const res = await fetch("/api/leads", {
+ const res = await apiFetch("/api/leads", {
  method: "POST",
- credentials: "include",
- cache: "no-store",
  headers: { "Content-Type": "application/json" },
  body: JSON.stringify({
  ...body,
@@ -333,10 +358,16 @@ export default function LeadsPage() {
  });
  const { data } = await parseJsonResponse<unknown>(res);
  if (!res.ok) {
- if (res.status === 401) {
- throw new Error("Your session expired. Please sign out and sign in again, then retry.");
+ const msg = apiErrorMessage(data, formatApiResponseError(data, "Failed to save lead"));
+ if (isSessionExpiredResponse(res.status, msg)) {
+ throw new Error("Your session expired. Please sign in again.");
  }
- throw new Error(formatApiResponseError(data, "Failed to save lead"));
+ if (res.status === 403) {
+ throw new Error(
+ "You do not have permission to add leads. Ask your branch manager to enable leads access for loan officers."
+ );
+ }
+ throw new Error(msg);
  }
 
  await load();
@@ -365,28 +396,52 @@ export default function LeadsPage() {
  }
  };
 
+ const mergeLeadIntoList = useCallback((updated: LeadView) => {
+ setLeads((prev) => prev.map((row) => (row.id === updated.id ? { ...row, ...updated } : row)));
+ }, []);
+
+ const refreshLeadDetail = useCallback(
+ async (leadId: string) => {
+ try {
+ const res = await apiFetch(`/api/leads/${encodeURIComponent(leadId)}`, { cache: "no-store" });
+ const { data } = await parseJsonResponse<unknown>(res);
+ if (!res.ok) return;
+ const detail = extractLeadDetail(data);
+ if (detail) mergeLeadIntoList(detail);
+ } catch {
+ /* keep list row as-is */
+ }
+ },
+ [mergeLeadIntoList]
+ );
+
+ useEffect(() => {
+ if (!selectedLeadId) return;
+ void refreshLeadDetail(selectedLeadId);
+ }, [selectedLeadId, refreshLeadDetail]);
+
  const selectedLead = visibleLeads.find((lead) => lead.id === selectedLeadId);
- const mapLead =
- selectedLead && selectedLead.latitude && selectedLead.longitude
- ? selectedLead
- : visibleLeads.find((lead) => lead.latitude && lead.longitude);
+ const mapLead = selectedLead && leadHasMapTarget(selectedLead) ? selectedLead : null;
+ const mapEmbedUrl = mapLead ? leadMapEmbedUrl(mapLead) : null;
+
+ const focusLeadOnMap = (lead: LeadView) => {
+ setSelectedLeadId(lead.id);
+ void refreshLeadDetail(lead.id);
+ requestAnimationFrame(() => {
+ mapSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+ });
+ };
 
  const openMapDirections = (lead: LeadView) => {
- if (!lead.latitude || !lead.longitude) return;
- window.open(
- `https://www.google.com/maps/dir/?api=1&destination=${lead.latitude},${lead.longitude}`,
- "_blank",
- "noopener,noreferrer"
- );
+ const url = leadMapDirectionsUrl(lead);
+ if (!url) return;
+ window.open(url, "_blank", "noopener,noreferrer");
  };
 
  const openMapView = (lead: LeadView) => {
- if (!lead.latitude || !lead.longitude) return;
- window.open(
- `https://www.google.com/maps/search/?api=1&query=${lead.latitude},${lead.longitude}`,
- "_blank",
- "noopener,noreferrer"
- );
+ focusLeadOnMap(lead);
+ const url = leadMapViewUrl(lead);
+ if (url) window.open(url, "_blank", "noopener,noreferrer");
  };
 
  return (
@@ -457,7 +512,7 @@ export default function LeadsPage() {
  <div
  key={lead.id}
  className="space-y-2 rounded-xl border border-emerald-100 bg-emerald-50/30 p-3"
- onClick={() => setSelectedLeadId(lead.id)}
+ onClick={() => focusLeadOnMap(lead)}
  >
  <div className="flex items-start justify-between gap-2">
  <div>
@@ -475,7 +530,7 @@ export default function LeadsPage() {
  size="sm"
  variant="outline"
  className="h-8 border-emerald-300 text-emerald-700"
- disabled={!lead.latitude || !lead.longitude}
+ disabled={!leadHasMapTarget(lead)}
  onClick={(event) => {
  event.stopPropagation();
  openMapView(lead);
@@ -487,9 +542,10 @@ export default function LeadsPage() {
  <Button
  size="sm"
  className="h-8 bg-emerald-600 hover:bg-emerald-700"
- disabled={!lead.latitude || !lead.longitude}
+ disabled={!leadHasMapTarget(lead)}
  onClick={(event) => {
  event.stopPropagation();
+ focusLeadOnMap(lead);
  openMapDirections(lead);
  }}
  >
@@ -523,11 +579,13 @@ export default function LeadsPage() {
  </TableCell>
  </TableRow>
  ) : (
- visibleLeads.map((lead) => (
+ visibleLeads.map((lead) => {
+ const coords = parseLeadCoordinates(lead);
+ return (
  <TableRow
  key={lead.id}
  className="cursor-pointer"
- onClick={() => setSelectedLeadId(lead.id)}
+ onClick={() => focusLeadOnMap(lead)}
  >
  <TableCell className="font-medium">{lead.fullName}</TableCell>
  <TableCell>
@@ -548,11 +606,13 @@ export default function LeadsPage() {
  </TableCell>
  <TableCell>{lead.locationName}</TableCell>
  <TableCell>
- {lead.latitude && lead.longitude ? (
+ {coords ? (
  <span className="inline-flex items-center gap-1 text-xs">
  <MapPin className="h-3 w-3" />
- {lead.latitude}, {lead.longitude}
+ {coords.latitude}, {coords.longitude}
  </span>
+ ) : lead.locationName ? (
+ <span className="text-xs text-muted-foreground">Address only</span>
  ) : (
  <span className="text-xs text-muted-foreground">Not captured</span>
  )}
@@ -567,7 +627,7 @@ export default function LeadsPage() {
  size="sm"
  variant="outline"
  className="h-8 border-emerald-300 text-emerald-700"
- disabled={!lead.latitude || !lead.longitude}
+ disabled={!leadHasMapTarget(lead)}
  onClick={(event) => {
  event.stopPropagation();
  openMapView(lead);
@@ -579,9 +639,10 @@ export default function LeadsPage() {
  <Button
  size="sm"
  className="h-8 bg-emerald-600 hover:bg-emerald-700"
- disabled={!lead.latitude || !lead.longitude}
+ disabled={!leadHasMapTarget(lead)}
  onClick={(event) => {
  event.stopPropagation();
+ focusLeadOnMap(lead);
  openMapDirections(lead);
  }}
  >
@@ -591,7 +652,8 @@ export default function LeadsPage() {
  </div>
  </TableCell>
  </TableRow>
- ))
+ );
+ })
  )}
  </TableBody>
  </Table>
@@ -693,22 +755,26 @@ export default function LeadsPage() {
  </Field>
  <Field>
  <FieldLabel>Phone Number</FieldLabel>
- <Input
- placeholder="+255 xxx xxx xxx"
+ <TzValidatedInput
+ kind="phone"
+ placeholder="0712345678"
  value={formData.phoneNumber}
- onChange={(e) =>
- setFormData((prev) => ({ ...prev, phoneNumber: e.target.value }))
+ onValueChange={(phoneNumber) =>
+ setFormData((prev) => ({ ...prev, phoneNumber }))
  }
+ maxLength={10}
  />
  </Field>
  <Field>
  <FieldLabel>Alternate Number (optional)</FieldLabel>
- <Input
- placeholder="+255 xxx xxx xxx"
+ <TzValidatedInput
+ kind="phone"
+ placeholder="0712345678"
  value={formData.alternatePhone}
- onChange={(e) =>
- setFormData((prev) => ({ ...prev, alternatePhone: e.target.value }))
+ onValueChange={(alternatePhone) =>
+ setFormData((prev) => ({ ...prev, alternatePhone }))
  }
+ maxLength={10}
  />
  </Field>
  <Field>
@@ -878,7 +944,7 @@ export default function LeadsPage() {
  </Card>
  )}
 
- <Card>
+ <Card ref={mapSectionRef}>
  <CardHeader>
  <CardTitle>Leads Map</CardTitle>
  <CardDescription>
@@ -886,7 +952,13 @@ export default function LeadsPage() {
  </CardDescription>
  </CardHeader>
  <CardContent className="space-y-3">
- <Select value={selectedLeadId} onValueChange={setSelectedLeadId}>
+ <Select
+ value={selectedLeadId}
+ onValueChange={(id) => {
+ setSelectedLeadId(id);
+ void refreshLeadDetail(id);
+ }}
+ >
  <SelectTrigger className="max-w-md">
  <SelectValue placeholder="Choose lead for map view" />
  </SelectTrigger>
@@ -899,24 +971,31 @@ export default function LeadsPage() {
  </SelectContent>
  </Select>
 
- {mapLead ? (
+ {mapLead && mapEmbedUrl ? (
  <div className="overflow-hidden rounded-lg border border-border">
  <div className="border-b border-border bg-muted px-3 py-2 text-sm">
  <span className="font-medium">{mapLead.fullName}</span> |{" "}
  <span className="text-muted-foreground">
  {mapLead.locationName} ({locationTypeLabel[mapLead.locationType]})
  </span>
+ {!parseLeadCoordinates(mapLead) && (
+ <span className="ml-2 text-xs text-amber-700">(approximate — from address)</span>
+ )}
  </div>
  <iframe
  title="Lead location map"
- src={`https://maps.google.com/maps?q=${mapLead.latitude},${mapLead.longitude}&z=15&output=embed`}
+ src={mapEmbedUrl}
  className="h-72 w-full"
  loading="lazy"
  />
  </div>
+ ) : selectedLeadId ? (
+ <p className="text-sm text-muted-foreground">
+ This lead has no location name or coordinates. Add a location when editing the lead.
+ </p>
  ) : (
  <p className="text-sm text-muted-foreground">
- No lead with coordinates yet. Capture latitude and longitude to display map.
+ Select a lead from the list or use View to show their location here.
  </p>
  )}
  </CardContent>

@@ -20,9 +20,32 @@ const API_TO_APP: Record<ApiStaffRole, UserRole> = {
  customer_service: "customer_service",
 };
 
+/** Alternate LMS / legacy role strings → app role. */
+const ROLE_ALIASES: Record<string, UserRole> = {
+ admin: "super_admin",
+ super_admin: "super_admin",
+ superadmin: "super_admin",
+ manager: "branch_manager",
+ branch_manager: "branch_manager",
+ "branch manager": "branch_manager",
+ loan_officer: "loan_officer",
+ "loan officer": "loan_officer",
+ loanofficer: "loan_officer",
+ credit_analyst: "credit_analyst",
+ "credit analyst": "credit_analyst",
+ collections_officer: "collections_officer",
+ "collections officer": "collections_officer",
+ accountant: "accountant",
+ customer_service: "customer_service",
+ "customer service": "customer_service",
+};
+
 export function mapApiRoleToAppRole(role: string | undefined | null): UserRole | null {
  if (!role) return null;
- const key = String(role).trim().toLowerCase() as ApiStaffRole;
+ const normalized = String(role).trim().toLowerCase().replace(/\s+/g, " ");
+ const fromAlias = ROLE_ALIASES[normalized];
+ if (fromAlias) return fromAlias;
+ const key = normalized.replace(/ /g, "_") as ApiStaffRole;
  const mapped = API_TO_APP[key];
  return mapped ?? null;
 }

@@ -1,7 +1,6 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { loginRedirectForRole } from "@/lib/role-portal";
 import type { UserRole } from "@/lib/types";
 import Image from "next/image";
@@ -26,12 +25,11 @@ import {
 } from "@/lib/preferences";
 
 export function LoginScreen() {
- const router = useRouter();
  const languageCtx = useOptionalLanguage();
  const [email, setEmail] = useState("");
  const [password, setPassword] = useState("");
  const [showPassword, setShowPassword] = useState(false);
- const [rememberMe, setRememberMe] = useState(false);
+ const [rememberMe, setRememberMe] = useState(true);
  const [error, setError] = useState("");
  const [loading, setLoading] = useState(false);
  const [language, setLanguage] = useState<AppLanguage>("en");
@@ -104,7 +102,7 @@ export function LoginScreen() {
  const target =
  payload.redirectTo ??
  (payload.role ? loginRedirectForRole(payload.role) : "/dashboard");
- router.replace(target);
+ window.location.assign(target);
  } catch {
  setError(t.unableToLogin);
  } finally {

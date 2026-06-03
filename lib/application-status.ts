@@ -65,6 +65,16 @@ export function isBlockedApplicationRawStatus(raw: string): boolean {
  return raw === "rejected" || raw === "cancelled";
 }
 
+/** Draft / submitted / in review — not yet approved. */
+export function isPendingApplicationStatus(status: LoanApplicationStatus): boolean {
+ return status === "draft" || status === "submitted" || status === "under_review";
+}
+
+/** Approved through disbursement (matches applications list KPIs). */
+export function isApprovedApplicationStatus(status: LoanApplicationStatus): boolean {
+ return status === "approved" || status === "pending_disbursement" || status === "disbursed";
+}
+
 /** Application (and linked loan) is ready for the disbursement console. */
 export function isApplicationReadyForDisbursement(
  rawOrStatus: string | undefined | null,

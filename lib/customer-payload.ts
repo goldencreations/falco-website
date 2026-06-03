@@ -1,3 +1,4 @@
+import { parseMoneyInput } from "@/lib/money-input";
 import type { Customer, EmploymentType } from "@/lib/types";
 
 function employmentTypeToOccupationHint(et: EmploymentType): string {
@@ -124,7 +125,12 @@ export function mapFormPayloadToCustomerApi(input: Record<string, unknown>): Rec
  const risk_grade =
  riskLevel === "low" ? "A" : riskLevel === "medium" ? "B" : riskLevel === "high" ? "C" : "D";
 
- const monthlyRaw = input.monthly_income != null && input.monthly_income !== "" ? Number(input.monthly_income) : NaN;
+ const monthlyRaw =
+ input.monthly_income != null && input.monthly_income !== ""
+ ? typeof input.monthly_income === "number"
+ ? input.monthly_income
+ : parseMoneyInput(String(input.monthly_income))
+ : NaN;
  const monthly_income = Number.isFinite(monthlyRaw) && monthlyRaw > 0 ? monthlyRaw : 1;
 
  const businessName = input.business_name ? String(input.business_name).trim() : "";
@@ -202,6 +208,7 @@ export function mapFormPayloadToCustomerApi(input: Record<string, unknown>): Rec
  is_blacklisted,
  branch_id: String(input.branch_id ?? "").trim(),
  metadata: {
+ monthly_income,
  street: input.street ?? null,
  payment_reference: input.payment_reference ?? null,
  loan_officer_id: input.loan_officer_id ?? null,

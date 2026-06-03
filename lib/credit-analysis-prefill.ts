@@ -1,4 +1,5 @@
 import { adaptApiCustomerRowToCustomer } from "@/lib/customer-adapters";
+import { formatMoneyFromNumber, parseMoneyInput } from "@/lib/money-input";
 import type { LoanProduct } from "@/lib/types";
 
 export type CashFlowFormState = {
@@ -39,14 +40,16 @@ export type CrbFormState = {
 
 function numStr(v: unknown): string {
  if (v == null || v === "") return "";
- const n = typeof v === "number" ? v : Number(String(v).replace(/,/g, ""));
- return Number.isFinite(n) && n !== 0 ? String(n) : "";
+ const n = typeof v === "number" ? v : parseMoneyInput(String(v));
+ return Number.isFinite(n) && n !== 0 ? formatMoneyFromNumber(n) : "";
 }
 
 function numStrAllowZero(v: unknown): string {
  if (v == null || v === "") return "";
- const n = typeof v === "number" ? v : Number(String(v).replace(/,/g, ""));
- return Number.isFinite(n) ? String(n) : "";
+ const n = typeof v === "number" ? v : parseMoneyInput(String(v));
+ if (!Number.isFinite(n)) return "";
+ if (n === 0) return "0";
+ return formatMoneyFromNumber(n);
 }
 
 export function readRowMetadata(obj: Record<string, unknown> | null | undefined): Record<string, unknown> {
@@ -335,7 +338,7 @@ export function overlayFromSavedAnalysis(
 }
 
 function toNum(s: string): number | undefined {
- const n = parseFloat(String(s).replace(/,/g, ""));
+ const n = parseMoneyInput(String(s));
  return Number.isFinite(n) ? n : undefined;
 }
 
@@ -451,7 +454,7 @@ export function extractAnalysisFromSaveResponse(data: unknown): Record<string, u
 export function extractAttachmentIdFromUploadResponse(data: unknown): string | null {
  if (!data || typeof data !== "object") return null;
  const o = data as Record<string, unknown>;
- const att = o.attachment;
+ const att = o.attachment ?? o.document;
  if (att && typeof att === "object") {
  const id = (att as Record<string, unknown>).id;
  return id != null ? String(id) : null;

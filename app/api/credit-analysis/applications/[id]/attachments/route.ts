@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { extractApplicationDetail } from "@/lib/application-adapters";
 import { ensureResourceBranchAllowed, requireApiUser } from "@/lib/authorization";
-import { getFalcoApiBaseUrl } from "@/lib/falco-api";
-import { getFalcoAccessTokenFromCookies, falcoServerFetch } from "@/lib/server-falco";
+import { uploadCreditAnalysisAttachment } from "@/lib/credit-analysis-server";
+import { falcoServerFetch } from "@/lib/server-falco";
 
 export async function POST(
  request: Request,
@@ -37,6 +37,37 @@ export async function POST(
  { method: "POST", body, request }
  );
 
+ if (res.ok) {
+ return NextResponse.json(res.data ?? { ok: true });
+ }
+
+ if (res.error.status === 403) {
+ const fallback = await falcoServerFetch<unknown>(
+ `/applications/${encodeURIComponent(id)}/documents`,
+ { method: "POST", body, request }
+ );
+ if (fallback.ok) {
+ const data = fallback.data;
+ const doc =
+ data && typeof data === "object" && (data as Record<string, unknown>).document;
+ if (doc && typeof doc === "object") {
+ return NextResponse.json({
+ attachment: { id: String((doc as Record<string, unknown>).id ?? "") },
+ });
+ }
+ return NextResponse.json(fallback.data ?? { ok: true });
+ }
+ }
+
+ return NextResponse.json(
+ { message: res.error.message, details: res.error.details },
+ { status: res.error.status }
+ );
+ }
+
+ const incoming = await request.formData();
+ const res = await uploadCreditAnalysisAttachment(request, id, incoming);
+
  if (!res.ok) {
  return NextResponse.json(
  { message: res.error.message, details: res.error.details },
@@ -44,59 +75,4 @@ export async function POST(
  );
  }
  return NextResponse.json(res.data ?? { ok: true });
- }
-
- const token = await getFalcoAccessTokenFromCookies();
- if (!token) {
- return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
- }
-
- const incoming = await request.formData();
- const outbound = new FormData();
- for (const [key, value] of incoming.entries()) {
- if (value instanceof File) outbound.append(key, value, value.name);
- else outbound.append(key, value);
- }
-
- const res = await fetch(
- `${getFalcoApiBaseUrl()}/credit-analysis/applications/${encodeURIComponent(id)}/attachments`,
- {
- method: "POST",
- headers: {
- Authorization: `Bearer ${token}`,
- Accept: "application/json",
- },
- body: outbound,
- cache: "no-store",
- }
- );
-
- const text = await res.text();
- let data: unknown = null;
- if (text) {
- try {
- data = JSON.parse(text);
- } catch {
- data = { message: text };
- }
- }
-
- if (!res.ok) {
- const o = data && typeof data === "object" ? (data as Record<string, unknown>) : {};
- const err = o.error && typeof o.error === "object" ? (o.error as Record<string, unknown>) : o;
- return NextResponse.json(
- {
- message:
- typeof err.message === "string"
- ? err.message
- : typeof o.message === "string"
- ? o.message
- : "Attachment upload failed",
- details: err.details ?? o.details,
- },
- { status: res.status }
- );
- }
-
- return NextResponse.json(data ?? { ok: true });
 }
