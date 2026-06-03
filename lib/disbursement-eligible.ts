@@ -81,7 +81,7 @@ function toEligibleApplicationRow(app: AppRow, linkedLoan?: EligibleLoanRow): El
  return {
  id: app.id,
  application_number: app.application_number,
- customer_display_name: app.customerDisplayName || linkedLoan?.customer_display_name || "Customer",
+    customer_display_name: app.customerDisplayName || linkedLoan?.customer_display_name || "",
  status: app.status,
  approved_amount: amount,
  requested_amount: app.requested_amount,
@@ -141,7 +141,7 @@ function synthesizeApplicationFromLoan(
  return {
  id: applicationId,
  application_number: applicationNumberFromLoan(loan),
- customer_display_name: loan.customer_display_name ?? "Customer",
+    customer_display_name: loan.customer_display_name ?? "",
  status: "pending_disbursement",
  approved_amount: amount,
  requested_amount: amount,

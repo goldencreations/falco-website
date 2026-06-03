@@ -7,7 +7,7 @@ import { loginRedirectForRole } from "@/lib/role-portal";
 
 export default async function ManagerLayout({ children }: { children: React.ReactNode }) {
  const user = await getServerSessionUser();
- if (!user) redirect("/");
+ if (!user) redirect("/?logged_out=1");
  if (user.role !== "branch_manager") redirect(loginRedirectForRole(user.role));
 
  const branchLabel = user.branch_id ? "Your branch" : "Branch";

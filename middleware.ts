@@ -1,8 +1,9 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import {
- ACCESS_TOKEN_COOKIE_NAME,
- APP_ROLE_COOKIE_NAME,
+  ACCESS_TOKEN_COOKIE_NAME,
+  APP_ROLE_COOKIE_NAME,
+  AUTH_COOKIE_NAME,
 } from "@/lib/auth";
 import {
  isForbiddenPathForRole,
@@ -24,7 +25,21 @@ function roleFromCookies(request: NextRequest): UserRole | null {
 }
 
 function redirectHome(request: NextRequest, role: UserRole): NextResponse {
- return NextResponse.redirect(new URL(loginRedirectForRole(role), request.url));
+  return NextResponse.redirect(new URL(loginRedirectForRole(role), request.url));
+}
+
+/** Redirect to login and clear all auth cookies to break any redirect loops. */
+function redirectToLogin(request: NextRequest): NextResponse {
+  const secure = process.env.NODE_ENV === "production";
+  // Use ?logged_out=1 so the public-path → redirectHome branch is skipped
+  // even if the browser fails to process the Set-Cookie headers on a 3xx.
+  const loginUrl = new URL("/?logged_out=1", request.url);
+  const response = NextResponse.redirect(loginUrl);
+  const cookieBase = { httpOnly: true as const, sameSite: "lax" as const, secure, path: "/", maxAge: 0 };
+  response.cookies.set(ACCESS_TOKEN_COOKIE_NAME, "", cookieBase);
+  response.cookies.set(APP_ROLE_COOKIE_NAME, "", cookieBase);
+  response.cookies.set(AUTH_COOKIE_NAME, "", cookieBase);
+  return response;
 }
 
 export function middleware(request: NextRequest) {
@@ -50,38 +65,38 @@ export function middleware(request: NextRequest) {
  pathname.startsWith("/accountant") ||
  pathname.startsWith("/api");
 
- if (!accessToken) {
- if (pathname.startsWith("/api")) {
- return NextResponse.json(
- { error: "Unauthorized", message: "Your session expired. Please sign in again." },
- { status: 401 }
- );
- }
- if (isProtectedApp) {
- return NextResponse.redirect(new URL("/", request.url));
- }
- if (!isPublicPath(pathname)) {
- return NextResponse.redirect(new URL("/", request.url));
- }
- return NextResponse.next();
- }
+  if (!accessToken) {
+    if (pathname.startsWith("/api")) {
+      return NextResponse.json(
+        { error: "Unauthorized", message: "Your session expired. Please sign in again." },
+        { status: 401 }
+      );
+    }
+    if (isProtectedApp || !isPublicPath(pathname)) {
+      return redirectToLogin(request);
+    }
+    return NextResponse.next();
+  }
 
- if (!role) {
- if (isProtectedApp) {
- if (pathname.startsWith("/api")) {
- return NextResponse.json(
- { error: "Unauthorized", message: "Your session expired. Please sign in again." },
- { status: 401 }
- );
- }
- return NextResponse.redirect(new URL("/", request.url));
- }
- return NextResponse.next();
- }
+  if (!role) {
+    if (isProtectedApp) {
+      if (pathname.startsWith("/api")) {
+        return NextResponse.json(
+          { error: "Unauthorized", message: "Your session expired. Please sign in again." },
+          { status: 401 }
+        );
+      }
+      return redirectToLogin(request);
+    }
+    return NextResponse.next();
+  }
 
- if (isPublicPath(pathname)) {
- return redirectHome(request, role);
- }
+  if (isPublicPath(pathname)) {
+    // Skip auto-redirect if arriving via a forced logout — show the login page.
+    const loggedOut = request.nextUrl.searchParams.get("logged_out");
+    if (loggedOut) return NextResponse.next();
+    return redirectHome(request, role);
+  }
 
  if (isForbiddenPathForRole(role, pathname)) {
  return redirectHome(request, role);
