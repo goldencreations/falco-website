@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Building2, Home, Save, Store, UserPlus, Users } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Badge } from "@/components/ui/badge";
@@ -34,6 +34,7 @@ import { parseMoneyInput } from "@/lib/money-input";
 import type { SessionUser } from "@/lib/auth";
 import { syntheticBranchFromSession } from "@/lib/branch-scope";
 import { formatValidationDetails } from "@/lib/falco-api";
+import { parseLeadPrefillFromSearchParams } from "@/lib/lead-to-customer-prefill";
 import { useSessionUser } from "@/lib/use-session-user";
 
 const CustomerLocationMapPicker = dynamic(
@@ -171,7 +172,7 @@ const defaultForm: CustomerCreateForm = {
  created_by: "",
 };
 
-function sessionUserToLoanOfficer(user: SessionUser): User {
+function sessionUserToLoanOfficer(user: Pick<SessionUser, "id" | "email" | "full_name" | "branch_id">): User {
  return {
  id: user.id,
  email: user.email,
@@ -186,7 +187,7 @@ function sessionUserToLoanOfficer(user: SessionUser): User {
  };
 }
 
-function officerAssignmentDefaults(user: SessionUser): Partial<CustomerCreateForm> {
+function officerAssignmentDefaults(user: Pick<SessionUser, "id" | "branch_id">): Partial<CustomerCreateForm> {
  const branchId = user.branch_id?.trim() ?? "";
  if (!branchId) return { created_by: user.id };
  return {
@@ -198,6 +199,7 @@ function officerAssignmentDefaults(user: SessionUser): Partial<CustomerCreateFor
 
 export default function NewCustomerPage() {
  const router = useRouter();
+ const searchParams = useSearchParams();
  const portalOfficer = useOptionalOfficerSession();
  const { user: clientUser, loaded: clientSessionLoaded } = useSessionUser();
  const user = portalOfficer ?? clientUser;
@@ -231,6 +233,28 @@ export default function NewCustomerPage() {
  );
  const [officersLoading, setOfficersLoading] = useState(false);
  const [officersError, setOfficersError] = useState("");
+ const [leadPrefillId, setLeadPrefillId] = useState<string | null>(null);
+ const appliedLeadPrefillRef = useRef(false);
+
+ useEffect(() => {
+  if (appliedLeadPrefillRef.current) return;
+  const { leadId, fields } = parseLeadPrefillFromSearchParams(searchParams);
+  if (!leadId) return;
+  appliedLeadPrefillRef.current = true;
+  setLeadPrefillId(leadId);
+  setForm((prev) => ({
+   ...prev,
+   full_name: fields.full_name || prev.full_name,
+   phone: fields.phone || prev.phone,
+   alt_phone: fields.alt_phone || prev.alt_phone,
+   region: fields.region || prev.region,
+   district: fields.district || prev.district,
+   ward: fields.ward || prev.ward,
+   street: fields.street || prev.street,
+   notes: fields.notes || prev.notes,
+   branch_id: fields.branch_id || prev.branch_id,
+  }));
+ }, [searchParams]);
 
  const loadBranches = useCallback(async () => {
  if (lockedBranchId && user) {
@@ -638,6 +662,15 @@ export default function NewCustomerPage() {
  </Link>
  </Button>
  </div>
+
+ {leadPrefillId ? (
+  <div className="rounded-lg border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-900">
+   <p className="font-medium">Pre-filled from lead</p>
+   <p className="mt-0.5 text-xs text-amber-800">
+    Details from lead {leadPrefillId} were copied into this form. Complete the remaining fields and save to register the customer.
+   </p>
+  </div>
+ ) : null}
 
  <form onSubmit={handleSubmit} className="space-y-6">
  <div className="grid gap-6 lg:grid-cols-3">
@@ -1188,8 +1221,8 @@ export default function NewCustomerPage() {
  </Card>
  </div>
 
- <div className="space-y-6">
- <Card className="sticky top-6">
+        <div className="space-y-6 self-start">
+            <Card className="sticky top-6">
  <CardHeader>
  <CardTitle>Submit Summary</CardTitle>
  <CardDescription>Review the assignment and key details, then register the customer.</CardDescription>

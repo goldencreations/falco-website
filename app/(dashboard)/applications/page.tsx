@@ -3,19 +3,20 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
- Download,
- Plus,
- Search,
- Filter,
- Eye,
- Pencil,
- CheckCircle,
- XCircle,
- Clock,
- FileText,
- Scale,
- Trash2,
- X,
+  Download,
+  Loader2,
+  Plus,
+  Search,
+  Filter,
+  Eye,
+  Pencil,
+  CheckCircle,
+  XCircle,
+  Clock,
+  FileText,
+  Scale,
+  Trash2,
+  X,
 } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Button } from "@/components/ui/button";
@@ -84,11 +85,12 @@ import {
  formatRequiredDocumentLabel,
 } from "@/lib/application-documents";
 import {
- buildApplicationChecklist,
- canDeleteApplication,
- getApplicationWorkflowActions,
- approveApplicationApi,
- runAdminActivateApplicationWorkflow,
+  activateApplicationApi,
+  buildApplicationChecklist,
+  canDeleteApplication,
+  getApplicationWorkflowActions,
+  approveApplicationApi,
+  runAdminActivateApplicationWorkflow,
 } from "@/lib/application-workflow";
 import { formatCurrency, formatDateTime } from "@/lib/formatters";
 import { exportApplicationToPdf } from "@/lib/application-pdf";
@@ -800,20 +802,23 @@ export default function ApplicationsPage() {
  Change status (API)
  </DropdownMenuItem>
  ) : null}
- {getApplicationWorkflowActions(app, effectiveRole, user?.full_name ?? "User").map((wf) => (
- <DropdownMenuItem
- key={wf.id}
- className={wf.variant === "destructive" ? "text-destructive" : "text-accent"}
- disabled={actionBusyId === app.id}
- onClick={() =>
- void (wf.id === "admin_activate"
- ? handleAdminActivate(app)
- : runWorkflowAction(app.id, wf.run))
- }
- >
- {wf.label}
- </DropdownMenuItem>
- ))}
+  {getApplicationWorkflowActions(app, effectiveRole, user?.full_name ?? "User").map((wf) => (
+    <DropdownMenuItem
+      key={wf.id}
+      className={wf.variant === "destructive" ? "text-destructive" : "text-accent"}
+      disabled={actionBusyId === app.id}
+      onClick={() =>
+        void (wf.id === "admin_activate"
+          ? handleAdminActivate(app)
+          : runWorkflowAction(app.id, wf.run))
+      }
+    >
+      {actionBusyId === app.id ? (
+        <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+      ) : null}
+      {wf.label}
+    </DropdownMenuItem>
+  ))}
  {canDeleteApplication(effectiveRole, app, user?.id) ? (
  <>
  <DropdownMenuItem disabled className="text-xs font-semibold text-muted-foreground">
@@ -1079,21 +1084,24 @@ Create disbursement
 </Button>
 ) : null}
 {getApplicationWorkflowActions(
- selectedApplication,
- effectiveRole,
- user?.full_name ?? "User"
+  selectedApplication,
+  effectiveRole,
+  user?.full_name ?? "User"
 ).map((wf) => (
 <Button
- key={wf.id}
- variant={wf.variant === "destructive" ? "destructive" : "default"}
- className={wf.variant === "destructive" ? undefined : "bg-emerald-600 hover:bg-emerald-700"}
- disabled={actionBusyId === selectedApplication.id}
- onClick={() =>
- void (wf.id === "admin_activate"
- ? handleAdminActivate(selectedApplication)
- : runWorkflowAction(selectedApplication.id, wf.run))
- }
+  key={wf.id}
+  variant={wf.variant === "destructive" ? "destructive" : "default"}
+  className={wf.variant === "destructive" ? undefined : "bg-emerald-600 hover:bg-emerald-700"}
+  disabled={actionBusyId === selectedApplication.id}
+  onClick={() =>
+    void (wf.id === "admin_activate"
+      ? handleAdminActivate(selectedApplication)
+      : runWorkflowAction(selectedApplication.id, wf.run))
+  }
 >
+{actionBusyId === selectedApplication.id ? (
+  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+) : null}
 {wf.label}
 </Button>
 ))}
@@ -1168,11 +1176,14 @@ Upload the missing files below, then activation will continue automatically.
 Cancel
 </Button>
 <Button
- className="bg-emerald-600 hover:bg-emerald-700"
- disabled={!activateDocsDialog || actionBusyId === activateDocsDialog.appId}
- onClick={() => void confirmActivateWithDocuments()}
+  className="bg-emerald-600 hover:bg-emerald-700"
+  disabled={!activateDocsDialog || actionBusyId === activateDocsDialog.appId}
+  onClick={() => void confirmActivateWithDocuments()}
 >
-Activate & create loan
+  {activateDocsDialog && actionBusyId === activateDocsDialog.appId ? (
+    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+  ) : null}
+  Activate & create loan
 </Button>
 </DialogFooter>
 </DialogContent>

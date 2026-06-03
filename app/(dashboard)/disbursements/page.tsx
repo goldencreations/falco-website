@@ -1083,7 +1083,7 @@ export default function DisbursementsPage() {
  }
  >
  <TableCell className="py-2 text-xs font-medium">{app.application_number}</TableCell>
- <TableCell className="py-2 text-xs">{app.customer_display_name}</TableCell>
+            <TableCell className="py-2 text-xs">{app.customer_display_name || "—"}</TableCell>
  <TableCell className="py-2">
  <Badge
  variant={canSelect ? "default" : "secondary"}
@@ -1181,7 +1181,9 @@ export default function DisbursementsPage() {
  return (
  <SelectItem key={app.id} value={app.id} disabled={!canPick || preparingApplicationId === app.id}>
  <span className="font-medium">{app.application_number}</span>
- <span className="text-muted-foreground"> · {app.customer_display_name}</span>
+              {app.customer_display_name ? (
+                <span className="text-muted-foreground"> · {app.customer_display_name}</span>
+              ) : null}
  {app.loan_number ? (
  <span className="text-muted-foreground"> · {app.loan_number}</span>
  ) : null}
@@ -1232,7 +1234,7 @@ export default function DisbursementsPage() {
  )}
  <span className="text-muted-foreground">
  {" "}
- · {l.customer_display_name ?? "Customer"}
+              {l.customer_display_name ? ` · ${l.customer_display_name}` : ""}
  </span>
  </SelectItem>
  ))}

@@ -7,7 +7,7 @@ import { loginRedirectForRole } from "@/lib/role-portal";
 
 export default async function AccountantLayout({ children }: { children: React.ReactNode }) {
  const user = await getServerSessionUser();
- if (!user) redirect("/");
+ if (!user) redirect("/?logged_out=1");
  if (user.role !== "accountant") {
  redirect(loginRedirectForRole(user.role));
  }

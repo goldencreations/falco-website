@@ -1169,21 +1169,28 @@ onValueChange={(value) => {
  rows={2}
  />
  </Field>
- <Field>
- <FieldLabel>Collateral Image Attachment</FieldLabel>
- <Input
- type="file"
- accept="image/*"
- onChange={(e) =>
- updateCollateral(index, "image", e.target.files?.[0] ?? null)
- }
- />
- {collateral.image && (
- <p className="mt-1 text-xs text-muted-foreground">
- Attached: {collateral.image.name}
- </p>
- )}
- </Field>
+              <Field>
+                <FieldLabel>Collateral Image Attachment</FieldLabel>
+                <Input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) =>
+                    updateCollateral(index, "image", e.target.files?.[0] ?? null)
+                  }
+                />
+                {collateral.image && (
+                  <div className="mt-2 overflow-hidden rounded-md border border-border">
+                    <img
+                      src={URL.createObjectURL(collateral.image)}
+                      alt="Collateral preview"
+                      className="max-h-48 w-full object-contain"
+                    />
+                    <p className="border-t border-border bg-muted px-2 py-1 text-xs text-muted-foreground truncate">
+                      {collateral.image.name}
+                    </p>
+                  </div>
+                )}
+              </Field>
  </FieldGroup>
  </div>
  ))}
@@ -1288,38 +1295,64 @@ onValueChange={(value) => {
  />
  </Field>
  )}
- <div className="grid gap-4 sm:grid-cols-2">
- <Field>
- <FieldLabel>Guarantor ID Front</FieldLabel>
- <Input
- type="file"
- accept="image/*,.pdf"
- onChange={(e) =>
- updateGuarantor(index, "idFront", e.target.files?.[0] ?? null)
- }
- />
- {guarantor.idFront && (
- <p className="mt-1 text-xs text-muted-foreground">
- Attached: {guarantor.idFront.name}
- </p>
- )}
- </Field>
- <Field>
- <FieldLabel>Guarantor ID Back</FieldLabel>
- <Input
- type="file"
- accept="image/*,.pdf"
- onChange={(e) =>
- updateGuarantor(index, "idBack", e.target.files?.[0] ?? null)
- }
- />
- {guarantor.idBack && (
- <p className="mt-1 text-xs text-muted-foreground">
- Attached: {guarantor.idBack.name}
- </p>
- )}
- </Field>
- </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field>
+                  <FieldLabel>Guarantor ID Front</FieldLabel>
+                  <Input
+                    type="file"
+                    accept="image/*,.pdf"
+                    onChange={(e) =>
+                      updateGuarantor(index, "idFront", e.target.files?.[0] ?? null)
+                    }
+                  />
+                  {guarantor.idFront && (
+                    guarantor.idFront.type.startsWith("image/") ? (
+                      <div className="mt-2 overflow-hidden rounded-md border border-border">
+                        <img
+                          src={URL.createObjectURL(guarantor.idFront)}
+                          alt="ID front preview"
+                          className="max-h-40 w-full object-contain"
+                        />
+                        <p className="border-t border-border bg-muted px-2 py-1 text-xs text-muted-foreground truncate">
+                          {guarantor.idFront.name}
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="mt-1 text-xs text-muted-foreground truncate">
+                        📄 {guarantor.idFront.name}
+                      </p>
+                    )
+                  )}
+                </Field>
+                <Field>
+                  <FieldLabel>Guarantor ID Back</FieldLabel>
+                  <Input
+                    type="file"
+                    accept="image/*,.pdf"
+                    onChange={(e) =>
+                      updateGuarantor(index, "idBack", e.target.files?.[0] ?? null)
+                    }
+                  />
+                  {guarantor.idBack && (
+                    guarantor.idBack.type.startsWith("image/") ? (
+                      <div className="mt-2 overflow-hidden rounded-md border border-border">
+                        <img
+                          src={URL.createObjectURL(guarantor.idBack)}
+                          alt="ID back preview"
+                          className="max-h-40 w-full object-contain"
+                        />
+                        <p className="border-t border-border bg-muted px-2 py-1 text-xs text-muted-foreground truncate">
+                          {guarantor.idBack.name}
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="mt-1 text-xs text-muted-foreground truncate">
+                        📄 {guarantor.idBack.name}
+                      </p>
+                    )
+                  )}
+                </Field>
+              </div>
  </FieldGroup>
  </div>
  ))}
