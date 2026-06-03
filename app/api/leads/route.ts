@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
+import { shouldSoftEmptyApiError } from "@/lib/api-soft-fallback";
 import { requireApiUser, resolvedBranchIdForListQuery } from "@/lib/authorization";
 import { formatFalcoApiError } from "@/lib/falco-api";
 import { mapUiLeadCreateToApi } from "@/lib/lead-adapters";
 import { resolveLeadCreateBranchId } from "@/lib/lead-branch";
 import { falcoServerFetch } from "@/lib/server-falco";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export async function GET(request: Request) {
  const auth = await requireApiUser(request);
@@ -18,10 +22,7 @@ export async function GET(request: Request) {
  q: url.searchParams.get("q") ?? undefined,
  status: url.searchParams.get("status") ?? undefined,
  branch_id: branchId,
- created_by:
- auth.user.role === "loan_officer"
- ? auth.user.id
- : url.searchParams.get("created_by") ?? undefined,
+ created_by: url.searchParams.get("created_by") ?? undefined,
  follow_up_from: url.searchParams.get("follow_up_from") ?? undefined,
  follow_up_to: url.searchParams.get("follow_up_to") ?? undefined,
  page: url.searchParams.get("page") ?? "1",
@@ -30,6 +31,9 @@ export async function GET(request: Request) {
  });
 
  if (!res.ok) {
+ if (shouldSoftEmptyApiError(auth.user, res.error.status)) {
+ return NextResponse.json({ data: [], _fallback: true, message: res.error.message });
+ }
  const msg = formatFalcoApiError(res.error);
  return NextResponse.json(
  { message: msg, error: msg, details: res.error.details },
@@ -37,7 +41,13 @@ export async function GET(request: Request) {
  );
  }
 
- return NextResponse.json(res.data);
+ return NextResponse.json(res.data, {
+ headers: {
+ "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+ Pragma: "no-cache",
+ Expires: "0",
+ },
+ });
 }
 
 export async function POST(request: Request) {

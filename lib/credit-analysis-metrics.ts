@@ -1,7 +1,8 @@
 import type { CashFlowFormState, CommitteeRow, LoanProposalFormState } from "@/lib/credit-analysis-prefill";
+import { parseMoneyInput } from "@/lib/money-input";
 
 function toNumber(value: string): number {
- const n = parseFloat(String(value).replace(/,/g, ""));
+ const n = parseMoneyInput(String(value));
  return Number.isFinite(n) ? n : 0;
 }
 

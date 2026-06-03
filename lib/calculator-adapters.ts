@@ -1,3 +1,4 @@
+import { parseMoneyInput } from "@/lib/money-input";
 import type { InterestType, LoanProduct, RepaymentFrequency } from "@/lib/types";
 
 export type CalculatorScheduleRow = {
@@ -153,7 +154,7 @@ export type CalculatorPreviewForm = {
 
 /** Map UI form → `POST /calculator/preview` body. */
 export function mapUiCalculatorPreviewToApi(form: CalculatorPreviewForm): Record<string, unknown> | null {
- const principal = num(form.principal.replace(/,/g, ""));
+ const principal = num(parseMoneyInput(form.principal));
  if (principal < 1) return null;
 
  const loanPeriodMonths = num(form.loanPeriodMonths);

@@ -90,22 +90,29 @@ export default function CustomersPage() {
  const params = new URLSearchParams();
  if (scopeBranchId) params.set("branch_id", scopeBranchId);
  params.set("page_size", "100");
- const endpoint = isManagerView
+ const useEnrichedList = isManagerView || (isSuperAdmin && scopeBranchId);
+ const endpoint = useEnrichedList
  ? `/api/customers/with-assignments?${params.toString()}`
  : `/api/customers?${params.toString()}`;
  const res = await fetch(endpoint, { credentials: "include", cache: "no-store" });
- const json = (await res.json().catch(() => ({}))) as unknown;
+ const json = (await res.json().catch(() => ({}))) as {
+ customers?: Customer[];
+ message?: string;
+ };
  if (!res.ok) {
- throw new Error(formatApiResponseError(json as { message?: string }, t("customers.loadError")));
+ throw new Error(formatApiResponseError(json, t("customers.loadError")));
  }
- setCustomers(extractCustomersList(json));
+ const list = useEnrichedList && Array.isArray(json.customers)
+ ? json.customers
+ : extractCustomersList(json);
+ setCustomers(list);
  } catch (e) {
  setCustomers([]);
  setLoadError(e instanceof Error ? e.message : t("customers.loadError"));
  } finally {
  setLoading(false);
  }
- }, [scopeBranchId, isOfficerView, isManagerView, t]);
+ }, [scopeBranchId, isOfficerView, isManagerView, isSuperAdmin, t]);
 
  useEffect(() => {
  void loadCustomers();

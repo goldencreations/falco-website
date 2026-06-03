@@ -33,36 +33,71 @@ export type ManagerBranchSnapshot = {
  collectionsToday: number;
 };
 
-function branchParams(branchId: string): URLSearchParams {
+function branchParams(branchId: string, pageSize = "80"): URLSearchParams {
  const p = new URLSearchParams();
  if (branchId) p.set("branch_id", branchId);
- p.set("page_size", "200");
+ p.set("page_size", pageSize);
  return p;
 }
 
-export async function loadManagerBranchSnapshot(branchId: string): Promise<ManagerBranchSnapshot> {
- const q = branchParams(branchId);
+export type ManagerDashboardEssentials = {
+ metrics: ManagerMetricsPayload | null;
+ applications: ApplicationViewRow[];
+ collectionsToday: number;
+};
+
+/** Metrics + application counts first (fast paint). */
+export async function loadManagerDashboardEssentials(
+ branchId: string
+): Promise<ManagerDashboardEssentials> {
+ const q = branchParams(branchId, "60");
  const today = new Date().toISOString().slice(0, 10);
 
- const [metricsRes, customersRes, appsRes, loansRes, paymentsRes, teamRes, activitiesRes] =
- await Promise.all([
+ const [metricsRes, appsRes, activitiesRes] = await Promise.all([
  fetch(`/api/falco/dashboard/metrics?branch_id=${encodeURIComponent(branchId)}`, {
  credentials: "include",
  }),
- fetch(`/api/customers?${q.toString()}`, { credentials: "include" }),
  fetch(`/api/applications?${q.toString()}`, { credentials: "include" }),
- fetch(`/api/loans?${q.toString()}`, { credentials: "include" }),
- fetch(`/api/payments?${q.toString()}`, { credentials: "include" }),
- fetch(`/api/staff/directory?${q.toString()}`, { credentials: "include" }),
  fetch(
- `/api/collections/activities?branch_id=${encodeURIComponent(branchId)}&from=${today}&to=${today}&page_size=200`,
+ `/api/collections/activities?branch_id=${encodeURIComponent(branchId)}&from=${today}&to=${today}&page_size=50`,
  { credentials: "include" }
  ),
  ]);
 
  const metrics = metricsRes.ok ? ((await metricsRes.json()) as ManagerMetricsPayload) : null;
- const customers = customersRes.ok ? extractCustomersList(await customersRes.json()) : [];
  const applications = appsRes.ok ? extractApplicationsList(await appsRes.json()) : [];
+ const activities = activitiesRes.ok
+ ? extractPaginatedData<Record<string, unknown>>(await activitiesRes.json())
+ : [];
+
+ return {
+ metrics,
+ applications,
+ collectionsToday: activities.length,
+ };
+}
+
+/** Heavier lists loaded after essentials (customers, loans, payments, team). */
+export async function loadManagerDashboardDetails(
+ branchId: string
+): Promise<
+ Pick<ManagerBranchSnapshot, "customers" | "loans" | "payments" | "team" | "collectionsToday">
+> {
+ const q = branchParams(branchId, "80");
+ const today = new Date().toISOString().slice(0, 10);
+
+ const [customersRes, loansRes, paymentsRes, teamRes, activitiesRes] = await Promise.all([
+ fetch(`/api/customers?${q.toString()}`, { credentials: "include" }),
+ fetch(`/api/loans?${q.toString()}`, { credentials: "include" }),
+ fetch(`/api/payments?${q.toString()}`, { credentials: "include" }),
+ fetch(`/api/staff/directory?${q.toString()}`, { credentials: "include" }),
+ fetch(
+ `/api/collections/activities?branch_id=${encodeURIComponent(branchId)}&from=${today}&to=${today}&page_size=50`,
+ { credentials: "include" }
+ ),
+ ]);
+
+ const customers = customersRes.ok ? extractCustomersList(await customersRes.json()) : [];
  const loans = loansRes.ok ? extractLoansList(await loansRes.json()) : [];
  const payments = paymentsRes.ok
  ? extractPaymentsPayload(await paymentsRes.json()).payments
@@ -73,12 +108,27 @@ export async function loadManagerBranchSnapshot(branchId: string): Promise<Manag
  : [];
 
  return {
- metrics,
  customers,
- applications,
  loans,
  payments,
  team,
  collectionsToday: activities.length,
+ };
+}
+
+export async function loadManagerBranchSnapshot(branchId: string): Promise<ManagerBranchSnapshot> {
+ const [essentials, details] = await Promise.all([
+ loadManagerDashboardEssentials(branchId),
+ loadManagerDashboardDetails(branchId),
+ ]);
+
+ return {
+ metrics: essentials.metrics,
+ applications: essentials.applications,
+ collectionsToday: details.collectionsToday || essentials.collectionsToday,
+ customers: details.customers,
+ loans: details.loans,
+ payments: details.payments,
+ team: details.team,
  };
 }

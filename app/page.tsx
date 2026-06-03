@@ -1,17 +1,13 @@
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { LoginScreen } from "@/components/login-screen";
-import { ACCESS_TOKEN_COOKIE_NAME, APP_ROLE_COOKIE_NAME } from "@/lib/auth";
-import { loginRedirectForRole, ROLE_HOME_PATH } from "@/lib/role-portal";
-import type { UserRole } from "@/lib/types";
+import { getServerSessionUser } from "@/lib/auth";
+import { loginRedirectForRole } from "@/lib/role-portal";
 
-/** Skip login UI when session cookies are already valid (fast path on slow networks). */
+/** Skip login UI when the access token resolves to a valid session (role from API, not stale cookie). */
 export default async function HomePage() {
- const cookieStore = await cookies();
- const token = cookieStore.get(ACCESS_TOKEN_COOKIE_NAME)?.value;
- const roleRaw = cookieStore.get(APP_ROLE_COOKIE_NAME)?.value;
- if (token && roleRaw && roleRaw in ROLE_HOME_PATH) {
- redirect(loginRedirectForRole(roleRaw as UserRole));
+ const user = await getServerSessionUser();
+ if (user) {
+ redirect(loginRedirectForRole(user.role));
  }
  return <LoginScreen />;
 }

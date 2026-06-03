@@ -1,13 +1,17 @@
 import { NextResponse } from "next/server";
 import {
  ACCESS_TOKEN_COOKIE_NAME,
- APP_ROLE_COOKIE_NAME,
  AUTH_COOKIE_NAME,
 } from "@/lib/auth";
+import { applyAppRoleCookie, clearAppRoleCookie } from "@/lib/app-role-cookie";
 import { FalcoApiError, formatValidationDetails } from "@/lib/falco-api";
 import { postStaffLoginToApi, type StaffLoginApiResponse } from "@/lib/falco-staff-login";
 import { mapApiRoleToAppRole } from "@/lib/api-roles";
 import { loginRedirectForRole } from "@/lib/role-portal";
+import {
+ resolveSessionMaxAgeSeconds,
+ staffRememberMeFromLoginBody,
+} from "@/lib/session-config";
 import type { UserRole } from "@/lib/types";
 
 type LoginBody = {
@@ -15,11 +19,6 @@ type LoginBody = {
  password?: string;
  rememberMe?: boolean;
 };
-function cookieMaxAgeSeconds(rememberMe: boolean, expiresIn?: number): number {
- if (typeof expiresIn === "number" && expiresIn > 0) return expiresIn;
- return rememberMe ? 60 * 60 * 24 * 30 : 60 * 60 * 24;
-}
-
 function redirectForRole(role: UserRole): string {
  return loginRedirectForRole(role);
 }
@@ -39,10 +38,11 @@ export async function POST(request: Request) {
  }
 
  try {
+ const rememberMe = staffRememberMeFromLoginBody(body.rememberMe);
  const remote: StaffLoginApiResponse = await postStaffLoginToApi({
  email,
  password,
- rememberMe: body.rememberMe === true,
+ rememberMe,
  });
  const accessToken =
  remote.access_token ?? remote.tokens?.access_token ?? null;
@@ -55,7 +55,7 @@ export async function POST(request: Request) {
  return NextResponse.json({ message: "Unknown account role" }, { status: 502 });
  }
 
- const maxAge = cookieMaxAgeSeconds(body.rememberMe === true, remote.tokens?.expires_in);
+ const maxAge = resolveSessionMaxAgeSeconds(rememberMe, remote.tokens?.expires_in);
  const secure = process.env.NODE_ENV === "production";
  const cookieBase = {
  httpOnly: true as const,
@@ -71,8 +71,9 @@ export async function POST(request: Request) {
  redirectTo: redirectForRole(appRole),
  });
 
+ clearAppRoleCookie(response);
  response.cookies.set(ACCESS_TOKEN_COOKIE_NAME, accessToken, cookieBase);
- response.cookies.set(APP_ROLE_COOKIE_NAME, appRole, cookieBase);
+ applyAppRoleCookie(response, appRole, { maxAge, secure });
 
  response.cookies.set(AUTH_COOKIE_NAME, "", {
  httpOnly: true,

@@ -1,7 +1,7 @@
 import type { ApplicationViewRow } from "@/lib/application-adapters";
 import { extractCustomersList } from "@/lib/customer-adapters";
 import { extractProductsList } from "@/lib/product-adapters";
-import type { Customer, LoanProduct, RiskGrade, User } from "@/lib/types";
+import type { Customer, LoanProduct, RiskGrade, User, UserRole } from "@/lib/types";
 import { extractUsersListPayload } from "@/lib/user-adapters";
 
 export type ProductLookupEntry = {
@@ -139,19 +139,28 @@ export function enrichApplicationRows(
  return rows.map((row) => enrichApplicationRow(row, ctx));
 }
 
+export type ApplicationEnrichmentOptions = {
+ role?: UserRole;
+};
+
 export async function fetchApplicationEnrichmentContext(
- scopeBranchId?: string | null
+ scopeBranchId?: string | null,
+ options?: ApplicationEnrichmentOptions
 ): Promise<EnrichmentContext> {
+ const isOfficer = options?.role === "loan_officer";
+ const listPageSize = isOfficer ? "80" : "150";
+
  const customerParams = new URLSearchParams();
- customerParams.set("page_size", "500");
+ customerParams.set("page_size", listPageSize);
  if (scopeBranchId) customerParams.set("branch_id", scopeBranchId);
 
  const staffParams = new URLSearchParams();
- staffParams.set("page_size", "500");
+ staffParams.set("page_size", isOfficer ? "40" : listPageSize);
  if (scopeBranchId) staffParams.set("branch_id", scopeBranchId);
+ if (isOfficer) staffParams.set("role", "loan_officer");
 
  const [prodRes, staffRes, custRes] = await Promise.all([
- fetch("/api/falco/products", { credentials: "include" }),
+ fetch("/api/falco/products?is_active=true", { credentials: "include" }),
  fetch(`/api/staff/directory?${staffParams.toString()}`, { credentials: "include" }),
  fetch(`/api/customers?${customerParams.toString()}`, { credentials: "include" }),
  ]);

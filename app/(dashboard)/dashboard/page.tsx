@@ -1,14 +1,36 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { KPICards } from "@/components/dashboard/kpi-cards";
-import { DashboardChartsPanel } from "@/components/dashboard/dashboard-charts-panel";
-import { RecentActivity } from "@/components/dashboard/recent-activity";
-import { LoansAtRisk } from "@/components/dashboard/loans-at-risk";
 import { useTranslations } from "@/lib/i18n/use-translations";
 import { formatCurrency } from "@/lib/formatters";
-import { ArrowUpRight, ShieldCheck, WalletCards } from "lucide-react";
+import { ArrowUpRight, Loader2, ShieldCheck, WalletCards } from "lucide-react";
+
+const DashboardChartsPanel = dynamic(
+ () =>
+ import("@/components/dashboard/dashboard-charts-panel").then((m) => ({
+ default: m.DashboardChartsPanel,
+ })),
+ { loading: () => <DashboardSectionSkeleton /> }
+);
+const RecentActivity = dynamic(
+ () => import("@/components/dashboard/recent-activity").then((m) => ({ default: m.RecentActivity })),
+ { loading: () => <DashboardSectionSkeleton /> }
+);
+const LoansAtRisk = dynamic(
+ () => import("@/components/dashboard/loans-at-risk").then((m) => ({ default: m.LoansAtRisk })),
+ { loading: () => <DashboardSectionSkeleton /> }
+);
+
+function DashboardSectionSkeleton() {
+ return (
+ <div className="flex min-h-[120px] items-center justify-center rounded-xl border border-dashed border-border/60 text-muted-foreground">
+ <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+ </div>
+ );
+}
 
 type MetricsPayload = {
  metrics?: {

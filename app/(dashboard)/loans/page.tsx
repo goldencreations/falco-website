@@ -95,6 +95,8 @@ export default function LoansPage() {
  const scopeBranchId = isBranchScopedStaffRole(user?.role) ? user?.branch_id ?? null : null;
  const portalBase = rolePortalBase(user?.role);
  const paymentsBasePath = portalBase ? `${portalBase}/payments` : "/payments";
+ const creditAnalysisPath =
+ user?.role === "loan_officer" ? "/officer/credit-analysis" : "/credit-analysis";
 
  const [loans, setLoans] = useState<LoanListRow[]>([]);
  const [assignedCustomerIds, setAssignedCustomerIds] = useState<Set<string> | null>(null);
@@ -525,7 +527,7 @@ export default function LoansPage() {
  </Button>
  {loan.application_id ? (
  <Button variant="ghost" size="sm" asChild title="Credit analysis for originating application">
- <Link href={`/credit-analysis?applicationId=${loan.application_id}`}>
+ <Link href={`${creditAnalysisPath}?applicationId=${loan.application_id}`}>
  <Scale className="h-4 w-4" />
  </Link>
  </Button>

@@ -1,7 +1,7 @@
 import { adaptApiBranchToBranch, extractBranchesList } from "@/lib/branch-adapters";
 import { mapApiRoleToAppRole, mapAppRoleToApiRole } from "@/lib/api-roles";
 import type { SessionUser } from "@/lib/auth";
-import { isBranchDataScoped } from "@/lib/authorization";
+import { isBranchDataScoped, syntheticBranchFromSession } from "@/lib/branch-scope";
 import { falcoServerFetch } from "@/lib/server-falco";
 import type { Branch, User, UserRole } from "@/lib/types";
 import { adaptApiUserToUser, extractUsersListPayload } from "@/lib/user-adapters";
@@ -103,19 +103,7 @@ export function usersFromBranchesSummary(raw: unknown): User[] {
  return Array.from(byId.values());
 }
 
-export function syntheticBranchFromSession(user: SessionUser): Branch {
- const id = user.branch_id.trim() || "branch";
- return {
- id,
- name: `Branch ${id}`,
- code: id,
- region: "",
- address: "",
- phone: "",
- manager_id: "",
- is_active: true,
- };
-}
+export { syntheticBranchFromSession } from "@/lib/branch-scope";
 
 export function canListStaffViaUsersApi(user: SessionUser): boolean {
  return (

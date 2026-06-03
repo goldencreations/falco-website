@@ -2,38 +2,27 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
 import { loginRedirectForRole } from "@/lib/role-portal";
+import { useOfficerSession } from "@/components/officer-session-context";
 import { useSessionUser } from "@/lib/use-session-user";
-
-function OfficerLoadingShell() {
- return (
- <div className="flex min-h-[50vh] flex-1 flex-col items-center justify-center gap-2 text-muted-foreground">
- <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
- <p className="text-sm">Loading officer portal…</p>
- </div>
- );
-}
 
 export function OfficerPortalGate({ children }: { children: React.ReactNode }) {
  const router = useRouter();
- const { user, loaded } = useSessionUser();
+ const serverUser = useOfficerSession();
+ const { user: clientUser, loaded } = useSessionUser();
 
  useEffect(() => {
  if (!loaded) return;
- if (!user) {
+ if (!clientUser) {
  router.replace("/");
  return;
  }
- if (user.role !== "loan_officer") {
- router.replace(loginRedirectForRole(user.role));
+ if (clientUser.role !== "loan_officer") {
+ router.replace(loginRedirectForRole(clientUser.role));
  }
- }, [loaded, user, router]);
+ }, [loaded, clientUser, router]);
 
- if (!loaded) return <OfficerLoadingShell />;
- if (!user || user.role !== "loan_officer") return <OfficerLoadingShell />;
-
- const missingBranch = !user.branch_id?.trim();
+ const missingBranch = !serverUser.branch_id?.trim();
 
  return (
  <>

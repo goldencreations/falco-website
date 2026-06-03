@@ -20,7 +20,11 @@ import { useOptionalBranchAssignment } from "@/components/branch-assignment-cont
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { loadManagerBranchSnapshot, type ManagerBranchSnapshot } from "@/lib/manager-branch-load";
+import {
+ loadManagerDashboardDetails,
+ loadManagerDashboardEssentials,
+ type ManagerBranchSnapshot,
+} from "@/lib/manager-branch-load";
 import { useTranslations } from "@/lib/i18n/use-translations";
 import { formatCurrency } from "@/lib/formatters";
 import { useSessionUser } from "@/lib/use-session-user";
@@ -41,7 +45,8 @@ export default function ManagerDashboardPage() {
  const { user, loaded } = useSessionUser();
  const branchCtx = useOptionalBranchAssignment();
  const [snapshot, setSnapshot] = useState<ManagerBranchSnapshot>(emptySnapshot);
- const [loading, setLoading] = useState(true);
+ const [loadingEssentials, setLoadingEssentials] = useState(true);
+ const [loadingDetails, setLoadingDetails] = useState(false);
  const [error, setError] = useState<string | null>(null);
 
  const branchId = user?.branch_id?.trim() ?? "";
@@ -56,22 +61,33 @@ export default function ManagerDashboardPage() {
  if (!branchId) {
  setError(t("manager.noBranchLinked"));
  setSnapshot(emptySnapshot);
- setLoading(false);
+ setLoadingEssentials(false);
+ setLoadingDetails(false);
  return;
  }
- setLoading(true);
+ setLoadingEssentials(true);
  setError(null);
  try {
- const data = await loadManagerBranchSnapshot(branchId);
- setSnapshot(data);
- if (!data.metrics && !data.loans.length && !data.customers.length) {
+ const essentials = await loadManagerDashboardEssentials(branchId);
+ setSnapshot((prev) => ({
+ ...prev,
+ metrics: essentials.metrics,
+ applications: essentials.applications,
+ collectionsToday: essentials.collectionsToday,
+ }));
+ if (!essentials.metrics && !essentials.applications.length) {
  setError(t("manager.noBranchData"));
  }
+ setLoadingEssentials(false);
+ setLoadingDetails(true);
+ const details = await loadManagerDashboardDetails(branchId);
+ setSnapshot((prev) => ({ ...prev, ...details }));
  } catch {
  setError(t("manager.loadFailed"));
  setSnapshot(emptySnapshot);
  } finally {
- setLoading(false);
+ setLoadingEssentials(false);
+ setLoadingDetails(false);
  }
  }, [branchId, t]);
 
@@ -152,7 +168,7 @@ export default function ManagerDashboardPage() {
  </div>
  ) : null}
 
- {loading ? (
+ {loadingEssentials ? (
  <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
  <Loader2 className="h-5 w-5 animate-spin" />
  {t("manager.loadingBranch")}

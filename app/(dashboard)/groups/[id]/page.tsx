@@ -13,6 +13,8 @@ import { extractGroupDetail, type GroupDetailView } from "@/lib/group-adapters";
 import { extractCustomersList } from "@/lib/customer-adapters";
 import { formatDate } from "@/lib/formatters";
 import type { GroupMemberRow } from "@/lib/group-adapters";
+import { resolvePortalHref } from "@/lib/portal-paths";
+import { useSessionUser } from "@/lib/use-session-user";
 
 export default function GroupDetailPage({
  params,
@@ -20,6 +22,8 @@ export default function GroupDetailPage({
  params: Promise<{ id: string }>;
 }) {
  const resolved = use(params);
+ const { user } = useSessionUser();
+ const groupsListHref = resolvePortalHref(user?.role, "/groups");
  const { users, branches } = useBranchAssignment();
  const [group, setGroup] = useState<GroupDetailView | null>(null);
  const [loading, setLoading] = useState(true);
@@ -117,7 +121,7 @@ export default function GroupDetailPage({
  <main className="flex-1 p-6 space-y-4">
  {error ? <p className="text-sm text-destructive">{error}</p> : null}
  <Button asChild>
- <Link href="/groups">Back to Vikundi</Link>
+ <Link href={groupsListHref}>Back to Vikundi</Link>
  </Button>
  </main>
  </>
@@ -138,7 +142,7 @@ export default function GroupDetailPage({
  <main className="flex-1 overflow-auto p-4 lg:p-6">
  <div className="mx-auto max-w-7xl space-y-6">
  <Button variant="ghost" size="sm" asChild>
- <Link href="/groups">
+ <Link href={groupsListHref}>
  <ArrowLeft className="mr-2 h-4 w-4" />
  Back to Vikundi
  </Link>
@@ -205,6 +209,8 @@ export default function GroupDetailPage({
  <GroupMembersPanel
  groupId={resolved.id}
  group={group}
+ readOnly={user?.role === "loan_officer"}
+ customerDetailHref={(id) => resolvePortalHref(user?.role, `/customers/${id}`)}
  onChanged={() => loadGroup({ silent: true })}
  />
 

@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
+import { isBranchDataScoped } from "@/lib/branch-scope";
 import type { UserRole } from "@/lib/types";
 import {
  ACCESS_TOKEN_COOKIE_NAME,
  fetchSessionUserFromToken,
  type SessionUser,
 } from "@/lib/auth";
+
+export { isBranchDataScoped } from "@/lib/branch-scope";
 
 function getCookieValue(cookieHeader: string, name: string): string | null {
  const part = cookieHeader
@@ -54,14 +57,6 @@ export function ensureBranchAccess(user: SessionUser, branchId: string): NextRes
 /** Super admin is not list-scoped to a single branch. */
 export function isSuperAdmin(user: SessionUser): boolean {
  return user.role === "super_admin";
-}
-
-/**
- * Branch managers, loan officers, and other branch-assigned roles must not read/write
- * other branches' data (see `backend-documentation/branches-controller.md`).
- */
-export function isBranchDataScoped(user: SessionUser): boolean {
- return user.role !== "super_admin" && Boolean(user.branch_id?.trim());
 }
 
 /**

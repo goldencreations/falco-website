@@ -123,6 +123,8 @@ export default function ApplicationsPage() {
  : effectiveRole === "loan_officer"
  ? "/officer/applications/new"
  : "/applications/new";
+ const creditAnalysisPath =
+ effectiveRole === "loan_officer" ? "/officer/credit-analysis" : "/credit-analysis";
  const [searchQuery, setSearchQuery] = useState("");
  const [statusFilter, setStatusFilter] = useState<string>("all");
  const [applications, setApplications] = useState<ApplicationViewRow[]>([]);
@@ -148,11 +150,11 @@ export default function ApplicationsPage() {
  setListLoading(true);
  setActionError(null);
  try {
- const ctx = await fetchApplicationEnrichmentContext(scopeBranchId);
+ const ctx = await fetchApplicationEnrichmentContext(scopeBranchId, { role: effectiveRole });
  setEnrichmentCtx(ctx);
 
  const params = new URLSearchParams();
- params.set("page_size", "100");
+ params.set("page_size", isOfficerView ? "80" : "100");
  if (scopeBranchId) params.set("branch_id", scopeBranchId);
  const res = await fetch(`/api/applications?${params.toString()}`, { credentials: "include" });
  const json = await res.json();
@@ -166,7 +168,7 @@ export default function ApplicationsPage() {
  } finally {
  setListLoading(false);
  }
- }, [scopeBranchId]);
+ }, [scopeBranchId, effectiveRole, isOfficerView]);
 
  useEffect(() => {
  void reloadApplications();
@@ -225,7 +227,8 @@ export default function ApplicationsPage() {
  let cancelled = false;
  setDetailLoading(true);
  void (async () => {
- const ctx = enrichmentCtx ?? (await fetchApplicationEnrichmentContext(scopeBranchId));
+ const ctx =
+ enrichmentCtx ?? (await fetchApplicationEnrichmentContext(scopeBranchId, { role: effectiveRole }));
  if (cancelled) return;
  if (!enrichmentCtx) setEnrichmentCtx(ctx);
  const res = await fetch(`/api/applications/${encodeURIComponent(selectedApplicationId)}`, {
@@ -247,7 +250,7 @@ export default function ApplicationsPage() {
  return () => {
  cancelled = true;
  };
- }, [selectedApplicationId, enrichmentCtx, scopeBranchId]);
+ }, [selectedApplicationId, enrichmentCtx, scopeBranchId, effectiveRole]);
  const openDeleteDialog = (app: ApplicationViewRow) => {
  setDeleteTarget({
  id: app.id,
@@ -779,7 +782,7 @@ export default function ApplicationsPage() {
  Export PDF
  </DropdownMenuItem>
  <DropdownMenuItem asChild>
- <Link href={`/credit-analysis?applicationId=${app.id}`}>
+ <Link href={`${creditAnalysisPath}?applicationId=${app.id}`}>
  <Scale className="mr-2 h-4 w-4" />
  Analyze
  </Link>

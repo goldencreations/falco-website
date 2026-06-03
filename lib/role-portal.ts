@@ -14,15 +14,18 @@ export const ROLE_HOME_PATH: Record<UserRole, string> = {
 /** Prefixes a role must not use (middleware sends them to ROLE_HOME_PATH). */
 const FORBIDDEN_PREFIXES: Partial<Record<UserRole, readonly string[]>> = {
  branch_manager: ["/dashboard", "/officer", "/accountant", "/users"],
- loan_officer: [
- "/dashboard",
- "/manager",
- "/accountant",
- "/users",
- "/officer/payments",
- "/officer/reconciliation",
- "/officer/reports",
- ],
+  loan_officer: [
+    "/dashboard",
+    "/manager",
+    "/accountant",
+    "/users",
+    "/officer/collections",
+    "/officer/disbursements",
+    "/officer/payments",
+    "/officer/reconciliation",
+    "/officer/reports",
+    "/officer/groups/new",
+  ],
  accountant: ["/dashboard", "/manager", "/officer", "/users"],
  super_admin: ["/manager", "/officer", "/accountant", "/staff/team"],
 };

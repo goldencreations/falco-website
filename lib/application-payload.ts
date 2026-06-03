@@ -89,6 +89,7 @@ const ALLOWED_APPLICATION_KEYS = new Set([
  "guarantors",
  "references",
  "location",
+ "metadata",
 ]);
 
 /** Strip UI-only fields (`metadata`, `branch_id`, `is_draft`, …) before proxying to Falco. */

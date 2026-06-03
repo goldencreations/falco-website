@@ -19,13 +19,15 @@ import { useBranchAssignment } from "@/components/branch-assignment-context";
 import { extractGroupsList } from "@/lib/group-adapters";
 import { formatDate } from "@/lib/formatters";
 import type { LoanGroup } from "@/lib/types";
+import { resolvePortalHref } from "@/lib/portal-paths";
 import { useSessionUser } from "@/lib/use-session-user";
 
 export default function GroupsPage() {
  const { user } = useSessionUser();
  const { branches, users } = useBranchAssignment();
+ const isOfficerView = user?.role === "loan_officer";
  const scopeBranchId =
- user?.role === "branch_manager" || user?.role === "loan_officer" ? user.branch_id : null;
+ user?.role === "branch_manager" || isOfficerView ? user.branch_id : null;
 
  const [groups, setGroups] = useState<LoanGroup[]>([]);
  const [loading, setLoading] = useState(true);
@@ -68,6 +70,8 @@ export default function GroupsPage() {
 
  const officerName = (id: string) => users.find((u) => u.id === id)?.full_name ?? "—";
  const branchName = (id: string) => branches.find((b) => b.id === id)?.name ?? "—";
+ const groupsNewHref = resolvePortalHref(user?.role, "/groups/new");
+ const groupDetailHref = (id: string) => resolvePortalHref(user?.role, `/groups/${id}`);
 
  return (
  <>
@@ -77,14 +81,16 @@ export default function GroupsPage() {
  />
  <main className="flex-1 overflow-auto p-4 lg:p-6">
  <div className="mx-auto max-w-7xl space-y-6">
+ {!isOfficerView ? (
  <div className="flex justify-end">
  <Button asChild>
- <Link href="/groups/new">
+ <Link href={groupsNewHref}>
  <Plus className="mr-2 h-4 w-4" />
  Add New Kikundi
  </Link>
  </Button>
  </div>
+ ) : null}
 
  {error ? (
  <Card className="border-destructive/40 bg-destructive/5">
@@ -152,7 +158,9 @@ export default function GroupsPage() {
  {visibleGroups.length === 0 ? (
  <TableRow>
  <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
- No vikundi found. Click &quot;Add New Kikundi&quot; to register a group.
+ {isOfficerView
+ ? "No vikundi assigned to you in this branch."
+ : 'No vikundi found. Click "Add New Kikundi" to register a group.'}
  </TableCell>
  </TableRow>
  ) : (
@@ -194,7 +202,7 @@ export default function GroupsPage() {
  <TableCell>{formatDate(group.created_at)}</TableCell>
  <TableCell className="text-right">
  <Button size="sm" variant="outline" asChild>
- <Link href={`/groups/${group.id}`}>
+ <Link href={groupDetailHref(group.id)}>
  <Wallet className="mr-2 h-4 w-4" />
  View Group
  </Link>

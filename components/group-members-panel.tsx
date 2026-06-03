@@ -41,9 +41,18 @@ type Props = {
  groupId: string;
  group: GroupDetailView;
  onChanged: () => void | Promise<void>;
+ /** Loan officers: view members only (no assign/remove). */
+ readOnly?: boolean;
+ customerDetailHref?: (customerId: string) => string;
 };
 
-export function GroupMembersPanel({ groupId, group, onChanged }: Props) {
+export function GroupMembersPanel({
+ groupId,
+ group,
+ onChanged,
+ readOnly = false,
+ customerDetailHref = (id) => `/customers/${id}`,
+}: Props) {
  const [searchQuery, setSearchQuery] = useState("");
  const [searchResults, setSearchResults] = useState<Customer[]>([]);
  const [searching, setSearching] = useState(false);
@@ -160,6 +169,7 @@ export function GroupMembersPanel({ groupId, group, onChanged }: Props) {
 
  return (
  <div className="space-y-6">
+ {!readOnly ? (
  <Card>
  <CardHeader>
  <CardTitle className="flex items-center gap-2 text-base">
@@ -244,6 +254,7 @@ export function GroupMembersPanel({ groupId, group, onChanged }: Props) {
  ) : null}
  </CardContent>
  </Card>
+ ) : null}
 
  <Card>
  <CardHeader>
@@ -265,14 +276,19 @@ export function GroupMembersPanel({ groupId, group, onChanged }: Props) {
  <TableHead>Risk</TableHead>
  <TableHead>Role</TableHead>
  <TableHead className="text-right">Monthly income</TableHead>
- <TableHead className="text-right">Actions</TableHead>
+ {!readOnly ? <TableHead className="text-right">Actions</TableHead> : null}
  </TableRow>
  </TableHeader>
  <TableBody>
  {group.members.length === 0 ? (
  <TableRow>
- <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
- No members yet. Use the search above to assign customers to this vikundi.
+ <TableCell
+ colSpan={readOnly ? 6 : 7}
+ className="py-8 text-center text-muted-foreground"
+ >
+ {readOnly
+ ? "No members on this vikundi."
+ : "No members yet. Use the search above to assign customers to this vikundi."}
  </TableCell>
  </TableRow>
  ) : (
@@ -282,7 +298,16 @@ export function GroupMembersPanel({ groupId, group, onChanged }: Props) {
  return (
  <TableRow key={member.customerId}>
  <TableCell>
+ {readOnly ? (
+ <Link
+ href={customerDetailHref(member.customerId)}
+ className="font-medium text-primary hover:underline"
+ >
+ {member.customerName}
+ </Link>
+ ) : (
  <p className="font-medium">{member.customerName}</p>
+ )}
  {member.nationalId ? (
  <p className="text-xs text-muted-foreground">ID: {member.nationalId}</p>
  ) : null}
@@ -306,6 +331,7 @@ export function GroupMembersPanel({ groupId, group, onChanged }: Props) {
  <TableCell className="text-right">
  {member.monthlyIncome != null ? formatCurrency(member.monthlyIncome) : "—"}
  </TableCell>
+ {!readOnly ? (
  <TableCell className="text-right">
  <div className="flex justify-end gap-1">
  <Button variant="ghost" size="sm" asChild>
@@ -332,6 +358,7 @@ export function GroupMembersPanel({ groupId, group, onChanged }: Props) {
  ) : null}
  </div>
  </TableCell>
+ ) : null}
  </TableRow>
  );
  })
