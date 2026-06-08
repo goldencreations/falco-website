@@ -130,9 +130,13 @@ export function mapUiLeadCreateToApi(form: {
  status: form.status ?? "new",
  };
 
- const alt = form.alternatePhone?.trim();
- if (alt) payload.alternate_phone = normalizePhone(alt);
- if (form.followUpDate?.trim()) payload.follow_up_date = form.followUpDate.trim();
+  const alt = form.alternatePhone?.trim();
+  if (alt) payload.alternate_phone = normalizePhone(alt);
+  if (form.followUpDate?.trim()) payload.follow_up_date = form.followUpDate.trim();
+
+  if (form.region?.trim()) payload.region = form.region.trim();
+  if (form.district?.trim()) payload.district = form.district.trim();
+  if (form.ward?.trim()) payload.ward = form.ward.trim();
 
  const lat = form.latitude?.trim() ? Number(form.latitude) : NaN;
  const lng = form.longitude?.trim() ? Number(form.longitude) : NaN;
