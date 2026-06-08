@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -197,7 +197,7 @@ function officerAssignmentDefaults(user: Pick<SessionUser, "id" | "branch_id">):
  };
 }
 
-export default function NewCustomerPage() {
+function NewCustomerPageInner() {
  const router = useRouter();
  const searchParams = useSearchParams();
  const portalOfficer = useOptionalOfficerSession();
@@ -1310,10 +1310,18 @@ export default function NewCustomerPage() {
  </Card>
  </div>
  </div>
- </form>
- </div>
- </main>
- )}
- </>
- );
+  </form>
+  </div>
+  </main>
+  )}
+  </>
+  );
+}
+
+export default function NewCustomerPage() {
+  return (
+    <Suspense>
+      <NewCustomerPageInner />
+    </Suspense>
+  );
 }
