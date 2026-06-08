@@ -1,7 +1,8 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { loginRedirectForRole } from "@/lib/role-portal";
+import type { UserRole } from "@/lib/types";
 import Image from "next/image";
 import { Building2, Eye, EyeOff, Globe, Languages } from "lucide-react";
 
@@ -24,12 +25,11 @@ import {
 } from "@/lib/preferences";
 
 export function LoginScreen() {
- const router = useRouter();
  const languageCtx = useOptionalLanguage();
  const [email, setEmail] = useState("");
  const [password, setPassword] = useState("");
  const [showPassword, setShowPassword] = useState(false);
- const [rememberMe, setRememberMe] = useState(false);
+ const [rememberMe, setRememberMe] = useState(true);
  const [error, setError] = useState("");
  const [loading, setLoading] = useState(false);
  const [language, setLanguage] = useState<AppLanguage>("en");
@@ -57,8 +57,6 @@ export function LoginScreen() {
  forgot: "Umesahau nenosiri?",
  signIn: "Ingia",
  signingIn: "Inaingia...",
- noAccount: "Huna akaunti?",
- signUp: "Jisajili",
  invalidCredentials: "Taarifa za kuingia si sahihi.",
  unableToLogin: "Imeshindikana kuingia sasa. Tafadhali jaribu tena.",
     language: "Lugha",
@@ -73,8 +71,6 @@ export function LoginScreen() {
  forgot: "Forgot password?",
  signIn: "Sign in",
  signingIn: "Signing in...",
- noAccount: "Don't have an account?",
- signUp: "Sign up",
  invalidCredentials: "Invalid credentials.",
  unableToLogin: "Unable to login right now. Please try again.",
     language: "Language",
@@ -93,14 +89,20 @@ export function LoginScreen() {
  body: JSON.stringify({ email, password, rememberMe }),
  });
 
- const payload = (await response.json()) as { message?: string; redirectTo?: string };
+ const payload = (await response.json()) as {
+ message?: string;
+ redirectTo?: string;
+ role?: UserRole;
+ };
  if (!response.ok) {
  setError(payload.message ?? t.invalidCredentials);
  return;
  }
 
- router.push(payload.redirectTo ?? "/dashboard");
- router.refresh();
+ const target =
+ payload.redirectTo ??
+ (payload.role ? loginRedirectForRole(payload.role) : "/dashboard");
+ window.location.assign(target);
  } catch {
  setError(t.unableToLogin);
  } finally {
@@ -222,10 +224,6 @@ export function LoginScreen() {
  {loading ? t.signingIn : t.signIn}
  </Button>
  </form>
-
- <p className="mt-6 text-center text-sm text-muted-foreground">
- {t.noAccount} <span className="font-semibold text-primary">{t.signUp}</span>
- </p>
  </div>
  </section>
 
@@ -235,10 +233,10 @@ export function LoginScreen() {
  src="/login.jpg"
  alt=""
  fill
- priority
- quality={85}
+ loading="lazy"
+ quality={55}
  className="object-cover"
- sizes="(min-width: 768px) 60vw, 100vw"
+ sizes="(min-width: 768px) 50vw, 0px"
  />
  </div>
  <div

@@ -1,34 +1,25 @@
-import {
- collectionActivities,
- customers,
- loanApplications,
- loans,
- payments,
- users,
-} from "@/lib/mock-data";
+import type { Branch, UserRole } from "@/lib/types";
 
-export function getBranchCustomers(branchId: string) {
- return customers.filter((item) => item.branch_id === branchId);
+/** Minimal user shape for branch scoping (safe in client components). */
+export type BranchScopedUser = {
+ role: UserRole;
+ branch_id: string;
+};
+
+export function isBranchDataScoped(user: BranchScopedUser): boolean {
+ return user.role !== "super_admin" && Boolean(user.branch_id?.trim());
 }
 
-export function getBranchApplications(branchId: string) {
- return loanApplications.filter((item) => item.branch_id === branchId);
-}
-
-export function getBranchLoans(branchId: string) {
- return loans.filter((item) => item.branch_id === branchId);
-}
-
-export function getBranchPayments(branchId: string) {
- const branchLoanIds = new Set(getBranchLoans(branchId).map((item) => item.id));
- return payments.filter((item) => branchLoanIds.has(item.loan_id));
-}
-
-export function getBranchCollections(branchId: string) {
- const branchLoanIds = new Set(getBranchLoans(branchId).map((item) => item.id));
- return collectionActivities.filter((item) => branchLoanIds.has(item.loan_id));
-}
-
-export function getBranchTeam(branchId: string) {
- return users.filter((item) => item.branch_id === branchId && item.is_active);
+export function syntheticBranchFromSession(user: BranchScopedUser): Branch {
+ const id = user.branch_id.trim() || "branch";
+ return {
+ id,
+ name: `Branch ${id}`,
+ code: id,
+ region: "",
+ address: "",
+ phone: "",
+ manager_id: "",
+ is_active: true,
+ };
 }

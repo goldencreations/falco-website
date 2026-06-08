@@ -29,12 +29,14 @@ import {
  settingsRowsToBranches,
 } from "@/lib/branch-adapters";
 import { parseSettingsBranches } from "@/lib/settings-adapters";
+import { forceCachedReload } from "@/lib/client-fetch-cache";
 import { extractCustomersList } from "@/lib/customer-adapters";
 import { extractGroupDetail } from "@/lib/group-adapters";
 import { extractUsersListPayload } from "@/lib/user-adapters";
 import type { GroupCreateForm } from "@/lib/group-payload";
 import { formatValidationDetails } from "@/lib/falco-api";
 import type { Branch, Customer, User } from "@/lib/types";
+import { resolvePortalHref } from "@/lib/portal-paths";
 import { useSessionUser } from "@/lib/use-session-user";
 
 const MEETING_DAYS = [
@@ -71,6 +73,7 @@ export default function NewGroupPage() {
  const isScopedRole = user?.role === "branch_manager" || isOfficerView;
  const lockedBranchId = isScopedRole ? user?.branch_id ?? "" : "";
  const lockedOfficerId = isOfficerView ? user?.id ?? "" : "";
+ const groupsListHref = resolvePortalHref(user?.role, "/groups");
 
  const { branches: contextBranches, users: contextUsers } = useBranchAssignment();
 
@@ -316,7 +319,11 @@ export default function NewGroupPage() {
  return;
  }
  const created = extractGroupDetail(json);
- router.push(created?.id ? `/groups/${created.id}` : "/groups");
+ router.push(
+ created?.id
+ ? resolvePortalHref(user?.role, `/groups/${created.id}`)
+ : groupsListHref
+ );
  router.refresh();
  } catch {
  setError("Could not reach the server. Try again.");
@@ -334,7 +341,7 @@ export default function NewGroupPage() {
  <main className="flex-1 overflow-auto p-4 lg:p-6">
  <div className="mx-auto max-w-3xl space-y-6">
  <Button variant="ghost" size="sm" asChild>
- <Link href="/groups">
+ <Link href={groupsListHref}>
  <ArrowLeft className="mr-2 h-4 w-4" />
  Back to Vikundi
  </Link>
@@ -423,7 +430,7 @@ export default function NewGroupPage() {
  </p>
  ) : null}
  {branchesError ? <p className="text-xs text-destructive">{branchesError}</p> : null}
- <Button type="button" variant="outline" size="sm" onClick={() => void loadBranches()} disabled={branchesLoading}>
+ <Button type="button" variant="outline" size="sm" onClick={() => forceCachedReload(loadBranches)} disabled={branchesLoading}>
  {branchesLoading ? "Refreshing…" : "Refresh branch list"}
  </Button>
  </div>
@@ -628,7 +635,7 @@ export default function NewGroupPage() {
 
  <div className="flex justify-end gap-2">
  <Button type="button" variant="outline" asChild>
- <Link href="/groups">Cancel</Link>
+ <Link href={groupsListHref}>Cancel</Link>
  </Button>
  <Button type="submit" disabled={submitting || !form.group_name || !form.loan_officer_id}>
  <Save className="mr-2 h-4 w-4" />

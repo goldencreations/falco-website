@@ -1,12 +1,14 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Scale, Plus, Trash2, CheckCircle2, XCircle, MinusCircle, Loader2 } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { MoneyInput } from "@/components/forms/money-input";
 import { Input } from "@/components/ui/input";
+import { parseMoneyInput } from "@/lib/money-input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import {
@@ -55,15 +57,19 @@ import {
  previewCommitteeDecision,
 } from "@/lib/credit-analysis-metrics";
 import type { LoanProduct } from "@/lib/types";
+import { apiFetch, apiErrorMessage, isSessionExpiredResponse } from "@/lib/api-client";
+import { resolvePortalPathFromPathname } from "@/lib/portal-paths";
 import { useSessionUser } from "@/lib/use-session-user";
 
 const QUEUE_STATUSES = ["submitted", "under_review"] as const;
 
 function CreditAnalysisPageContent() {
  const router = useRouter();
+ const pathname = usePathname();
  const searchParams = useSearchParams();
+ const creditAnalysisBase = resolvePortalPathFromPathname(pathname, "/credit-analysis");
  const applicationId = searchParams.get("applicationId");
- const { user } = useSessionUser();
+ const { user, loaded: sessionLoaded } = useSessionUser();
  const scopeBranchId = user?.role === "branch_manager" || user?.role === "loan_officer" ? user.branch_id : null;
  const isOfficerView = user?.role === "loan_officer";
 
@@ -125,6 +131,8 @@ function CreditAnalysisPageContent() {
  const [saveError, setSaveError] = useState<string | null>(null);
 
  useEffect(() => {
+ if (!sessionLoaded) return;
+
  let cancelled = false;
  setListLoading(true);
  setListError(null);
@@ -134,11 +142,15 @@ function CreditAnalysisPageContent() {
 
  void (async () => {
  try {
- const res = await fetch(`/api/credit-analysis/applications?${params.toString()}`);
+ const res = await apiFetch(`/api/credit-analysis/applications?${params.toString()}`);
  if (cancelled) return;
  if (!res.ok) {
  const j = await res.json().catch(() => ({}));
- throw new Error(typeof j.message === "string" ? j.message : "Failed to load credit analysis queue");
+ const msg = apiErrorMessage(j, "Failed to load credit analysis queue");
+ if (isSessionExpiredResponse(res.status, msg)) {
+ throw new Error("Your session expired. Please sign in again.");
+ }
+ throw new Error(msg);
  }
  const json = await res.json();
  if (!cancelled) setApplications(extractApplicationsList(json));
@@ -152,7 +164,7 @@ function CreditAnalysisPageContent() {
  return () => {
  cancelled = true;
  };
- }, [scopeBranchId]);
+ }, [scopeBranchId, sessionLoaded]);
 
  const visibleApplications = useMemo(() => {
  if (!scopeBranchId) return applications;
@@ -215,6 +227,8 @@ function CreditAnalysisPageContent() {
  );
 
  useEffect(() => {
+ if (!sessionLoaded || !user) return;
+
  if (!applicationId) {
  setCustomerApiRow(null);
  setApplicationApiRow(null);
@@ -268,7 +282,7 @@ function CreditAnalysisPageContent() {
 
  (async () => {
  try {
- const cr = await fetch(`/api/credit-analysis/applications/${encodeURIComponent(applicationId)}`);
+ const cr = await apiFetch(`/api/credit-analysis/applications/${encodeURIComponent(applicationId)}`);
  if (cancelled) return;
  if (cr.ok) {
  const data = await cr.json();
@@ -285,11 +299,15 @@ function CreditAnalysisPageContent() {
  return;
  }
 
- const ar = await fetch(`/api/applications/${encodeURIComponent(applicationId)}`);
+ const ar = await apiFetch(`/api/applications/${encodeURIComponent(applicationId)}`);
  if (cancelled) return;
  if (!ar.ok) {
  const j = await ar.json().catch(() => ({}));
- throw new Error(typeof j.message === "string" ? j.message : "Could not load application");
+ const msg = apiErrorMessage(j, "Could not load application");
+ if (isSessionExpiredResponse(ar.status, msg)) {
+ throw new Error("Your session expired. Please sign in again.");
+ }
+ throw new Error(msg);
  }
  const appJson = await ar.json();
  if (cancelled) return;
@@ -300,7 +318,7 @@ function CreditAnalysisPageContent() {
  const customerId = String(appRow.customer_id ?? "");
  let custRow: Record<string, unknown> | null = null;
  if (customerId) {
- const cRes = await fetch(`/api/customers/${encodeURIComponent(customerId)}`);
+ const cRes = await apiFetch(`/api/customers/${encodeURIComponent(customerId)}`);
  if (cancelled) return;
  if (cRes.ok) {
  const cj = await cRes.json();
@@ -311,7 +329,7 @@ function CreditAnalysisPageContent() {
 
  const productId = String(appRow.product_id ?? "");
  let product: ReturnType<typeof adaptApiProductRow> | null = null;
- const pRes = await fetch("/api/falco/products?is_active=true");
+ const pRes = await apiFetch("/api/falco/products?is_active=true");
  if (cancelled) return;
  if (pRes.ok) {
  const pj = await pRes.json();
@@ -333,7 +351,7 @@ function CreditAnalysisPageContent() {
  return () => {
  cancelled = true;
  };
- }, [applicationId, applyPrefillBundle]);
+ }, [applicationId, applyPrefillBundle, sessionLoaded, user]);
 
  const cashFlowMetrics = computeCashFlowMetrics(cashFlow);
  const { grossCashFlow, operatingNet, disposableIncome, repaymentCapacity } = cashFlowMetrics;
@@ -345,9 +363,9 @@ function CreditAnalysisPageContent() {
  liquidityRatio: liquidityPercent,
  } = ratioMetrics;
 
- const amountRequested = parseFloat(loanProposal.amountRequested) || 0;
- const amountApproved = parseFloat(loanProposal.amountApproved) || 0;
- const proposedInstallment = parseFloat(loanProposal.proposedInstallment) || 0;
+ const amountRequested = parseMoneyInput(loanProposal.amountRequested);
+ const amountApproved = parseMoneyInput(loanProposal.amountApproved);
+ const proposedInstallment = parseMoneyInput(loanProposal.proposedInstallment);
 
  const policyIndicators = buildPolicyIndicators({
  cashFlow: cashFlowMetrics,
@@ -396,6 +414,10 @@ function CreditAnalysisPageContent() {
 
  const onSaveAnalysis = async () => {
  if (!applicationId) return;
+ if (!sessionLoaded || !user) {
+ setSaveError("Your session is still loading. Please wait and try again.");
+ return;
+ }
  setSaveLoading(true);
  setSaveError(null);
  try {
@@ -405,15 +427,17 @@ function CreditAnalysisPageContent() {
  fd.append("file", crbDetails.attachment);
  fd.append("type", "crb_report");
  fd.append("name", crbDetails.attachment.name);
- const up = await fetch(
+ const up = await apiFetch(
  `/api/credit-analysis/applications/${encodeURIComponent(applicationId)}/attachments`,
  { method: "POST", body: fd }
  );
  const upJson = await up.json().catch(() => ({}));
  if (!up.ok) {
- throw new Error(
- typeof upJson.message === "string" ? upJson.message : "CRB attachment upload failed"
- );
+ const msg = apiErrorMessage(upJson, "CRB attachment upload failed");
+ if (isSessionExpiredResponse(up.status, msg)) {
+ throw new Error("Your session expired. Please sign in again.");
+ }
+ throw new Error(msg);
  }
  const attId = extractAttachmentIdFromUploadResponse(upJson);
  if (attId) attachmentIds.push(attId);
@@ -446,7 +470,7 @@ function CreditAnalysisPageContent() {
  attachment_ids: attachmentIds.length > 0 ? attachmentIds : undefined,
  }
  );
- const res = await fetch(
+ const res = await apiFetch(
  `/api/credit-analysis/applications/${encodeURIComponent(applicationId)}/analysis`,
  {
  method: "POST",
@@ -456,9 +480,11 @@ function CreditAnalysisPageContent() {
  );
  const j = await res.json().catch(() => ({}));
  if (!res.ok) {
- throw new Error(
- typeof j.message === "string" ? j.message : typeof j.error === "string" ? j.error : "Save failed"
- );
+ const msg = apiErrorMessage(j, "Save failed");
+ if (isSessionExpiredResponse(res.status, msg)) {
+ throw new Error("Your session expired. Please sign in again.");
+ }
+ throw new Error(msg);
  }
  const saved = extractAnalysisFromSaveResponse(j);
  if (saved) {
@@ -536,7 +562,12 @@ function CreditAnalysisPageContent() {
  </TableCell>
  <TableCell>{formatDate(app.created_at)}</TableCell>
  <TableCell className="text-right">
- <Button size="sm" onClick={() => router.push(`/credit-analysis?applicationId=${app.id}`)}>
+ <Button
+ size="sm"
+ onClick={() =>
+ router.push(`${creditAnalysisBase}?applicationId=${encodeURIComponent(app.id)}`)
+ }
+ >
  Open analysis
  </Button>
  </TableCell>
@@ -550,7 +581,7 @@ function CreditAnalysisPageContent() {
 
  {applicationId && (
  <div className="flex flex-wrap items-center gap-2">
- <Button variant="outline" onClick={() => router.push("/credit-analysis")}>
+ <Button variant="outline" onClick={() => router.push(creditAnalysisBase)}>
  Start Over
  </Button>
  <Button onClick={() => void onSaveAnalysis()} disabled={saveLoading || !applicationId}>
@@ -780,55 +811,49 @@ function CreditAnalysisPageContent() {
  </Field>
  <Field>
  <FieldLabel>Other Income</FieldLabel>
- <Input
- type="number"
+ <MoneyInput
  value={cashFlow.otherIncome}
- onChange={(e) => setCashFlow((prev) => ({ ...prev, otherIncome: e.target.value }))}
+ onValueChange={(value) => setCashFlow((prev) => ({ ...prev, otherIncome: value }))}
  />
  </Field>
  <Field>
  <FieldLabel>Sales / Revenue (period)</FieldLabel>
- <Input
- type="number"
+ <MoneyInput
  value={cashFlow.salesRevenue}
- onChange={(e) => setCashFlow((prev) => ({ ...prev, salesRevenue: e.target.value }))}
+ onValueChange={(value) => setCashFlow((prev) => ({ ...prev, salesRevenue: value }))}
  />
  </Field>
  <Field>
  <FieldLabel>Purchases / COGS</FieldLabel>
- <Input
- type="number"
+ <MoneyInput
  value={cashFlow.purchasesCogs}
- onChange={(e) => setCashFlow((prev) => ({ ...prev, purchasesCogs: e.target.value }))}
+ onValueChange={(value) => setCashFlow((prev) => ({ ...prev, purchasesCogs: value }))}
  />
  </Field>
  <Field>
  <FieldLabel>Business Expenses (operating)</FieldLabel>
- <Input
- type="number"
+ <MoneyInput
  value={cashFlow.businessExpenses}
- onChange={(e) => setCashFlow((prev) => ({ ...prev, businessExpenses: e.target.value }))}
+ onValueChange={(value) => setCashFlow((prev) => ({ ...prev, businessExpenses: value }))}
  />
  </Field>
  <Field>
  <FieldLabel>Existing Monthly Debt Repayments</FieldLabel>
- <Input
- type="number"
+ <MoneyInput
  value={cashFlow.existingMonthlyDebtRepayments}
- onChange={(e) =>
+ onValueChange={(value) =>
  setCashFlow((prev) => ({
  ...prev,
- existingMonthlyDebtRepayments: e.target.value,
+ existingMonthlyDebtRepayments: value,
  }))
  }
  />
  </Field>
  <Field>
  <FieldLabel>Home / Household Expenses</FieldLabel>
- <Input
- type="number"
+ <MoneyInput
  value={cashFlow.householdExpenses}
- onChange={(e) => setCashFlow((prev) => ({ ...prev, householdExpenses: e.target.value }))}
+ onValueChange={(value) => setCashFlow((prev) => ({ ...prev, householdExpenses: value }))}
  />
  </Field>
  </div>
@@ -871,26 +896,23 @@ function CreditAnalysisPageContent() {
  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
  <Field>
  <FieldLabel>Amount Requested</FieldLabel>
- <Input
- type="number"
+ <MoneyInput
  value={loanProposal.amountRequested}
- onChange={(e) => setLoanProposal((prev) => ({ ...prev, amountRequested: e.target.value }))}
+ onValueChange={(value) => setLoanProposal((prev) => ({ ...prev, amountRequested: value }))}
  />
  </Field>
  <Field>
  <FieldLabel>Amount Approved</FieldLabel>
- <Input
- type="number"
+ <MoneyInput
  value={loanProposal.amountApproved}
- onChange={(e) => setLoanProposal((prev) => ({ ...prev, amountApproved: e.target.value }))}
+ onValueChange={(value) => setLoanProposal((prev) => ({ ...prev, amountApproved: value }))}
  />
  </Field>
  <Field>
  <FieldLabel>BCC Approved Amount</FieldLabel>
- <Input
- type="number"
+ <MoneyInput
  value={loanProposal.bccApprovedAmount}
- onChange={(e) => setLoanProposal((prev) => ({ ...prev, bccApprovedAmount: e.target.value }))}
+ onValueChange={(value) => setLoanProposal((prev) => ({ ...prev, bccApprovedAmount: value }))}
  />
  </Field>
  <Field>
@@ -918,13 +940,12 @@ function CreditAnalysisPageContent() {
  </Field>
  <Field>
  <FieldLabel>Installment (proposed monthly)</FieldLabel>
- <Input
- type="number"
+ <MoneyInput
  value={loanProposal.proposedInstallment}
- onChange={(e) =>
+ onValueChange={(value) =>
  setLoanProposal((prev) => ({
  ...prev,
- proposedInstallment: e.target.value,
+ proposedInstallment: value,
  }))
  }
  />
@@ -971,45 +992,40 @@ function CreditAnalysisPageContent() {
  <div className="mt-4 grid gap-4 sm:grid-cols-2">
  <Field>
  <FieldLabel>Loans (for Leverage)</FieldLabel>
- <Input
- type="number"
+ <MoneyInput
  value={loanProposal.totalLoans}
- onChange={(e) => setLoanProposal((prev) => ({ ...prev, totalLoans: e.target.value }))}
+ onValueChange={(value) => setLoanProposal((prev) => ({ ...prev, totalLoans: value }))}
  />
  </Field>
  <Field>
  <FieldLabel>Equity</FieldLabel>
- <Input
- type="number"
+ <MoneyInput
  value={loanProposal.equity}
- onChange={(e) => setLoanProposal((prev) => ({ ...prev, equity: e.target.value }))}
+ onValueChange={(value) => setLoanProposal((prev) => ({ ...prev, equity: value }))}
  />
  </Field>
  <Field>
  <FieldLabel>Inventory</FieldLabel>
- <Input
- type="number"
+ <MoneyInput
  value={loanProposal.inventory}
- onChange={(e) => setLoanProposal((prev) => ({ ...prev, inventory: e.target.value }))}
+ onValueChange={(value) => setLoanProposal((prev) => ({ ...prev, inventory: value }))}
  />
  </Field>
  <Field>
  <FieldLabel>Current Assets</FieldLabel>
- <Input
- type="number"
+ <MoneyInput
  value={loanProposal.currentAssets}
- onChange={(e) => setLoanProposal((prev) => ({ ...prev, currentAssets: e.target.value }))}
+ onValueChange={(value) => setLoanProposal((prev) => ({ ...prev, currentAssets: value }))}
  />
  </Field>
  <Field>
  <FieldLabel>Current Liabilities</FieldLabel>
- <Input
- type="number"
+ <MoneyInput
  value={loanProposal.currentLiabilities}
- onChange={(e) =>
+ onValueChange={(value) =>
  setLoanProposal((prev) => ({
  ...prev,
- currentLiabilities: e.target.value,
+ currentLiabilities: value,
  }))
  }
  />

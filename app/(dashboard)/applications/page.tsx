@@ -3,19 +3,20 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
- Download,
- Plus,
- Search,
- Filter,
- Eye,
- Pencil,
- CheckCircle,
- XCircle,
- Clock,
- FileText,
- Scale,
- Trash2,
- X,
+  Download,
+  Loader2,
+  Plus,
+  Search,
+  Filter,
+  Eye,
+  Pencil,
+  CheckCircle,
+  XCircle,
+  Clock,
+  FileText,
+  Scale,
+  Trash2,
+  X,
 } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Button } from "@/components/ui/button";
@@ -84,11 +85,12 @@ import {
  formatRequiredDocumentLabel,
 } from "@/lib/application-documents";
 import {
- buildApplicationChecklist,
- canDeleteApplication,
- getApplicationWorkflowActions,
- approveApplicationApi,
- runAdminActivateApplicationWorkflow,
+  activateApplicationApi,
+  buildApplicationChecklist,
+  canDeleteApplication,
+  getApplicationWorkflowActions,
+  approveApplicationApi,
+  runAdminActivateApplicationWorkflow,
 } from "@/lib/application-workflow";
 import { formatCurrency, formatDateTime } from "@/lib/formatters";
 import { exportApplicationToPdf } from "@/lib/application-pdf";
@@ -123,6 +125,8 @@ export default function ApplicationsPage() {
  : effectiveRole === "loan_officer"
  ? "/officer/applications/new"
  : "/applications/new";
+ const creditAnalysisPath =
+ effectiveRole === "loan_officer" ? "/officer/credit-analysis" : "/credit-analysis";
  const [searchQuery, setSearchQuery] = useState("");
  const [statusFilter, setStatusFilter] = useState<string>("all");
  const [applications, setApplications] = useState<ApplicationViewRow[]>([]);
@@ -148,11 +152,11 @@ export default function ApplicationsPage() {
  setListLoading(true);
  setActionError(null);
  try {
- const ctx = await fetchApplicationEnrichmentContext(scopeBranchId);
+ const ctx = await fetchApplicationEnrichmentContext(scopeBranchId, { role: effectiveRole });
  setEnrichmentCtx(ctx);
 
  const params = new URLSearchParams();
- params.set("page_size", "100");
+ params.set("page_size", isOfficerView ? "80" : "100");
  if (scopeBranchId) params.set("branch_id", scopeBranchId);
  const res = await fetch(`/api/applications?${params.toString()}`, { credentials: "include" });
  const json = await res.json();
@@ -166,7 +170,7 @@ export default function ApplicationsPage() {
  } finally {
  setListLoading(false);
  }
- }, [scopeBranchId]);
+ }, [scopeBranchId, effectiveRole, isOfficerView]);
 
  useEffect(() => {
  void reloadApplications();
@@ -225,7 +229,8 @@ export default function ApplicationsPage() {
  let cancelled = false;
  setDetailLoading(true);
  void (async () => {
- const ctx = enrichmentCtx ?? (await fetchApplicationEnrichmentContext(scopeBranchId));
+ const ctx =
+ enrichmentCtx ?? (await fetchApplicationEnrichmentContext(scopeBranchId, { role: effectiveRole }));
  if (cancelled) return;
  if (!enrichmentCtx) setEnrichmentCtx(ctx);
  const res = await fetch(`/api/applications/${encodeURIComponent(selectedApplicationId)}`, {
@@ -247,7 +252,7 @@ export default function ApplicationsPage() {
  return () => {
  cancelled = true;
  };
- }, [selectedApplicationId, enrichmentCtx, scopeBranchId]);
+ }, [selectedApplicationId, enrichmentCtx, scopeBranchId, effectiveRole]);
  const openDeleteDialog = (app: ApplicationViewRow) => {
  setDeleteTarget({
  id: app.id,
@@ -779,7 +784,7 @@ export default function ApplicationsPage() {
  Export PDF
  </DropdownMenuItem>
  <DropdownMenuItem asChild>
- <Link href={`/credit-analysis?applicationId=${app.id}`}>
+ <Link href={`${creditAnalysisPath}?applicationId=${app.id}`}>
  <Scale className="mr-2 h-4 w-4" />
  Analyze
  </Link>
@@ -797,20 +802,23 @@ export default function ApplicationsPage() {
  Change status (API)
  </DropdownMenuItem>
  ) : null}
- {getApplicationWorkflowActions(app, effectiveRole, user?.full_name ?? "User").map((wf) => (
- <DropdownMenuItem
- key={wf.id}
- className={wf.variant === "destructive" ? "text-destructive" : "text-accent"}
- disabled={actionBusyId === app.id}
- onClick={() =>
- void (wf.id === "admin_activate"
- ? handleAdminActivate(app)
- : runWorkflowAction(app.id, wf.run))
- }
- >
- {wf.label}
- </DropdownMenuItem>
- ))}
+  {getApplicationWorkflowActions(app, effectiveRole, user?.full_name ?? "User").map((wf) => (
+    <DropdownMenuItem
+      key={wf.id}
+      className={wf.variant === "destructive" ? "text-destructive" : "text-accent"}
+      disabled={actionBusyId === app.id}
+      onClick={() =>
+        void (wf.id === "admin_activate"
+          ? handleAdminActivate(app)
+          : runWorkflowAction(app.id, wf.run))
+      }
+    >
+      {actionBusyId === app.id ? (
+        <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+      ) : null}
+      {wf.label}
+    </DropdownMenuItem>
+  ))}
  {canDeleteApplication(effectiveRole, app, user?.id) ? (
  <>
  <DropdownMenuItem disabled className="text-xs font-semibold text-muted-foreground">
@@ -1076,21 +1084,24 @@ Create disbursement
 </Button>
 ) : null}
 {getApplicationWorkflowActions(
- selectedApplication,
- effectiveRole,
- user?.full_name ?? "User"
+  selectedApplication,
+  effectiveRole,
+  user?.full_name ?? "User"
 ).map((wf) => (
 <Button
- key={wf.id}
- variant={wf.variant === "destructive" ? "destructive" : "default"}
- className={wf.variant === "destructive" ? undefined : "bg-emerald-600 hover:bg-emerald-700"}
- disabled={actionBusyId === selectedApplication.id}
- onClick={() =>
- void (wf.id === "admin_activate"
- ? handleAdminActivate(selectedApplication)
- : runWorkflowAction(selectedApplication.id, wf.run))
- }
+  key={wf.id}
+  variant={wf.variant === "destructive" ? "destructive" : "default"}
+  className={wf.variant === "destructive" ? undefined : "bg-emerald-600 hover:bg-emerald-700"}
+  disabled={actionBusyId === selectedApplication.id}
+  onClick={() =>
+    void (wf.id === "admin_activate"
+      ? handleAdminActivate(selectedApplication)
+      : runWorkflowAction(selectedApplication.id, wf.run))
+  }
 >
+{actionBusyId === selectedApplication.id ? (
+  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+) : null}
 {wf.label}
 </Button>
 ))}
@@ -1165,11 +1176,14 @@ Upload the missing files below, then activation will continue automatically.
 Cancel
 </Button>
 <Button
- className="bg-emerald-600 hover:bg-emerald-700"
- disabled={!activateDocsDialog || actionBusyId === activateDocsDialog.appId}
- onClick={() => void confirmActivateWithDocuments()}
+  className="bg-emerald-600 hover:bg-emerald-700"
+  disabled={!activateDocsDialog || actionBusyId === activateDocsDialog.appId}
+  onClick={() => void confirmActivateWithDocuments()}
 >
-Activate & create loan
+  {activateDocsDialog && actionBusyId === activateDocsDialog.appId ? (
+    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+  ) : null}
+  Activate & create loan
 </Button>
 </DialogFooter>
 </DialogContent>

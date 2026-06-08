@@ -3,14 +3,15 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
- BarChart3,
+ Calculator,
  ClipboardList,
- CreditCard,
- Scale,
  LayoutDashboard,
  LogOut,
+ MapPin,
+ Scale,
  Settings,
  UserSquare2,
+ Users,
  Wallet,
 } from "lucide-react";
 import {
@@ -31,12 +32,13 @@ import type { SessionUser } from "@/lib/auth";
 
 const officerNav = [
  { title: "Dashboard", href: "/officer/dashboard", icon: LayoutDashboard },
+ { title: "Leads", href: "/officer/leads", icon: MapPin },
  { title: "Customers", href: "/officer/customers", icon: UserSquare2 },
  { title: "Loan Applications", href: "/officer/applications", icon: ClipboardList },
  { title: "Active Loans", href: "/officer/loans", icon: Wallet },
- { title: "Payments", href: "/officer/payments", icon: CreditCard },
- { title: "Reconciliation", href: "/officer/reconciliation", icon: Scale },
- { title: "Reports", href: "/officer/reports", icon: BarChart3 },
+ { title: "Credit Analysis", href: "/officer/credit-analysis", icon: Scale },
+ { title: "Loan Calculator", href: "/officer/loan-calculator", icon: Calculator },
+ { title: "Vikundi", href: "/officer/groups", icon: Users },
  { title: "Settings", href: "/officer/settings", icon: Settings },
 ];
 
@@ -60,12 +62,16 @@ export function OfficerSidebar({ user, branchLabel }: { user: SessionUser; branc
  </SidebarHeader>
  <SidebarContent className="px-2 py-4">
  <SidebarMenu>
- {officerNav.map((item) => (
+ {officerNav.map((item) => {
+ const active =
+ pathname === item.href ||
+ (item.href !== "/officer/dashboard" && pathname.startsWith(`${item.href}/`));
+ return (
  <SidebarMenuItem key={item.href}>
  <SidebarMenuButton
  asChild
- isActive={pathname === item.href}
- className={cn(pathname === item.href && "bg-sidebar-primary/15 font-medium text-sidebar-primary")}
+ isActive={active}
+ className={cn(active && "bg-sidebar-primary/15 font-medium text-sidebar-primary")}
  >
  <Link href={item.href}>
  <item.icon className="h-4 w-4" />
@@ -73,7 +79,8 @@ export function OfficerSidebar({ user, branchLabel }: { user: SessionUser; branc
  </Link>
  </SidebarMenuButton>
  </SidebarMenuItem>
- ))}
+ );
+ })}
  </SidebarMenu>
  </SidebarContent>
  <SidebarFooter className="border-t border-sidebar-border p-4">

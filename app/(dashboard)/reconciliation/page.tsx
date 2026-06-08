@@ -31,6 +31,7 @@ import { extractCustomersList } from "@/lib/customer-adapters";
 import { extractLoansList, type LoanListRow } from "@/lib/loan-adapters";
 import { loanMatchesOfficerPortfolio } from "@/lib/loan-officer-portfolio";
 import { formatApiResponseError } from "@/lib/falco-api";
+import { forceCachedReload } from "@/lib/client-fetch-cache";
 import { formatCurrency, formatDateTime } from "@/lib/formatters";
 import { parseJsonResponse } from "@/lib/parse-json-response";
 import {
@@ -189,7 +190,7 @@ export default function ReconciliationPage() {
  }
  if (!q) return true;
  return (
- payment.payment_number.toLowerCase().includes(q) ||
+ (payment.payment_number ?? "").toLowerCase().includes(q) ||
  (payment.loan_number ?? "").toLowerCase().includes(q) ||
  (payment.customer_display_name ?? "").toLowerCase().includes(q) ||
  (payment.reference_number ?? "").toLowerCase().includes(q)
@@ -224,7 +225,7 @@ export default function ReconciliationPage() {
  : "All visible payments are matched or reconciled."}
  </p>
  <div className="flex flex-wrap gap-2">
- <Button type="button" variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
+ <Button type="button" variant="outline" size="sm" onClick={() => forceCachedReload(load)} disabled={loading}>
  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="mr-2 h-4 w-4" />}
  Refresh
  </Button>

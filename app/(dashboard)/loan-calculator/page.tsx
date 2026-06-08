@@ -6,6 +6,7 @@ import { DashboardHeader } from "@/components/dashboard-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { MoneyInput } from "@/components/forms/money-input";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -33,6 +34,7 @@ import {
  type CalculatorResultView,
 } from "@/lib/calculator-adapters";
 import { formatApiResponseError } from "@/lib/falco-api";
+import { forceCachedReload } from "@/lib/client-fetch-cache";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import { parseJsonResponse } from "@/lib/parse-json-response";
 import { extractProductsList } from "@/lib/product-adapters";
@@ -252,13 +254,10 @@ export default function LoanCalculatorPage() {
  </Field>
  <Field>
  <FieldLabel>Loan amount (TZS)</FieldLabel>
- <Input
- type="number"
- min={0}
+ <MoneyInput
  value={form.principal}
- onChange={(e) =>
- setForm((prev) => ({ ...prev, principal: e.target.value }))
- }
+ onValueChange={(value) => setForm((prev) => ({ ...prev, principal: value }))}
+ placeholder="e.g., 1,000,000"
  />
  </Field>
  <Field>
@@ -324,12 +323,10 @@ export default function LoanCalculatorPage() {
  <div className="grid gap-4 sm:grid-cols-2">
  <Field>
  <FieldLabel>Loan amount (TZS)</FieldLabel>
- <Input
- type="number"
+ <MoneyInput
  value={form.principal}
- onChange={(e) =>
- setForm((prev) => ({ ...prev, principal: e.target.value }))
- }
+ onValueChange={(value) => setForm((prev) => ({ ...prev, principal: value }))}
+ placeholder="e.g., 1,000,000"
  />
  </Field>
  <Field>
@@ -453,7 +450,7 @@ export default function LoanCalculatorPage() {
  type="button"
  variant="outline"
  disabled={loadingProducts}
- onClick={() => void loadProducts()}
+ onClick={() => forceCachedReload(loadProducts)}
  >
  <RefreshCcw className="mr-2 h-4 w-4" />
  Refresh products

@@ -541,9 +541,12 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
  ],
  accountant: [
  'dashboard.view',
+ 'customers.view',
  'loans.view',
  'payments.view', 'payments.create', 'payments.reverse',
- 'reports.view', 'reports.export'
+ 'collections.view', 'collections.create',
+ 'reports.view', 'reports.export',
+ 'branches.view',
  ],
  customer_service: [
  'dashboard.view',

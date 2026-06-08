@@ -1,44 +1,45 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import {
- ACCESS_TOKEN_COOKIE_NAME,
- APP_ROLE_COOKIE_NAME,
- type SessionUser,
+  ACCESS_TOKEN_COOKIE_NAME,
+  APP_ROLE_COOKIE_NAME,
+  AUTH_COOKIE_NAME,
 } from "@/lib/auth";
+import {
+ isForbiddenPathForRole,
+ loginRedirectForRole,
+ ROLE_HOME_PATH,
+} from "@/lib/role-portal";
 import type { UserRole } from "@/lib/types";
 
-const PUBLIC_PATHS = ["/", "/login"];
+const PUBLIC_PATHS = new Set(["/", "/login"]);
 
 function isPublicPath(pathname: string): boolean {
- return PUBLIC_PATHS.includes(pathname);
+ return PUBLIC_PATHS.has(pathname);
 }
 
 function roleFromCookies(request: NextRequest): UserRole | null {
  const raw = request.cookies.get(APP_ROLE_COOKIE_NAME)?.value;
- if (
- raw === "super_admin" ||
- raw === "branch_manager" ||
- raw === "loan_officer" ||
- raw === "credit_analyst" ||
- raw === "collections_officer" ||
- raw === "accountant" ||
- raw === "customer_service"
- ) {
- return raw;
- }
+ if (raw && raw in ROLE_HOME_PATH) return raw as UserRole;
  return null;
 }
 
-function syntheticUserForMiddleware(role: UserRole, pathname: string): SessionUser | null {
- /* branch_id unknown in middleware — officer/manager path checks only use role */
- return {
- id: "",
- email: "",
- role,
- branch_id: "",
- full_name: "",
- permissions: [],
- };
+function redirectHome(request: NextRequest, role: UserRole): NextResponse {
+  return NextResponse.redirect(new URL(loginRedirectForRole(role), request.url));
+}
+
+/** Redirect to login and clear all auth cookies to break any redirect loops. */
+function redirectToLogin(request: NextRequest): NextResponse {
+  const secure = process.env.NODE_ENV === "production";
+  // Use ?logged_out=1 so the public-path → redirectHome branch is skipped
+  // even if the browser fails to process the Set-Cookie headers on a 3xx.
+  const loginUrl = new URL("/?logged_out=1", request.url);
+  const response = NextResponse.redirect(loginUrl);
+  const cookieBase = { httpOnly: true as const, sameSite: "lax" as const, secure, path: "/", maxAge: 0 };
+  response.cookies.set(ACCESS_TOKEN_COOKIE_NAME, "", cookieBase);
+  response.cookies.set(APP_ROLE_COOKIE_NAME, "", cookieBase);
+  response.cookies.set(AUTH_COOKIE_NAME, "", cookieBase);
+  return response;
 }
 
 export function middleware(request: NextRequest) {
@@ -48,7 +49,8 @@ export function middleware(request: NextRequest) {
  pathname.startsWith("/_next") ||
  pathname.startsWith("/favicon") ||
  pathname.startsWith("/icon") ||
- pathname.startsWith("/api/login")
+ pathname.startsWith("/api/login") ||
+ pathname.startsWith("/api/health")
  ) {
  return NextResponse.next();
  }
@@ -56,82 +58,50 @@ export function middleware(request: NextRequest) {
  const accessToken = request.cookies.get(ACCESS_TOKEN_COOKIE_NAME)?.value;
  const role = roleFromCookies(request);
 
- if (
- !accessToken &&
- (pathname.startsWith("/dashboard") ||
- pathname.startsWith("/manager") ||
- pathname.startsWith("/officer") ||
- pathname.startsWith("/api"))
- ) {
- if (pathname.startsWith("/api")) {
- return NextResponse.json(
- {
- error: "Unauthorized",
- message: "Your session expired. Please sign in again.",
- },
- { status: 401 }
- );
- }
- return NextResponse.redirect(new URL("/", request.url));
- }
-
- if (!accessToken && isPublicPath(pathname)) {
- return NextResponse.next();
- }
-
- if (!accessToken) {
- return NextResponse.redirect(new URL("/login", request.url));
- }
-
- if (!role) {
- if (
+ const isProtectedApp =
  pathname.startsWith("/dashboard") ||
  pathname.startsWith("/manager") ||
  pathname.startsWith("/officer") ||
- pathname.startsWith("/api")
- ) {
- if (pathname.startsWith("/api")) {
- return NextResponse.json(
- {
- error: "Unauthorized",
- message: "Your session expired. Please sign in again.",
- },
- { status: 401 }
- );
- }
- return NextResponse.redirect(new URL("/", request.url));
- }
- return NextResponse.next();
+ pathname.startsWith("/accountant") ||
+ pathname.startsWith("/api");
+
+  if (!accessToken) {
+    if (pathname.startsWith("/api")) {
+      return NextResponse.json(
+        { error: "Unauthorized", message: "Your session expired. Please sign in again." },
+        { status: 401 }
+      );
+    }
+    if (isProtectedApp || !isPublicPath(pathname)) {
+      return redirectToLogin(request);
+    }
+    return NextResponse.next();
+  }
+
+  if (!role) {
+    if (isProtectedApp) {
+      if (pathname.startsWith("/api")) {
+        return NextResponse.json(
+          { error: "Unauthorized", message: "Your session expired. Please sign in again." },
+          { status: 401 }
+        );
+      }
+      return redirectToLogin(request);
+    }
+    return NextResponse.next();
+  }
+
+  if (isPublicPath(pathname)) {
+    // Skip auto-redirect if arriving via a forced logout — show the login page.
+    const loggedOut = request.nextUrl.searchParams.get("logged_out");
+    if (loggedOut) return NextResponse.next();
+    return redirectHome(request, role);
+  }
+
+ if (isForbiddenPathForRole(role, pathname)) {
+ return redirectHome(request, role);
  }
 
- const user = syntheticUserForMiddleware(role, pathname);
-
- if (user.role === "branch_manager" && pathname.startsWith("/dashboard")) {
- return NextResponse.redirect(new URL("/manager/dashboard", request.url));
- }
- if (
- user.role === "loan_officer" &&
- (pathname.startsWith("/dashboard") || pathname.startsWith("/manager"))
- ) {
- return NextResponse.redirect(new URL("/officer/dashboard", request.url));
- }
- if (user.role === "super_admin" && pathname.startsWith("/manager")) {
- return NextResponse.redirect(new URL("/dashboard", request.url));
- }
- if (user.role === "super_admin" && pathname.startsWith("/officer")) {
- return NextResponse.redirect(new URL("/dashboard", request.url));
- }
- if (user.role === "super_admin" && pathname.startsWith("/staff/team")) {
- return NextResponse.redirect(new URL("/dashboard", request.url));
- }
- if (user.role === "branch_manager" && pathname.startsWith("/officer")) {
- return NextResponse.redirect(new URL("/manager/dashboard", request.url));
- }
- if (pathname.startsWith("/users") && user.role !== "super_admin") {
- return NextResponse.redirect(
- new URL(user.role === "branch_manager" ? "/manager/dashboard" : "/officer/dashboard", request.url)
- );
- }
  return NextResponse.next();
 }
 

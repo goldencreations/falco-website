@@ -1,17 +1,21 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
- ExternalLink,
- Loader2,
- LocateFixed,
- MapPin,
- Navigation,
- Phone,
- Plus,
- RefreshCcw,
- UserRound,
+  ExternalLink,
+  Loader2,
+  LocateFixed,
+  MapPin,
+  MoreHorizontal,
+  Navigation,
+  Pencil,
+  Phone,
+  Plus,
+  RefreshCcw,
+  UserPlus,
 } from "lucide-react";
+import { TzValidatedInput } from "@/components/forms/tz-validated-input";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,19 +38,43 @@ import {
  SelectTrigger,
  SelectValue,
 } from "@/components/ui/select";
-import { extractBranchesList } from "@/lib/branch-adapters";
-import { extractCustomersList } from "@/lib/customer-adapters";
-import { formatApiResponseError } from "@/lib/falco-api";
 import {
- extractLeadsList,
- mapUiLeadCreateToApi,
- type LeadLocationType,
- type LeadStatus,
- type LeadView,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { extractBranchesList } from "@/lib/branch-adapters";
+import { formatApiResponseError } from "@/lib/falco-api";
+import { forceCachedReload } from "@/lib/client-fetch-cache";
+import {
+  extractLeadDetail,
+  extractLeadsList,
+  mapUiLeadCreateToApi,
+  stripLocationTagFromNotes,
+  type LeadLocationType,
+  type LeadStatus,
+  type LeadView,
 } from "@/lib/lead-adapters";
+import {
+ leadHasMapTarget,
+ leadMapDirectionsUrl,
+ leadMapEmbedUrl,
+ leadMapViewUrl,
+ parseLeadCoordinates,
+} from "@/lib/lead-map";
 import { reverseGeocodeNominatim } from "@/lib/nominatim";
+import { apiFetch, apiErrorMessage, isSessionExpiredResponse } from "@/lib/api-client";
 import { parseJsonResponse } from "@/lib/parse-json-response";
-import type { Branch, Customer } from "@/lib/types";
+import { digitsOnly, TZ_PHONE_MAX_DIGITS } from "@/lib/tz-form-inputs";
+import type { Branch } from "@/lib/types";
+import {
+  buildNewCustomerUrlFromLead,
+  leadViewFromEditForm,
+} from "@/lib/lead-to-customer-prefill";
 import { useSessionUser } from "@/lib/use-session-user";
 
 const statusLabel: Record<LeadStatus, string> = {
@@ -62,41 +90,42 @@ const locationTypeLabel: Record<LeadLocationType, string> = {
  sponsor: "Sponsor",
 };
 
-const regionCoordinateCenter: Record<string, { lat: number; lng: number }> = {
- "Dar es Salaam": { lat: -6.7924, lng: 39.2083 },
- Arusha: { lat: -3.3869, lng: 36.683 },
- Mwanza: { lat: -2.5164, lng: 32.9175 },
- Dodoma: { lat: -6.163, lng: 35.7516 },
- Morogoro: { lat: -6.8278, lng: 37.6591 },
-};
-
-const locationTypeOffset: Record<LeadLocationType, { lat: number; lng: number }> = {
- home: { lat: 0.0035, lng: 0.0035 },
- work: { lat: 0.0085, lng: -0.0045 },
- sponsor: { lat: -0.0065, lng: 0.0055 },
-};
-
-function getSeedFromText(value: string): number {
- return value.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
-}
 
 export default function LeadsPage() {
- const { user } = useSessionUser();
- const scopeBranchId =
- user?.role === "branch_manager" || user?.role === "loan_officer" ? user.branch_id : null;
- const [leads, setLeads] = useState<LeadView[]>([]);
- const [customers, setCustomers] = useState<Customer[]>([]);
- const [branches, setBranches] = useState<Branch[]>([]);
- const [loading, setLoading] = useState(true);
- const [saving, setSaving] = useState(false);
- const [error, setError] = useState<string | null>(null);
- const [selectedLeadId, setSelectedLeadId] = useState<string>("");
- const [showAddLeadForm, setShowAddLeadForm] = useState(false);
- const [isLocating, setIsLocating] = useState(false);
- const needsBranchPicker = user?.role === "super_admin";
- const [formData, setFormData] = useState({
- customerId: "",
- branchId: "",
+  const router = useRouter();
+  const { user, loaded: sessionLoaded } = useSessionUser();
+  const scopeBranchId =
+    user?.role === "branch_manager" || user?.role === "loan_officer" ? user.branch_id : null;
+  const [leads, setLeads] = useState<LeadView[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [editSaving, setEditSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedLeadId, setSelectedLeadId] = useState<string>("");
+  const mapSectionRef = useRef<HTMLDivElement | null>(null);
+  const editFormRef = useRef<HTMLDivElement | null>(null);
+  const [showAddLeadForm, setShowAddLeadForm] = useState(false);
+  const [editingLead, setEditingLead] = useState<LeadView | null>(null);
+  const [isLocating, setIsLocating] = useState(false);
+  const needsBranchPicker = user?.role === "super_admin";
+  const [editFormData, setEditFormData] = useState({
+    fullName: "",
+    phoneNumber: "",
+    alternatePhone: "",
+    locationType: "home" as LeadLocationType,
+    locationName: "",
+    region: "",
+    district: "",
+    ward: "",
+    latitude: "",
+    longitude: "",
+    notes: "",
+    followUpDate: "",
+    status: "new" as LeadStatus,
+  });
+  const [formData, setFormData] = useState({
+    branchId: "",
  fullName: "",
  phoneNumber: "",
  alternatePhone: "",
@@ -112,10 +141,7 @@ export default function LeadsPage() {
  status: "new" as LeadStatus,
  });
 
- const visibleCustomers = scopeBranchId
- ? customers.filter((customer) => customer.branch_id === scopeBranchId)
- : customers;
- const visibleLeads = leads;
+  const visibleLeads = leads;
 
  useEffect(() => {
  if (user?.branch_id && !formData.branchId) {
@@ -123,127 +149,59 @@ export default function LeadsPage() {
  }
  }, [user?.branch_id, formData.branchId]);
 
- const load = useCallback(async () => {
- setLoading(true);
- setError(null);
- try {
- const custParams = new URLSearchParams();
- custParams.set("page_size", "100");
- if (scopeBranchId) custParams.set("branch_id", scopeBranchId);
+  const load = useCallback(async () => {
+    if (!sessionLoaded) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const leadsParams = new URLSearchParams();
+      leadsParams.set("page_size", "100");
+      if (scopeBranchId) leadsParams.set("branch_id", scopeBranchId);
 
- const fetches: [Promise<Response>, Promise<Response>, Promise<Response> | null] = [
- fetch("/api/leads?page_size=100", { credentials: "include", cache: "no-store" }),
- fetch(`/api/customers?${custParams.toString()}`, {
- credentials: "include",
- cache: "no-store",
- }),
- user?.role === "super_admin"
- ? fetch("/api/falco/branches", { credentials: "include", cache: "no-store" })
- : null,
- ];
+      const [leadsRes, branchRes] = await Promise.all([
+        apiFetch(`/api/leads?${leadsParams.toString()}`),
+        user?.role === "super_admin" ? apiFetch("/api/falco/branches") : Promise.resolve(null),
+      ]);
 
- const [leadsRes, custRes, branchRes] = await Promise.all([
- fetches[0],
- fetches[1],
- fetches[2] ?? Promise.resolve(null),
- ]);
+      const { data: leadsJson } = await parseJsonResponse<unknown>(leadsRes);
+      if (!leadsRes.ok) {
+        const msg = formatApiResponseError(leadsJson, "Failed to load leads");
+        if (isSessionExpiredResponse(leadsRes.status, msg)) {
+          throw new Error("Your session expired. Please sign in again.");
+        }
+        throw new Error(msg);
+      }
 
- const { data: leadsJson } = await parseJsonResponse<unknown>(leadsRes);
- if (!leadsRes.ok) {
- if (leadsRes.status === 401) {
- throw new Error("Your session expired. Please sign out and sign in again.");
- }
- throw new Error(formatApiResponseError(leadsJson, "Failed to load leads"));
- }
+      if (branchRes) {
+        const branchJson = await branchRes.json().catch(() => null);
+        if (branchRes.ok && branchJson) {
+          const branchList = extractBranchesList(branchJson);
+          setBranches(branchList);
+          setFormData((prev) => ({
+            ...prev,
+            branchId: prev.branchId || branchList[0]?.id || "",
+          }));
+        }
+      }
 
- const custJson = await custRes.json().catch(() => null);
- if (!custRes.ok) {
- const msg =
- typeof custJson === "object" && custJson && "message" in custJson
- ? String((custJson as { message: unknown }).message)
- : "Failed to load customers";
- throw new Error(msg);
- }
-
- if (branchRes) {
- const branchJson = await branchRes.json().catch(() => null);
- if (branchRes.ok && branchJson) {
- const branchList = extractBranchesList(branchJson);
- setBranches(branchList);
- setFormData((prev) => ({
- ...prev,
- branchId: prev.branchId || branchList[0]?.id || "",
- }));
- }
- }
-
- const list = extractLeadsList(leadsJson);
- setLeads(list);
- setCustomers(extractCustomersList(custJson));
- setSelectedLeadId((prev) => prev || list[0]?.id || "");
+      const list = extractLeadsList(leadsJson);
+      setLeads(list);
+      setSelectedLeadId((prev) => prev || list[0]?.id || "");
  } catch (e) {
  setError(e instanceof Error ? e.message : "Failed to load leads");
  setLeads([]);
  } finally {
  setLoading(false);
  }
- }, [scopeBranchId, user?.role]);
+ }, [scopeBranchId, user?.role, sessionLoaded]);
 
  useEffect(() => {
  void load();
  }, [load]);
 
- const customerLocationOptions = useMemo(() => {
- const selectedCustomer = visibleCustomers.find((customer) => customer.id === formData.customerId);
- if (!selectedCustomer) return [];
-
- const center = regionCoordinateCenter[selectedCustomer.region] ?? regionCoordinateCenter["Dar es Salaam"];
- const seed = getSeedFromText(selectedCustomer.customer_number);
-
- const buildCoords = (type: LeadLocationType) => {
- const offset = locationTypeOffset[type];
- const varianceLat = ((seed % 7) - 3) * 0.0004;
- const varianceLng = ((seed % 11) - 5) * 0.0004;
- return {
- latitude: (center.lat + offset.lat + varianceLat).toFixed(6),
- longitude: (center.lng + offset.lng + varianceLng).toFixed(6),
- };
- };
-
- return (["home", "work", "sponsor"] as const).map((type) => {
- const coords = buildCoords(type);
- const placeTitle =
- type === "home"
- ? `${selectedCustomer.physical_address}`
- : type === "work"
- ? `${selectedCustomer.district} business area`
- : `${selectedCustomer.ward} sponsor point`;
-
- return {
- type,
- locationName: `${placeTitle}, ${selectedCustomer.region}`,
- region: selectedCustomer.region,
- district: selectedCustomer.district,
- ward: selectedCustomer.ward,
- ...coords,
- };
- });
- }, [formData.customerId, visibleCustomers]);
-
- const applyLocationFromType = (type: LeadLocationType) => {
- const selectedLocation = customerLocationOptions.find((option) => option.type === type);
- if (!selectedLocation) return;
- setFormData((prev) => ({
- ...prev,
- locationType: type,
- locationName: selectedLocation.locationName,
- region: selectedLocation.region,
- district: selectedLocation.district,
- ward: selectedLocation.ward,
- latitude: selectedLocation.latitude,
- longitude: selectedLocation.longitude,
- }));
- };
+  const applyLocationFromType = (type: LeadLocationType) => {
+    setFormData((prev) => ({ ...prev, locationType: type }));
+  };
 
  const handleCaptureLocation = () => {
  if (!navigator.geolocation) {
@@ -294,7 +252,22 @@ export default function LeadsPage() {
  };
 
  const handleAddLead = async () => {
+ if (!sessionLoaded || !user) {
+ setError("Your session is still loading. Please wait a moment and try again.");
+ return;
+ }
  if (!formData.fullName || !formData.phoneNumber || !formData.locationName) return;
+
+ const phoneDigits = digitsOnly(formData.phoneNumber);
+ if (phoneDigits.length !== TZ_PHONE_MAX_DIGITS) {
+ setError(`Phone number must be exactly ${TZ_PHONE_MAX_DIGITS} digits (e.g. 0712345678).`);
+ return;
+ }
+ const altDigits = digitsOnly(formData.alternatePhone);
+ if (formData.alternatePhone.trim() && altDigits.length !== TZ_PHONE_MAX_DIGITS) {
+ setError(`Alternate number must be exactly ${TZ_PHONE_MAX_DIGITS} digits.`);
+ return;
+ }
  const branchId = formData.branchId.trim() || user?.branch_id?.trim() || "";
  if (needsBranchPicker && !branchId) {
  setError("Select a branch for this lead.");
@@ -320,10 +293,8 @@ export default function LeadsPage() {
  status: formData.status,
  });
 
- const res = await fetch("/api/leads", {
+ const res = await apiFetch("/api/leads", {
  method: "POST",
- credentials: "include",
- cache: "no-store",
  headers: { "Content-Type": "application/json" },
  body: JSON.stringify({
  ...body,
@@ -332,17 +303,22 @@ export default function LeadsPage() {
  });
  const { data } = await parseJsonResponse<unknown>(res);
  if (!res.ok) {
- if (res.status === 401) {
- throw new Error("Your session expired. Please sign out and sign in again, then retry.");
+ const msg = apiErrorMessage(data, formatApiResponseError(data, "Failed to save lead"));
+ if (isSessionExpiredResponse(res.status, msg)) {
+ throw new Error("Your session expired. Please sign in again.");
  }
- throw new Error(formatApiResponseError(data, "Failed to save lead"));
+ if (res.status === 403) {
+ throw new Error(
+ "You do not have permission to add leads. Ask your branch manager to enable leads access for loan officers."
+ );
+ }
+ throw new Error(msg);
  }
 
  await load();
  setShowAddLeadForm(false);
- setFormData({
- customerId: "",
- branchId: formData.branchId || user?.branch_id || branches[0]?.id || "",
+    setFormData({
+      branchId: formData.branchId || user?.branch_id || branches[0]?.id || "",
  fullName: "",
  phoneNumber: "",
  alternatePhone: "",
@@ -364,38 +340,150 @@ export default function LeadsPage() {
  }
  };
 
+ const mergeLeadIntoList = useCallback((updated: LeadView) => {
+ setLeads((prev) => prev.map((row) => (row.id === updated.id ? { ...row, ...updated } : row)));
+ }, []);
+
+ const refreshLeadDetail = useCallback(
+ async (leadId: string) => {
+ try {
+ const res = await apiFetch(`/api/leads/${encodeURIComponent(leadId)}`, { cache: "no-store" });
+ const { data } = await parseJsonResponse<unknown>(res);
+ if (!res.ok) return;
+ const detail = extractLeadDetail(data);
+ if (detail) mergeLeadIntoList(detail);
+ } catch {
+ /* keep list row as-is */
+ }
+ },
+ [mergeLeadIntoList]
+ );
+
+ useEffect(() => {
+ if (!selectedLeadId) return;
+ void refreshLeadDetail(selectedLeadId);
+ }, [selectedLeadId, refreshLeadDetail]);
+
  const selectedLead = visibleLeads.find((lead) => lead.id === selectedLeadId);
- const mapLead =
- selectedLead && selectedLead.latitude && selectedLead.longitude
- ? selectedLead
- : visibleLeads.find((lead) => lead.latitude && lead.longitude);
+ const mapLead = selectedLead && leadHasMapTarget(selectedLead) ? selectedLead : null;
+ const mapEmbedUrl = mapLead ? leadMapEmbedUrl(mapLead) : null;
+
+ const focusLeadOnMap = (lead: LeadView) => {
+ setSelectedLeadId(lead.id);
+ void refreshLeadDetail(lead.id);
+ requestAnimationFrame(() => {
+ mapSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+ });
+ };
 
  const openMapDirections = (lead: LeadView) => {
- if (!lead.latitude || !lead.longitude) return;
- window.open(
- `https://www.google.com/maps/dir/?api=1&destination=${lead.latitude},${lead.longitude}`,
- "_blank",
- "noopener,noreferrer"
- );
+ const url = leadMapDirectionsUrl(lead);
+ if (!url) return;
+ window.open(url, "_blank", "noopener,noreferrer");
  };
 
- const openMapView = (lead: LeadView) => {
- if (!lead.latitude || !lead.longitude) return;
- window.open(
- `https://www.google.com/maps/search/?api=1&query=${lead.latitude},${lead.longitude}`,
- "_blank",
- "noopener,noreferrer"
- );
- };
+  const openMapView = (lead: LeadView) => {
+    focusLeadOnMap(lead);
+    const url = leadMapViewUrl(lead);
+    if (url) window.open(url, "_blank", "noopener,noreferrer");
+  };
 
- return (
+  const makeCustomerFromLead = (lead: LeadView) => {
+    const source =
+      editingLead?.id === lead.id
+        ? leadViewFromEditForm(editingLead, editFormData)
+        : lead;
+    router.push(buildNewCustomerUrlFromLead(source, user?.role));
+  };
+
+  const openEditLead = (lead: LeadView) => {
+    setShowAddLeadForm(false);
+    setEditingLead(lead);
+    setEditFormData({
+      fullName: lead.fullName,
+      phoneNumber: lead.phoneNumber,
+      alternatePhone: lead.alternatePhone ?? "",
+      locationType: lead.locationType,
+      locationName: lead.locationName,
+      region: lead.region ?? "",
+      district: lead.district ?? "",
+      ward: lead.ward ?? "",
+      latitude: lead.latitude ?? "",
+      longitude: lead.longitude ?? "",
+      notes: stripLocationTagFromNotes(lead.notes),
+      followUpDate: lead.followUpDate ?? "",
+      status: lead.status,
+    });
+    requestAnimationFrame(() => {
+      editFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  };
+
+  const handleUpdateLead = async () => {
+    if (!editingLead || !sessionLoaded || !user) return;
+    if (!editFormData.fullName || !editFormData.phoneNumber || !editFormData.locationName) return;
+
+    const phoneDigits = digitsOnly(editFormData.phoneNumber);
+    if (phoneDigits.length !== TZ_PHONE_MAX_DIGITS) {
+      setError(`Phone number must be exactly ${TZ_PHONE_MAX_DIGITS} digits (e.g. 0712345678).`);
+      return;
+    }
+    const altDigits = digitsOnly(editFormData.alternatePhone);
+    if (editFormData.alternatePhone.trim() && altDigits.length !== TZ_PHONE_MAX_DIGITS) {
+      setError(`Alternate number must be exactly ${TZ_PHONE_MAX_DIGITS} digits.`);
+      return;
+    }
+
+    setEditSaving(true);
+    setError(null);
+    try {
+      const body = mapUiLeadCreateToApi({
+        fullName: editFormData.fullName,
+        phoneNumber: editFormData.phoneNumber,
+        alternatePhone: editFormData.alternatePhone || undefined,
+        locationType: editFormData.locationType,
+        locationName: editFormData.locationName,
+        region: editFormData.region || undefined,
+        district: editFormData.district || undefined,
+        ward: editFormData.ward || undefined,
+        latitude: editFormData.latitude || undefined,
+        longitude: editFormData.longitude || undefined,
+        notes: editFormData.notes,
+        followUpDate: editFormData.followUpDate || undefined,
+        status: editFormData.status,
+      });
+
+      const res = await apiFetch(`/api/leads/${encodeURIComponent(editingLead.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const { data } = await parseJsonResponse<unknown>(res);
+      if (!res.ok) {
+        const msg = apiErrorMessage(data, formatApiResponseError(data, "Failed to update lead"));
+        if (isSessionExpiredResponse(res.status, msg)) {
+          throw new Error("Your session expired. Please sign in again.");
+        }
+        throw new Error(msg);
+      }
+
+      await load();
+      setEditingLead(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to update lead");
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  return (
  <>
  <DashboardHeader
  title="Leads"
  description="Capture potential customers during field visits and follow up later"
  />
- <main className="flex min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-4 pb-10 lg:p-6">
- <div className="mx-auto max-w-7xl space-y-6">
+  <main className="flex min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-4 pb-10 lg:p-6">
+      <div className="mx-auto w-full max-w-7xl space-y-6">
  <div className="rounded-2xl border border-emerald-100 bg-gradient-to-r from-emerald-50 via-background to-background p-4 sm:p-5">
  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
  <div>
@@ -406,11 +494,11 @@ export default function LeadsPage() {
  Capture leads with location-assisted follow-up
  </h2>
  <p className="mt-1 text-sm text-muted-foreground">
- Pick an existing customer, choose location type, and save ready-to-navigate lead points.
+            Enter potential customer details, choose a location type, and save ready-to-navigate lead points.
  </p>
  </div>
  <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
- <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => void load()}>
+ <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => forceCachedReload(load)}>
  <RefreshCcw className="mr-2 h-4 w-4" />
  Refresh
  </Button>
@@ -456,7 +544,7 @@ export default function LeadsPage() {
  <div
  key={lead.id}
  className="space-y-2 rounded-xl border border-emerald-100 bg-emerald-50/30 p-3"
- onClick={() => setSelectedLeadId(lead.id)}
+ onClick={() => focusLeadOnMap(lead)}
  >
  <div className="flex items-start justify-between gap-2">
  <div>
@@ -469,38 +557,61 @@ export default function LeadsPage() {
  <Phone className="h-3 w-3" />
  {lead.phoneNumber}
  </p>
- <div className="flex flex-wrap gap-2">
- <Button
- size="sm"
- variant="outline"
- className="h-8 border-emerald-300 text-emerald-700"
- disabled={!lead.latitude || !lead.longitude}
- onClick={(event) => {
- event.stopPropagation();
- openMapView(lead);
- }}
- >
- <ExternalLink className="mr-1 h-3.5 w-3.5" />
- View
- </Button>
- <Button
- size="sm"
- className="h-8 bg-emerald-600 hover:bg-emerald-700"
- disabled={!lead.latitude || !lead.longitude}
- onClick={(event) => {
- event.stopPropagation();
- openMapDirections(lead);
- }}
- >
- <Navigation className="mr-1 h-3.5 w-3.5" />
- Start
- </Button>
- </div>
- </div>
- ))}
- </div>
+              <div className="flex flex-wrap gap-2">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <MoreHorizontal className="mr-1 h-3.5 w-3.5" />
+                      Actions
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-44">
+                    <DropdownMenuLabel>Lead Actions</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuGroup>
+                      <DropdownMenuItem
+                        disabled={!leadHasMapTarget(lead)}
+                        onClick={(e) => { e.stopPropagation(); openMapView(lead); }}
+                      >
+                        <ExternalLink className="mr-2 h-4 w-4" />
+                        View Map
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        disabled={!leadHasMapTarget(lead)}
+                        onClick={(e) => { e.stopPropagation(); focusLeadOnMap(lead); openMapDirections(lead); }}
+                      >
+                        <Navigation className="mr-2 h-4 w-4" />
+                        Navigate
+                      </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuGroup>
+                      <DropdownMenuItem
+                        onClick={(e) => { e.stopPropagation(); openEditLead(lead); }}
+                      >
+                        <Pencil className="mr-2 h-4 w-4" />
+                        Edit Lead
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={(e) => { e.stopPropagation(); makeCustomerFromLead(lead); }}
+                      >
+                        <UserPlus className="mr-2 h-4 w-4" />
+                        Make Customer
+                      </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </div>
+          ))}
+        </div>
 
- <div className="hidden overflow-x-auto sm:block">
+            <div className="hidden w-full overflow-x-auto sm:block">
  <Table>
  <TableHeader>
  <TableRow>
@@ -522,11 +633,13 @@ export default function LeadsPage() {
  </TableCell>
  </TableRow>
  ) : (
- visibleLeads.map((lead) => (
+ visibleLeads.map((lead) => {
+ const coords = parseLeadCoordinates(lead);
+ return (
  <TableRow
  key={lead.id}
  className="cursor-pointer"
- onClick={() => setSelectedLeadId(lead.id)}
+ onClick={() => focusLeadOnMap(lead)}
  >
  <TableCell className="font-medium">{lead.fullName}</TableCell>
  <TableCell>
@@ -547,11 +660,13 @@ export default function LeadsPage() {
  </TableCell>
  <TableCell>{lead.locationName}</TableCell>
  <TableCell>
- {lead.latitude && lead.longitude ? (
+ {coords ? (
  <span className="inline-flex items-center gap-1 text-xs">
  <MapPin className="h-3 w-3" />
- {lead.latitude}, {lead.longitude}
+ {coords.latitude}, {coords.longitude}
  </span>
+ ) : lead.locationName ? (
+ <span className="text-xs text-muted-foreground">Address only</span>
  ) : (
  <span className="text-xs text-muted-foreground">Not captured</span>
  )}
@@ -560,37 +675,59 @@ export default function LeadsPage() {
  <TableCell>
  <Badge variant="outline">{statusLabel[lead.status]}</Badge>
  </TableCell>
- <TableCell className="text-right">
- <div className="inline-flex items-center gap-2">
- <Button
- size="sm"
- variant="outline"
- className="h-8 border-emerald-300 text-emerald-700"
- disabled={!lead.latitude || !lead.longitude}
- onClick={(event) => {
- event.stopPropagation();
- openMapView(lead);
- }}
- >
- <ExternalLink className="mr-1 h-3.5 w-3.5" />
- View
- </Button>
- <Button
- size="sm"
- className="h-8 bg-emerald-600 hover:bg-emerald-700"
- disabled={!lead.latitude || !lead.longitude}
- onClick={(event) => {
- event.stopPropagation();
- openMapDirections(lead);
- }}
- >
- <Navigation className="mr-1 h-3.5 w-3.5" />
- Start
- </Button>
- </div>
- </TableCell>
+                <TableCell className="text-right">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <MoreHorizontal className="h-3.5 w-3.5" />
+                        <span className="ml-1">Actions</span>
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-44">
+                      <DropdownMenuLabel>Lead Actions</DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuGroup>
+                        <DropdownMenuItem
+                          disabled={!leadHasMapTarget(lead)}
+                          onClick={(e) => { e.stopPropagation(); openMapView(lead); }}
+                        >
+                          <ExternalLink className="mr-2 h-4 w-4" />
+                          View Map
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={!leadHasMapTarget(lead)}
+                          onClick={(e) => { e.stopPropagation(); focusLeadOnMap(lead); openMapDirections(lead); }}
+                        >
+                          <Navigation className="mr-2 h-4 w-4" />
+                          Navigate
+                        </DropdownMenuItem>
+                      </DropdownMenuGroup>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuGroup>
+                        <DropdownMenuItem
+                          onClick={(e) => { e.stopPropagation(); openEditLead(lead); }}
+                        >
+                          <Pencil className="mr-2 h-4 w-4" />
+                          Edit Lead
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={(e) => { e.stopPropagation(); makeCustomerFromLead(lead); }}
+                        >
+                          <UserPlus className="mr-2 h-4 w-4" />
+                          Make Customer
+                        </DropdownMenuItem>
+                      </DropdownMenuGroup>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </TableCell>
  </TableRow>
- ))
+ );
+ })
  )}
  </TableBody>
  </Table>
@@ -598,47 +735,224 @@ export default function LeadsPage() {
  </CardContent>
  </Card>
 
- {showAddLeadForm && (
- <Card className="border-emerald-100">
+          {editingLead && (
+            <Card ref={editFormRef} className="border-amber-200">
+              <CardHeader className="rounded-t-xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-white">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <CardTitle>Edit Lead — {editingLead.fullName}</CardTitle>
+                    <CardDescription className="text-amber-100">
+                      Update the lead details then save
+                    </CardDescription>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="text-white hover:bg-amber-600"
+                    onClick={() => setEditingLead(null)}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4 pt-4">
+                <FieldGroup>
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                    <Field>
+                      <FieldLabel>Location Type</FieldLabel>
+                      <Select
+                        value={editFormData.locationType}
+                        onValueChange={(value: LeadLocationType) =>
+                          setEditFormData((prev) => ({ ...prev, locationType: value }))
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select location type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="home">Home</SelectItem>
+                          <SelectItem value="work">Work</SelectItem>
+                          <SelectItem value="sponsor">Sponsor</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    <Field>
+                      <FieldLabel>Full Name</FieldLabel>
+                      <Input
+                        placeholder="Potential customer name"
+                        value={editFormData.fullName}
+                        onChange={(e) =>
+                          setEditFormData((prev) => ({ ...prev, fullName: e.target.value }))
+                        }
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Phone Number</FieldLabel>
+                      <TzValidatedInput
+                        kind="phone"
+                        placeholder="0712345678"
+                        value={editFormData.phoneNumber}
+                        onValueChange={(phoneNumber) =>
+                          setEditFormData((prev) => ({ ...prev, phoneNumber }))
+                        }
+                        maxLength={10}
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Alternate Number (optional)</FieldLabel>
+                      <TzValidatedInput
+                        kind="phone"
+                        placeholder="0712345678"
+                        value={editFormData.alternatePhone}
+                        onValueChange={(alternatePhone) =>
+                          setEditFormData((prev) => ({ ...prev, alternatePhone }))
+                        }
+                        maxLength={10}
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Street / Location</FieldLabel>
+                      <Input
+                        placeholder="Street, area, or landmark"
+                        value={editFormData.locationName}
+                        onChange={(e) =>
+                          setEditFormData((prev) => ({ ...prev, locationName: e.target.value }))
+                        }
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Region</FieldLabel>
+                      <Input
+                        placeholder="Region"
+                        value={editFormData.region}
+                        onChange={(e) =>
+                          setEditFormData((prev) => ({ ...prev, region: e.target.value }))
+                        }
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>District</FieldLabel>
+                      <Input
+                        placeholder="District"
+                        value={editFormData.district}
+                        onChange={(e) =>
+                          setEditFormData((prev) => ({ ...prev, district: e.target.value }))
+                        }
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Ward</FieldLabel>
+                      <Input
+                        placeholder="Ward"
+                        value={editFormData.ward}
+                        onChange={(e) =>
+                          setEditFormData((prev) => ({ ...prev, ward: e.target.value }))
+                        }
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Latitude</FieldLabel>
+                      <Input
+                        placeholder="-6.7924"
+                        value={editFormData.latitude}
+                        onChange={(e) =>
+                          setEditFormData((prev) => ({ ...prev, latitude: e.target.value }))
+                        }
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Longitude</FieldLabel>
+                      <Input
+                        placeholder="39.2083"
+                        value={editFormData.longitude}
+                        onChange={(e) =>
+                          setEditFormData((prev) => ({ ...prev, longitude: e.target.value }))
+                        }
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Follow-up Date</FieldLabel>
+                      <Input
+                        type="date"
+                        value={editFormData.followUpDate}
+                        onChange={(e) =>
+                          setEditFormData((prev) => ({ ...prev, followUpDate: e.target.value }))
+                        }
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Status</FieldLabel>
+                      <Select
+                        value={editFormData.status}
+                        onValueChange={(value: LeadStatus) =>
+                          setEditFormData((prev) => ({ ...prev, status: value }))
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(Object.keys(statusLabel) as LeadStatus[]).map((s) => (
+                            <SelectItem key={s} value={s}>
+                              {statusLabel[s]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    <Field className="sm:col-span-2 lg:col-span-4">
+                      <FieldLabel>Notes</FieldLabel>
+                      <Textarea
+                        placeholder="Add any notes about this lead…"
+                        rows={2}
+                        value={editFormData.notes}
+                        onChange={(e) =>
+                          setEditFormData((prev) => ({ ...prev, notes: e.target.value }))
+                        }
+                      />
+                    </Field>
+                  </div>
+                </FieldGroup>
+
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" onClick={() => setEditingLead(null)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    className="bg-amber-500 hover:bg-amber-600"
+                    disabled={editSaving}
+                    onClick={() => void handleUpdateLead()}
+                  >
+                    {editSaving ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Saving…
+                      </>
+                    ) : (
+                      <>
+                        <Pencil className="mr-2 h-4 w-4" />
+                        Save Changes
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {showAddLeadForm && (
+            <Card className="border-emerald-100">
  <CardHeader className="rounded-t-xl bg-gradient-to-r from-emerald-600 via-emerald-500 to-emerald-600 text-white">
  <CardTitle>Add New Lead</CardTitle>
  <CardDescription>
- Select customer, location source, and save a navigation-ready lead record
+              Enter potential customer details, set a location, and save a navigation-ready lead record
  </CardDescription>
  </CardHeader>
  <CardContent className="space-y-4">
- <FieldGroup>
- <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
- <Field className="sm:col-span-2 lg:col-span-2">
- <FieldLabel>Customer</FieldLabel>
- <Select
- value={formData.customerId}
- onValueChange={(value) => {
- const selectedCustomer = visibleCustomers.find((customer) => customer.id === value);
- setFormData((prev) => ({
- ...prev,
- customerId: value,
- branchId: selectedCustomer?.branch_id ?? prev.branchId,
- fullName: selectedCustomer
- ? `${selectedCustomer.first_name} ${selectedCustomer.last_name}`
- : prev.fullName,
- phoneNumber: selectedCustomer?.phone_primary ?? prev.phoneNumber,
- alternatePhone: selectedCustomer?.phone_secondary ?? prev.alternatePhone,
- }));
- }}
- >
- <SelectTrigger>
- <SelectValue placeholder="Select existing customer" />
- </SelectTrigger>
- <SelectContent>
- {visibleCustomers.map((customer) => (
- <SelectItem key={customer.id} value={customer.id}>
- {customer.first_name} {customer.last_name} - {customer.customer_number}
- </SelectItem>
- ))}
- </SelectContent>
- </Select>
- </Field>
+          <FieldGroup>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
  {needsBranchPicker && (
  <Field>
  <FieldLabel>Branch</FieldLabel>
@@ -692,22 +1006,26 @@ export default function LeadsPage() {
  </Field>
  <Field>
  <FieldLabel>Phone Number</FieldLabel>
- <Input
- placeholder="+255 xxx xxx xxx"
+ <TzValidatedInput
+ kind="phone"
+ placeholder="0712345678"
  value={formData.phoneNumber}
- onChange={(e) =>
- setFormData((prev) => ({ ...prev, phoneNumber: e.target.value }))
+ onValueChange={(phoneNumber) =>
+ setFormData((prev) => ({ ...prev, phoneNumber }))
  }
+ maxLength={10}
  />
  </Field>
  <Field>
  <FieldLabel>Alternate Number (optional)</FieldLabel>
- <Input
- placeholder="+255 xxx xxx xxx"
+ <TzValidatedInput
+ kind="phone"
+ placeholder="0712345678"
  value={formData.alternatePhone}
- onChange={(e) =>
- setFormData((prev) => ({ ...prev, alternatePhone: e.target.value }))
+ onValueChange={(alternatePhone) =>
+ setFormData((prev) => ({ ...prev, alternatePhone }))
  }
+ maxLength={10}
  />
  </Field>
  <Field>
@@ -815,25 +1133,6 @@ export default function LeadsPage() {
  </Field>
  </FieldGroup>
 
- <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-3">
- <p className="mb-2 text-xs font-medium text-emerald-800">Quick location autofill</p>
- <div className="flex flex-wrap gap-2">
- {(["home", "work", "sponsor"] as const).map((type) => (
- <Button
- key={type}
- type="button"
- size="sm"
- variant="outline"
- className="border-emerald-300 text-emerald-700"
- disabled={!formData.customerId}
- onClick={() => applyLocationFromType(type)}
- >
- <UserRound className="mr-1 h-3.5 w-3.5" />
- Use {locationTypeLabel[type]}
- </Button>
- ))}
- </div>
- </div>
 
  <div className="flex flex-wrap gap-2">
  <Button variant="outline" onClick={handleCaptureLocation} disabled={isLocating}>
@@ -877,7 +1176,7 @@ export default function LeadsPage() {
  </Card>
  )}
 
- <Card>
+ <Card ref={mapSectionRef}>
  <CardHeader>
  <CardTitle>Leads Map</CardTitle>
  <CardDescription>
@@ -885,8 +1184,14 @@ export default function LeadsPage() {
  </CardDescription>
  </CardHeader>
  <CardContent className="space-y-3">
- <Select value={selectedLeadId} onValueChange={setSelectedLeadId}>
- <SelectTrigger className="max-w-md">
+ <Select
+ value={selectedLeadId}
+ onValueChange={(id) => {
+ setSelectedLeadId(id);
+ void refreshLeadDetail(id);
+ }}
+ >
+              <SelectTrigger className="w-full max-w-md">
  <SelectValue placeholder="Choose lead for map view" />
  </SelectTrigger>
  <SelectContent>
@@ -898,24 +1203,31 @@ export default function LeadsPage() {
  </SelectContent>
  </Select>
 
- {mapLead ? (
+ {mapLead && mapEmbedUrl ? (
  <div className="overflow-hidden rounded-lg border border-border">
  <div className="border-b border-border bg-muted px-3 py-2 text-sm">
  <span className="font-medium">{mapLead.fullName}</span> |{" "}
  <span className="text-muted-foreground">
  {mapLead.locationName} ({locationTypeLabel[mapLead.locationType]})
  </span>
+ {!parseLeadCoordinates(mapLead) && (
+ <span className="ml-2 text-xs text-amber-700">(approximate — from address)</span>
+ )}
  </div>
  <iframe
  title="Lead location map"
- src={`https://maps.google.com/maps?q=${mapLead.latitude},${mapLead.longitude}&z=15&output=embed`}
+ src={mapEmbedUrl}
  className="h-72 w-full"
  loading="lazy"
  />
  </div>
+ ) : selectedLeadId ? (
+ <p className="text-sm text-muted-foreground">
+ This lead has no location name or coordinates. Add a location when editing the lead.
+ </p>
  ) : (
  <p className="text-sm text-muted-foreground">
- No lead with coordinates yet. Capture latitude and longitude to display map.
+ Select a lead from the list or use View to show their location here.
  </p>
  )}
  </CardContent>

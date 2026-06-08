@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { extractApplicationDetail } from "@/lib/application-adapters";
 import { requireApiUser, ensureResourceBranchAllowed } from "@/lib/authorization";
+import { saveCreditAnalysisRecord } from "@/lib/credit-analysis-server";
 import { falcoServerFetch } from "@/lib/server-falco";
 
 export async function POST(
@@ -26,10 +27,7 @@ export async function POST(
  return NextResponse.json({ message: "Invalid JSON" }, { status: 400 });
  }
 
- const res = await falcoServerFetch<unknown>(
- `/credit-analysis/applications/${encodeURIComponent(id)}/analysis`,
- { method: "POST", body, request }
- );
+ const res = await saveCreditAnalysisRecord(request, id, auth.user, body);
 
  if (!res.ok) {
  return NextResponse.json(

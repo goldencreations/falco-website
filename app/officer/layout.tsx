@@ -1,26 +1,30 @@
 import { redirect } from "next/navigation";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { BranchAssignmentProvider } from "@/components/branch-assignment-context";
+import { OfficerPortalGate } from "@/components/officer-portal-gate";
+import { OfficerSessionProvider } from "@/components/officer-session-context";
 import { OfficerSidebar } from "@/components/officer-sidebar";
 import { getServerSessionUser } from "@/lib/auth";
-import { fetchBranchesForSessionUser } from "@/lib/branch-summary-fallback";
+import { loginRedirectForRole } from "@/lib/role-portal";
 
 export default async function OfficerLayout({ children }: { children: React.ReactNode }) {
  const user = await getServerSessionUser();
- if (!user) redirect("/");
+ if (!user) redirect("/?logged_out=1");
  if (user.role !== "loan_officer") {
- redirect(user.role === "branch_manager" ? "/manager/dashboard" : "/dashboard");
+ redirect(loginRedirectForRole(user.role));
  }
 
- const branches = user.branch_id ? await fetchBranchesForSessionUser(user) : [];
- const branch = branches.find((b) => b.id === user.branch_id);
- const branchLabel = branch?.name ?? (user.branch_id ? `Branch ${user.branch_id}` : "Branch");
+ const branchLabel = user.branch_id ? "Your branch" : "Branch";
 
  return (
- <BranchAssignmentProvider>
+ <BranchAssignmentProvider mode="light" sessionUser={user}>
  <SidebarProvider>
  <OfficerSidebar user={user} branchLabel={branchLabel} />
- <SidebarInset className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</SidebarInset>
+ <SidebarInset className="flex min-h-0 flex-1 flex-col overflow-hidden">
+ <OfficerSessionProvider user={user}>
+ <OfficerPortalGate>{children}</OfficerPortalGate>
+ </OfficerSessionProvider>
+ </SidebarInset>
  </SidebarProvider>
  </BranchAssignmentProvider>
  );

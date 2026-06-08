@@ -1,3 +1,5 @@
+import { digitsOnly, TZ_PHONE_MAX_DIGITS } from "@/lib/tz-form-inputs";
+
 export type LeadStatus = "new" | "follow_up" | "contacted" | "converted";
 export type LeadLocationType = "home" | "work" | "sponsor";
 
@@ -63,6 +65,9 @@ export function adaptApiLeadRow(raw: Record<string, unknown>): LeadView {
  alternatePhone: inner.alternate_phone ? str(inner.alternate_phone) : undefined,
  locationType,
  locationName: str(inner.location_name),
+ region: inner.region ? str(inner.region) : undefined,
+ district: inner.district ? str(inner.district) : undefined,
+ ward: inner.ward ? str(inner.ward) : undefined,
  latitude: inner.latitude != null && String(inner.latitude).trim() ? str(inner.latitude) : undefined,
  longitude:
  inner.longitude != null && String(inner.longitude).trim() ? str(inner.longitude) : undefined,
@@ -84,8 +89,13 @@ export function extractLeadsList(json: unknown): LeadView[] {
  return (rows as Record<string, unknown>[]).map(adaptApiLeadRow);
 }
 
+export function extractLeadDetail(json: unknown): LeadView | null {
+ if (!json || typeof json !== "object") return null;
+ return adaptApiLeadRow(json as Record<string, unknown>);
+}
+
 function normalizePhone(phone: string): string {
- return phone.replace(/\s+/g, "").trim();
+ return digitsOnly(phone).slice(0, TZ_PHONE_MAX_DIGITS);
 }
 
 /** Map UI create form → `POST /leads` body. */
@@ -120,9 +130,13 @@ export function mapUiLeadCreateToApi(form: {
  status: form.status ?? "new",
  };
 
- const alt = form.alternatePhone?.trim();
- if (alt) payload.alternate_phone = normalizePhone(alt);
- if (form.followUpDate?.trim()) payload.follow_up_date = form.followUpDate.trim();
+  const alt = form.alternatePhone?.trim();
+  if (alt) payload.alternate_phone = normalizePhone(alt);
+  if (form.followUpDate?.trim()) payload.follow_up_date = form.followUpDate.trim();
+
+  if (form.region?.trim()) payload.region = form.region.trim();
+  if (form.district?.trim()) payload.district = form.district.trim();
+  if (form.ward?.trim()) payload.ward = form.ward.trim();
 
  const lat = form.latitude?.trim() ? Number(form.latitude) : NaN;
  const lng = form.longitude?.trim() ? Number(form.longitude) : NaN;

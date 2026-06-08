@@ -59,8 +59,10 @@ import type {
 import type { PaymentMethod, PaymentStatus } from "@/lib/types";
 import { extractLoansList, type LoanListRow } from "@/lib/loan-adapters";
 import { formatApiResponseError } from "@/lib/falco-api";
+import { forceCachedReload } from "@/lib/client-fetch-cache";
 import { formatCurrency, formatDateTime } from "@/lib/formatters";
 import { parseJsonResponse } from "@/lib/parse-json-response";
+import { isBranchScopedStaffRole, rolePortalBase } from "@/lib/role-portal";
 import { useSessionUser } from "@/lib/use-session-user";
 
 const methodConfig: Record<PaymentMethod, { label: string; icon: typeof CreditCard }> = {
@@ -102,8 +104,9 @@ const emptyReconciliation: ReconciliationSummary = {
 export default function PaymentsPage() {
  const { user } = useSessionUser();
  const isOfficerView = user?.role === "loan_officer";
- const scopeBranchId =
- user?.role === "branch_manager" || user?.role === "loan_officer" ? user.branch_id : null;
+ const portalBase = rolePortalBase(user?.role);
+ const reconciliationHref = portalBase ? `${portalBase}/reconciliation` : "/reconciliation";
+ const scopeBranchId = isBranchScopedStaffRole(user?.role) ? user?.branch_id ?? null : null;
 
  const [payments, setPayments] = useState<PaymentViewRow[]>([]);
  const [loans, setLoans] = useState<LoanListRow[]>([]);
@@ -202,8 +205,8 @@ export default function PaymentsPage() {
  const loan = loanById.get(payment.loan_id);
  const matchesSearch =
  q === "" ||
- payment.payment_number.toLowerCase().includes(q) ||
- payment.reference_number.toLowerCase().includes(q) ||
+ (payment.payment_number ?? "").toLowerCase().includes(q) ||
+ (payment.reference_number ?? "").toLowerCase().includes(q) ||
  (payment.customer_display_name ?? "").toLowerCase().includes(q) ||
  (loan?.customerDisplayName ?? "").toLowerCase().includes(q);
  const matchesMethod = methodFilter === "all" || payment.payment_method === methodFilter;
@@ -355,7 +358,7 @@ export default function PaymentsPage() {
  Payment Reconciliation (from server)
  </span>
  <Button variant="link" size="sm" className="h-auto px-0" asChild>
- <Link href={isOfficerView ? "/officer/reconciliation" : user?.role === "branch_manager" ? "/manager/reconciliation" : "/reconciliation"}>
+ <Link href={reconciliationHref}>
  Full reconciliation page
  </Link>
  </Button>
@@ -403,7 +406,7 @@ export default function PaymentsPage() {
  </Select>
  </div>
  <div className="flex gap-2">
- <Button type="button" variant="outline" onClick={() => void load()}>
+ <Button type="button" variant="outline" onClick={() => forceCachedReload(load)}>
  <RefreshCcw className="mr-2 h-4 w-4" />
  Refresh
  </Button>
@@ -418,20 +421,23 @@ export default function PaymentsPage() {
  Record Payment
  </Button>
  </DialogTrigger>
- <DialogContent>
- <DialogHeader>
- <DialogTitle>Record New Payment</DialogTitle>
- <DialogDescription>
+ <DialogContent
+ className="flex w-[calc(100%-1.5rem)] max-h-[calc(100dvh-1.5rem)] max-w-md scale-100 flex-col gap-0 overflow-hidden p-0 top-[max(0.5rem,env(safe-area-inset-top,0px))] left-[50%] translate-x-[-50%] translate-y-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 sm:max-w-md [&>button]:right-3 [&>button]:top-3 [&>button]:z-10"
+ >
+ <DialogHeader className="shrink-0 space-y-1 border-b px-4 py-3 pr-10 text-left">
+ <DialogTitle className="text-base">Record New Payment</DialogTitle>
+ <DialogDescription className="text-xs leading-relaxed">
  {selectedLoanDetails
  ? `Record repayment for ${selectedLoanDetails.customerDisplayName} (${selectedLoanDetails.loan_number}).`
  : "Record a payment received from a customer"}
  </DialogDescription>
  </DialogHeader>
- <FieldGroup className="py-4">
+ <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3">
+ <FieldGroup className="gap-3 py-0">
  <Field>
  <FieldLabel>Select Loan</FieldLabel>
  <Select value={selectedLoan} onValueChange={setSelectedLoan}>
- <SelectTrigger>
+ <SelectTrigger className="h-9 w-full">
  <SelectValue placeholder="Select a loan" />
  </SelectTrigger>
  <SelectContent>
@@ -447,6 +453,7 @@ export default function PaymentsPage() {
  <FieldLabel>Amount (TZS)</FieldLabel>
  <Input
  type="number"
+ className="h-9"
  placeholder="Enter amount"
  value={paymentAmount}
  onChange={(e) => setPaymentAmount(e.target.value)}
@@ -455,7 +462,7 @@ export default function PaymentsPage() {
  <Field>
  <FieldLabel>Payment Method</FieldLabel>
  <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as PaymentMethod)}>
- <SelectTrigger>
+ <SelectTrigger className="h-9 w-full">
  <SelectValue />
  </SelectTrigger>
  <SelectContent>
@@ -471,7 +478,7 @@ export default function PaymentsPage() {
  <Field>
  <FieldLabel>Mobile provider</FieldLabel>
  <Select value={mobileProvider} onValueChange={setMobileProvider}>
- <SelectTrigger>
+ <SelectTrigger className="h-9 w-full">
  <SelectValue />
  </SelectTrigger>
  <SelectContent>
@@ -485,6 +492,7 @@ export default function PaymentsPage() {
  <Field>
  <FieldLabel>Mobile number</FieldLabel>
  <Input
+ className="h-9"
  placeholder="+255…"
  value={mobileNumber}
  onChange={(e) => setMobileNumber(e.target.value)}
@@ -498,7 +506,7 @@ export default function PaymentsPage() {
  value={collectionChannel}
  onValueChange={(v) => setCollectionChannel(v as "system" | "manual_collection")}
  >
- <SelectTrigger>
+ <SelectTrigger className="h-9 w-full">
  <SelectValue />
  </SelectTrigger>
  <SelectContent>
@@ -510,13 +518,15 @@ export default function PaymentsPage() {
  <Field>
  <FieldLabel>Reference Number (optional)</FieldLabel>
  <Input
+ className="h-9"
  placeholder="Transaction reference"
  value={referenceNumber}
  onChange={(e) => setReferenceNumber(e.target.value)}
  />
  </Field>
  </FieldGroup>
- <DialogFooter>
+ </div>
+ <DialogFooter className="shrink-0 gap-2 border-t bg-background px-4 py-3 sm:justify-end">
  <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
  Cancel
  </Button>

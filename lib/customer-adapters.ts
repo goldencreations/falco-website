@@ -1,4 +1,22 @@
+import { parseMoneyInput } from "@/lib/money-input";
 import type { Customer, CustomerType, EmploymentType, RiskGrade } from "@/lib/types";
+
+/** Resolve monthly income from API list/detail shapes (top-level or metadata). */
+export function resolveMonthlyIncome(row: Record<string, unknown>): number {
+ const md =
+ row.metadata && typeof row.metadata === "object" && row.metadata !== null
+ ? (row.metadata as Record<string, unknown>)
+ : {};
+
+ const candidates = [row.monthly_income, row.monthlyIncome, md.monthly_income, md.monthlyIncome];
+
+ for (const v of candidates) {
+ if (v == null || v === "") continue;
+ const n = typeof v === "number" ? v : parseMoneyInput(String(v));
+ if (Number.isFinite(n) && n > 0) return n;
+ }
+ return 0;
+}
 
 function asRiskGrade(v: string | undefined): RiskGrade {
  const u = v?.trim().toUpperCase();
@@ -88,8 +106,13 @@ export function adaptApiCustomerRowToCustomer(row: Record<string, unknown>): Cus
  employer_name: row.employer_name ? String(row.employer_name) : undefined,
  employer_address: row.employer_address ? String(row.employer_address) : undefined,
  job_title: row.job_title ? String(row.job_title) : undefined,
- monthly_income: Number(row.monthly_income ?? 0),
- other_income: undefined,
+ monthly_income: resolveMonthlyIncome(row),
+ other_income:
+ row.other_income != null
+ ? Number(row.other_income)
+ : md.other_income != null
+ ? Number(md.other_income)
+ : undefined,
  income_verified: Boolean(row.income_verified ?? false),
  business_name: row.business_name ? String(row.business_name) : undefined,
  business_registration_number: row.business_registration_number

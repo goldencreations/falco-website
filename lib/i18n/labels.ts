@@ -12,7 +12,12 @@ const SWAHILI: Record<string, string> = {
  "Loan Management System": "Mfumo wa Usimamizi wa Mikopo",
  "Falco Manager Portal": "Portal ya Meneja — Falco",
  "Falco Officer Portal": "Portal ya Afisa Mikopo — Falco",
+ "Falco Finance Portal": "Portal ya Fedha — Falco",
  Logout: "Toka",
+ Reconciliation: "Upatanisho",
+ Disbursements: "Ugavi",
+ Accountant: "Mhasibu",
+ "Finance Controls": "Udhibiti wa Fedha",
 
  // Nav groups
  Main: "Kuu",
@@ -93,6 +98,8 @@ export const SETTINGS_COPY = {
  "Super admin account — password and language are saved to your profile on the server.",
  officerDesc:
  "Loan officer account — password and language are saved to your profile on the server.",
+ accountantDesc:
+ "Accountant account — password and language are saved to your profile on the server.",
  defaultDesc: "Account, security, and preferences",
  },
  sw: {
@@ -110,6 +117,8 @@ export const SETTINGS_COPY = {
  "Akaunti ya msimamizi mkuu — nenosiri na lugha huhifadhiwa kwenye wasifu wako kwenye seva.",
  officerDesc:
  "Akaunti ya afisa mikopo — nenosiri na lugha huhifadhiwa kwenye wasifu wako kwenye seva.",
+ accountantDesc:
+ "Akaunti ya mhasibu — nenosiri na lugha huhifadhiwa kwenye wasifu wako kwenye seva.",
  defaultDesc: "Akaunti, usalama, na mapendeleo",
  },
 } as const;

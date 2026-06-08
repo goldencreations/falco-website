@@ -1,10 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import {
- ACCESS_TOKEN_COOKIE_NAME,
- APP_ROLE_COOKIE_NAME,
- AUTH_COOKIE_NAME,
-} from "@/lib/auth";
+import { ACCESS_TOKEN_COOKIE_NAME, AUTH_COOKIE_NAME } from "@/lib/auth";
+import { clearAppRoleCookie } from "@/lib/app-role-cookie";
 import { falcoFetch } from "@/lib/falco-api";
 
 function clearAuthCookies(response: NextResponse) {
@@ -17,7 +14,7 @@ function clearAuthCookies(response: NextResponse) {
  maxAge: 0,
  };
  response.cookies.set(ACCESS_TOKEN_COOKIE_NAME, "", empty);
- response.cookies.set(APP_ROLE_COOKIE_NAME, "", empty);
+ clearAppRoleCookie(response);
  response.cookies.set(AUTH_COOKIE_NAME, "", empty);
 }
 

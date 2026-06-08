@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Building2, Home, Paperclip, Save, Store, UserPlus, Users } from "lucide-react";
 import { CustomerAttachmentsFields } from "@/components/customers/customer-attachments-fields";
 import { DashboardHeader } from "@/components/dashboard-header";
@@ -33,7 +33,14 @@ import {
  validateCustomerAttachments,
  type CustomerAttachmentFormState,
 } from "@/lib/customer-attachments";
+import { useOptionalOfficerSession } from "@/components/officer-session-context";
+import { MoneyInput } from "@/components/forms/money-input";
+import { TzValidatedInput } from "@/components/forms/tz-validated-input";
+import { parseMoneyInput } from "@/lib/money-input";
+import type { SessionUser } from "@/lib/auth";
+import { syntheticBranchFromSession } from "@/lib/branch-scope";
 import { formatValidationDetails } from "@/lib/falco-api";
+import { parseLeadPrefillFromSearchParams } from "@/lib/lead-to-customer-prefill";
 import { useSessionUser } from "@/lib/use-session-user";
 
 const CustomerLocationMapPicker = dynamic(
@@ -171,17 +178,49 @@ const defaultForm: CustomerCreateForm = {
  created_by: "",
 };
 
-export default function NewCustomerPage() {
+function sessionUserToLoanOfficer(user: Pick<SessionUser, "id" | "email" | "full_name" | "branch_id">): User {
+ return {
+ id: user.id,
+ email: user.email,
+ full_name: user.full_name,
+ role: "loan_officer",
+ branch_id: user.branch_id ?? "",
+ phone: "",
+ employee_id: "",
+ is_active: true,
+ created_at: new Date().toISOString(),
+ last_login: null,
+ };
+}
+
+function officerAssignmentDefaults(user: Pick<SessionUser, "id" | "branch_id">): Partial<CustomerCreateForm> {
+ const branchId = user.branch_id?.trim() ?? "";
+ if (!branchId) return { created_by: user.id };
+ return {
+ created_by: user.id,
+ branch_id: branchId,
+ loan_officer_id: user.id,
+ };
+}
+
+function NewCustomerPageInner() {
  const router = useRouter();
- const { user } = useSessionUser();
+ const searchParams = useSearchParams();
+ const portalOfficer = useOptionalOfficerSession();
+ const { user: clientUser, loaded: clientSessionLoaded } = useSessionUser();
+ const user = portalOfficer ?? clientUser;
+ const sessionLoaded = Boolean(portalOfficer) || clientSessionLoaded;
  const effectiveUserId = user?.id ?? "";
  const isManagerView = user?.role === "branch_manager";
  const isOfficerView = user?.role === "loan_officer";
  const isScopedRole = isManagerView || isOfficerView;
- const lockedBranchId = isScopedRole ? user?.branch_id ?? "" : "";
+ const lockedBranchId = isScopedRole ? user?.branch_id?.trim() ?? "" : "";
  const lockedOfficerId = isOfficerView ? effectiveUserId : "";
  const customersBasePath = isManagerView ? "/manager/customers" : isOfficerView ? "/officer/customers" : "/customers";
- const [form, setForm] = useState<CustomerCreateForm>(defaultForm);
+ const [form, setForm] = useState<CustomerCreateForm>(() => ({
+ ...defaultForm,
+ ...(portalOfficer ? officerAssignmentDefaults(portalOfficer) : {}),
+ }));
  const [error, setError] = useState("");
  const [submitting, setSubmitting] = useState(false);
  const [placeSuggestions, setPlaceSuggestions] = useState<PlaceSuggestion[]>([]);
@@ -190,10 +229,14 @@ export default function NewCustomerPage() {
  const [loadingStreetSuggestions, setLoadingStreetSuggestions] = useState(false);
  const [activePlaceSuggestionIndex, setActivePlaceSuggestionIndex] = useState(-1);
  const [activeStreetSuggestionIndex, setActiveStreetSuggestionIndex] = useState(-1);
- const [branchRecords, setBranchRecords] = useState<Branch[]>([]);
+ const [branchRecords, setBranchRecords] = useState<Branch[]>(() =>
+ portalOfficer?.branch_id?.trim() ? [syntheticBranchFromSession(portalOfficer)] : []
+ );
  const [branchesLoading, setBranchesLoading] = useState(false);
  const [branchesError, setBranchesError] = useState("");
- const [loanOfficers, setLoanOfficers] = useState<User[]>([]);
+ const [loanOfficers, setLoanOfficers] = useState<User[]>(() =>
+ portalOfficer?.role === "loan_officer" ? [sessionUserToLoanOfficer(portalOfficer)] : []
+ );
  const [officersLoading, setOfficersLoading] = useState(false);
  const [officersError, setOfficersError] = useState("");
  const [attachments, setAttachments] = useState<CustomerAttachmentFormState>(emptyCustomerAttachments);
@@ -203,7 +246,41 @@ export default function NewCustomerPage() {
  (attachments.business_location_photo ? 1 : 0) +
  attachments.supporting_documents.length;
 
+ const [leadPrefillId, setLeadPrefillId] = useState<string | null>(null);
+ const appliedLeadPrefillRef = useRef(false);
+
+ useEffect(() => {
+  if (appliedLeadPrefillRef.current) return;
+  const { leadId, fields } = parseLeadPrefillFromSearchParams(searchParams);
+  if (!leadId) return;
+  appliedLeadPrefillRef.current = true;
+  setLeadPrefillId(leadId);
+  const parsedLat = fields.lat ? Number(fields.lat) : NaN;
+  const parsedLng = fields.lng ? Number(fields.lng) : NaN;
+  const homeLat = !Number.isNaN(parsedLat) && parsedLat >= -90 && parsedLat <= 90 ? parsedLat : null;
+  const homeLng = !Number.isNaN(parsedLng) && parsedLng >= -180 && parsedLng <= 180 ? parsedLng : null;
+  setForm((prev) => ({
+   ...prev,
+   full_name: fields.full_name || prev.full_name,
+   phone: fields.phone || prev.phone,
+   alt_phone: fields.alt_phone || prev.alt_phone,
+   region: fields.region || prev.region,
+   district: fields.district || prev.district,
+   ward: fields.ward || prev.ward,
+   street: fields.street || prev.street,
+   notes: fields.notes || prev.notes,
+   branch_id: fields.branch_id || prev.branch_id,
+   home_latitude: homeLat ?? prev.home_latitude,
+   home_longitude: homeLng ?? prev.home_longitude,
+  }));
+ }, [searchParams]);
+
  const loadBranches = useCallback(async () => {
+ if (lockedBranchId && user) {
+ setBranchesError("");
+ setBranchRecords([syntheticBranchFromSession(user)]);
+ return;
+ }
  if (lockedBranchId) {
  setBranchesError("");
  setBranchRecords([
@@ -237,27 +314,14 @@ export default function NewCustomerPage() {
  } finally {
  setBranchesLoading(false);
  }
- }, [lockedBranchId]);
+ }, [lockedBranchId, user]);
 
  const loadOfficersForBranch = useCallback(
  async (branchId?: string) => {
  if (lockedOfficerId && user) {
  setOfficersError("");
  setOfficersLoading(false);
- setLoanOfficers([
- {
- id: user.id,
- email: user.email,
- full_name: user.full_name,
- role: "loan_officer",
- branch_id: user.branch_id ?? "",
- phone: user.phone ?? "",
- employee_id: user.employee_id ?? "",
- is_active: user.is_active ?? true,
- created_at: new Date().toISOString(),
- last_login: null,
- },
- ]);
+ setLoanOfficers([sessionUserToLoanOfficer(user)]);
  return;
  }
  const targetBranchId = String(branchId ?? form.branch_id).trim();
@@ -303,24 +367,32 @@ export default function NewCustomerPage() {
  }, [loadOfficersForBranch]);
 
  useEffect(() => {
+ if (!user) return;
+ if (isOfficerView && user.branch_id?.trim()) {
+ setBranchRecords([syntheticBranchFromSession(user)]);
+ setLoanOfficers([sessionUserToLoanOfficer(user)]);
+ }
  setForm((prev) => ({
  ...prev,
  created_by: effectiveUserId,
  branch_id: lockedBranchId || prev.branch_id,
  loan_officer_id: lockedOfficerId || prev.loan_officer_id,
  }));
- }, [effectiveUserId, lockedBranchId, lockedOfficerId]);
+ }, [effectiveUserId, lockedBranchId, lockedOfficerId, isOfficerView, user]);
+
+ const effectiveBranchId = form.branch_id || lockedBranchId;
+ const effectiveOfficerId = form.loan_officer_id || lockedOfficerId;
 
  const branchOptions = useMemo(
  () => activeBranchesForAssignment(branchRecords, lockedBranchId),
  [branchRecords, lockedBranchId]
  );
  const loanOfficerOptions = useMemo(
- () => loanOfficersForBranch(loanOfficers, form.branch_id),
- [loanOfficers, form.branch_id]
+ () => loanOfficersForBranch(loanOfficers, effectiveBranchId),
+ [loanOfficers, effectiveBranchId]
  );
-
- const selectedBranch = branchOptions.find((branch) => branch.id === form.branch_id);
+ const selectedBranch = branchOptions.find((branch) => branch.id === effectiveBranchId);
+ const selectedOfficer = loanOfficerOptions.find((officer) => officer.id === effectiveOfficerId);
 
  const updateField = <K extends keyof CustomerCreateForm>(key: K, value: CustomerCreateForm[K]) => {
  setForm((prev) => {
@@ -463,13 +535,17 @@ export default function NewCustomerPage() {
  };
 
  const validate = () => {
+ if (!sessionLoaded || !user) return "Session is still loading. Please wait a moment and try again.";
+ if (isOfficerView && !user.branch_id?.trim()) {
+ return "Your account is not linked to a branch. Contact an administrator.";
+ }
  if (!form.full_name.trim()) return "Full name is required.";
  if (!form.phone.trim()) return "Primary phone number is required.";
  if (!form.physical_address.trim()) return "Physical address is required.";
  if (!form.national_id.trim()) return "National ID is required.";
  if (!form.payment_reference.trim()) return "Payment reference is required.";
- if (!form.branch_id) return "Please select a branch.";
- if (!form.loan_officer_id) return "Please assign a loan officer.";
+ if (!form.branch_id && !lockedBranchId) return "Please select a branch.";
+ if (!isOfficerView && !form.loan_officer_id) return "Please assign a loan officer.";
  return "";
  };
 
@@ -492,7 +568,7 @@ export default function NewCustomerPage() {
  employer_address: form.employer_address.trim() || null,
  employer_phone: form.employer_phone.trim() || null,
  employment_start_date: form.employment_start_date || null,
- monthly_income: form.monthly_income ? Number(form.monthly_income) : null,
+ monthly_income: form.monthly_income ? parseMoneyInput(form.monthly_income) : null,
  business_name: form.business_name.trim() || null,
  business_type: form.business_type.trim() || null,
  business_address: form.business_address.trim() || null,
@@ -503,14 +579,16 @@ export default function NewCustomerPage() {
  cheque_number: form.cheque_number.trim() || null,
  payment_reference: form.payment_reference.trim(),
  registration_fee_paid: form.registration_fee_paid,
- registration_fee_amount: form.registration_fee_amount ? Number(form.registration_fee_amount) : null,
+ registration_fee_amount: form.registration_fee_amount
+ ? parseMoneyInput(form.registration_fee_amount)
+ : null,
  registration_fee_paid_at: form.registration_fee_paid_at || null,
  status: form.status,
  risk_level: form.risk_level,
  risk_score: Number(form.risk_score || 0),
  notes: form.notes.trim() || null,
- loan_officer_id: form.loan_officer_id,
- branch_id: form.branch_id,
+ loan_officer_id: effectiveOfficerId || form.loan_officer_id,
+ branch_id: effectiveBranchId || form.branch_id,
  created_by: form.created_by,
  });
 
@@ -564,7 +642,7 @@ export default function NewCustomerPage() {
  return;
  }
 
- router.push(customersBasePath);
+ router.replace(customersBasePath);
  } catch (submitError) {
  console.error("create customer request", payload, submitError);
  setError("Unable to create customer. Check your connection and try again.");
@@ -579,6 +657,20 @@ export default function NewCustomerPage() {
  title="Create Customer"
  description="Capture complete customer details aligned with the customers database table."
  />
+ {!sessionLoaded ? (
+ <main className="flex-1 p-4 lg:p-6">
+ <p className="text-sm text-muted-foreground">Loading your session…</p>
+ </main>
+ ) : isOfficerView && !user?.branch_id?.trim() ? (
+ <main className="flex-1 p-4 lg:p-6">
+ <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+ Your account is not linked to a branch. You cannot register customers until an administrator assigns you to a branch.
+ </p>
+ <Button variant="outline" className="mt-4" asChild>
+ <Link href={customersBasePath}>Back to Customers</Link>
+ </Button>
+ </main>
+ ) : (
  <main className="flex min-h-0 flex-1 overflow-y-auto overflow-x-hidden scroll-smooth p-4 pb-10 lg:p-6 lg:pb-8">
  <div className="mx-auto max-w-6xl space-y-6">
  <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-100 bg-gradient-to-r from-emerald-50 to-background p-4">
@@ -596,6 +688,15 @@ export default function NewCustomerPage() {
  </Button>
  </div>
 
+ {leadPrefillId ? (
+  <div className="rounded-lg border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-900">
+   <p className="font-medium">Pre-filled from lead</p>
+   <p className="mt-0.5 text-xs text-amber-800">
+    Details from lead {leadPrefillId} were copied into this form. Complete the remaining fields and save to register the customer.
+   </p>
+  </div>
+ ) : null}
+
  <form onSubmit={handleSubmit} className="space-y-6">
  <div className="grid gap-6 lg:grid-cols-3">
  <div className="space-y-6 lg:col-span-2">
@@ -603,10 +704,7 @@ export default function NewCustomerPage() {
  <CardHeader>
  <CardTitle>Assignment & System Controls</CardTitle>
  <CardDescription>
- Branch and loan officer come from the LMS: <span className="font-mono text-[11px]">GET /branches</span> and{" "}
- <span className="font-mono text-[11px]">GET /users</span> (staff directory). Customer{" "}
- <span className="font-mono text-[11px]">branch_id</span> is sent on{" "}
- <span className="font-mono text-[11px]">POST /customers</span> per customers controller docs.
+ Choose the branch where this customer will be served and the loan officer who will manage the relationship.
  </CardDescription>
  </CardHeader>
  <CardContent className="space-y-4">
@@ -614,10 +712,10 @@ export default function NewCustomerPage() {
  <div className="space-y-2">
  <Label htmlFor="branch">Branch</Label>
  <p className="text-xs text-muted-foreground">
- Active branches from the database. Open the list to refresh after new branches are created.
+ Select the branch that will manage this customer. Reopen the list if a branch you expect is missing.
  </p>
  <Select
- value={form.branch_id}
+ value={effectiveBranchId || undefined}
  onValueChange={(value) => {
  updateField("branch_id", value);
  if (!lockedOfficerId) void loadOfficersForBranch(value);
@@ -646,26 +744,24 @@ export default function NewCustomerPage() {
  <div className="space-y-2">
  <Label htmlFor="loan-officer">Loan Officer</Label>
  <p className="text-xs text-muted-foreground">
- Loan officers assigned to the selected branch (<span className="font-mono text-[11px]">GET /users</span> with{" "}
- <span className="font-mono text-[11px]">branch_id</span> + <span className="font-mono text-[11px]">role=loan_officer</span>
- ).
+ Only loan officers assigned to the selected branch are listed. Pick the officer responsible for this customer.
  </p>
  <Select
- value={form.loan_officer_id}
+ value={effectiveOfficerId || undefined}
  onValueChange={(value) => updateField("loan_officer_id", value)}
  onOpenChange={(open) => {
- if (open && form.branch_id && !lockedOfficerId) void loadOfficersForBranch(form.branch_id);
+ if (open && effectiveBranchId && !lockedOfficerId) void loadOfficersForBranch(effectiveBranchId);
  }}
- disabled={!form.branch_id || Boolean(lockedOfficerId)}
+ disabled={!effectiveBranchId || Boolean(lockedOfficerId)}
  >
  <SelectTrigger id="loan-officer">
  <SelectValue
  placeholder={
- !form.branch_id
+ !effectiveBranchId
  ? "Select branch first"
  : officersLoading
  ? "Loading officers…"
- : "Select loan officer"
+ : selectedOfficer?.full_name ?? "Select loan officer"
  }
  />
  </SelectTrigger>
@@ -731,20 +827,20 @@ export default function NewCustomerPage() {
  </div>
  <div className="space-y-2">
  <Label htmlFor="phone">Primary Phone</Label>
- <Input
+ <TzValidatedInput
  id="phone"
+ kind="phone"
  value={form.phone}
- onChange={(event) => updateField("phone", event.target.value)}
- placeholder="+255 xxx xxx xxx"
+ onValueChange={(value) => updateField("phone", value)}
  />
  </div>
  <div className="space-y-2">
  <Label htmlFor="alt-phone">Alternative Phone</Label>
- <Input
+ <TzValidatedInput
  id="alt-phone"
+ kind="phone"
  value={form.alt_phone}
- onChange={(event) => updateField("alt_phone", event.target.value)}
- placeholder="+255 xxx xxx xxx"
+ onValueChange={(value) => updateField("alt_phone", value)}
  />
  </div>
  <div className="space-y-2">
@@ -774,12 +870,21 @@ export default function NewCustomerPage() {
  </div>
  <div className="space-y-2 md:col-span-2">
  <Label htmlFor="national-id">National ID / Identifier</Label>
+ {form.id_type === "NIDA" ? (
+ <TzValidatedInput
+ id="national-id"
+ kind="nida"
+ value={form.national_id}
+ onValueChange={(value) => updateField("national_id", value)}
+ />
+ ) : (
  <Input
  id="national-id"
  value={form.national_id}
  onChange={(event) => updateField("national_id", event.target.value)}
  placeholder="Unique national identification"
  />
+ )}
  </div>
  </div>
  </CardContent>
@@ -933,13 +1038,11 @@ export default function NewCustomerPage() {
  </div>
  <div className="space-y-2">
  <Label htmlFor="monthly-income">Monthly Income</Label>
- <Input
+ <MoneyInput
  id="monthly-income"
- type="number"
- min="0"
  value={form.monthly_income}
- onChange={(event) => updateField("monthly_income", event.target.value)}
- placeholder="TZS amount"
+ onValueChange={(value) => updateField("monthly_income", value)}
+ placeholder="e.g., 1,000,000"
  />
  </div>
  <div className="space-y-2">
@@ -952,10 +1055,11 @@ export default function NewCustomerPage() {
  </div>
  <div className="space-y-2">
  <Label htmlFor="employer-phone">Employer Phone</Label>
- <Input
+ <TzValidatedInput
  id="employer-phone"
+ kind="phone"
  value={form.employer_phone}
- onChange={(event) => updateField("employer_phone", event.target.value)}
+ onValueChange={(value) => updateField("employer_phone", value)}
  />
  </div>
  <div className="space-y-2 md:col-span-2">
@@ -1114,12 +1218,11 @@ export default function NewCustomerPage() {
  </div>
  <div className="space-y-2">
  <Label htmlFor="registration-fee-amount">Registration Fee Amount</Label>
- <Input
+ <MoneyInput
  id="registration-fee-amount"
- type="number"
- min="0"
  value={form.registration_fee_amount}
- onChange={(event) => updateField("registration_fee_amount", event.target.value)}
+ onValueChange={(value) => updateField("registration_fee_amount", value)}
+ placeholder="e.g., 50,000"
  />
  </div>
  <div className="space-y-2">
@@ -1156,11 +1259,11 @@ export default function NewCustomerPage() {
  </Card>
  </div>
 
- <div className="space-y-6">
- <Card className="sticky top-6">
+        <div className="space-y-6 self-start">
+            <Card className="sticky top-6">
  <CardHeader>
  <CardTitle>Submit Summary</CardTitle>
- <CardDescription>Backend-ready submission for `POST /api/customers` (or custom endpoint).</CardDescription>
+ <CardDescription>Review the assignment and key details, then register the customer.</CardDescription>
  </CardHeader>
  <CardContent className="space-y-4">
  <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3 text-sm">
@@ -1224,7 +1327,7 @@ export default function NewCustomerPage() {
 
  <Separator />
 
- <Button className="w-full" type="submit" disabled={submitting}>
+ <Button className="w-full" type="submit" disabled={submitting || !sessionLoaded}>
  <UserPlus className="mr-2 h-4 w-4" />
  {submitting ? "Submitting..." : "Create Customer"}
  </Button>
@@ -1249,9 +1352,18 @@ export default function NewCustomerPage() {
  </Card>
  </div>
  </div>
- </form>
- </div>
- </main>
- </>
- );
+  </form>
+  </div>
+  </main>
+  )}
+  </>
+  );
+}
+
+export default function NewCustomerPage() {
+  return (
+    <Suspense>
+      <NewCustomerPageInner />
+    </Suspense>
+  );
 }

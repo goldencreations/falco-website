@@ -1,6 +1,8 @@
 "use client";
 
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
+import type { SessionUser } from "@/lib/auth";
+import { isBranchDataScoped, syntheticBranchFromSession } from "@/lib/branch-scope";
 import { extractBranchesList } from "@/lib/branch-adapters";
 import { extractUsersListPayload } from "@/lib/user-adapters";
 import type { Branch, User } from "@/lib/types";
@@ -17,12 +19,48 @@ interface BranchAssignmentContextValue {
 
 const BranchAssignmentContext = createContext<BranchAssignmentContextValue | null>(null);
 
-export function BranchAssignmentProvider({ children }: { children: ReactNode }) {
- const [branches, setBranches] = useState<Branch[]>([]);
+type BranchAssignmentMode = "light" | "full";
+
+export function BranchAssignmentProvider({
+ children,
+ mode = "full",
+ sessionUser,
+}: {
+ children: ReactNode;
+ /** `light` = branches only (portal dashboards). `full` = admin team/assignment screens. */
+ mode?: BranchAssignmentMode;
+ /** When set for a branch-scoped portal user, skip remote branch list fetch (avoids 401/noise). */
+ sessionUser?: Pick<SessionUser, "id" | "role" | "branch_id" | "full_name" | "email" | "permissions">;
+}) {
+ const useScopedBranchOnly =
+ mode === "light" &&
+ sessionUser &&
+ isBranchDataScoped(sessionUser as SessionUser);
+
+ const [branches, setBranches] = useState<Branch[]>(() =>
+ useScopedBranchOnly && sessionUser?.branch_id?.trim()
+ ? [syntheticBranchFromSession(sessionUser as SessionUser)]
+ : []
+ );
  const [users, setUsers] = useState<User[]>([]);
 
  const refresh = async () => {
+ if (useScopedBranchOnly) {
+ if (sessionUser?.branch_id?.trim()) {
+ setBranches([syntheticBranchFromSession(sessionUser as SessionUser)]);
+ }
+ return;
+ }
  try {
+ if (mode === "light") {
+ const branchesRes = await fetch("/api/falco/branches", { credentials: "include" });
+ if (branchesRes.ok) {
+ const b = await branchesRes.json();
+ setBranches(extractBranchesList(b));
+ }
+ return;
+ }
+
  const [branchesRes, usersRes, managersRes, officersRes] = await Promise.all([
  fetch("/api/falco/branches", { credentials: "include" }),
  fetch("/api/staff/directory?page_size=500", { credentials: "include" }),
@@ -49,7 +87,8 @@ export function BranchAssignmentProvider({ children }: { children: ReactNode }) 
 
  useEffect(() => {
  void refresh();
- }, []);
+ // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh when scoped session identity changes
+ }, [useScopedBranchOnly, sessionUser?.branch_id, sessionUser?.id]);
 
  const updateBranch = (branchId: string, updates: Partial<Branch>) => {
  setBranches((prev) =>

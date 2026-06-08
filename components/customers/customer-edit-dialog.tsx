@@ -12,7 +12,16 @@ import {
  DialogHeader,
  DialogTitle,
 } from "@/components/ui/dialog";
+import { MoneyInput } from "@/components/forms/money-input";
 import { Input } from "@/components/ui/input";
+import { formatMoneyFromNumber, parseMoneyInput } from "@/lib/money-input";
+
+function moneyFieldFromPayload(value: unknown): string {
+ if (value == null || value === "") return "";
+ if (typeof value === "number") return formatMoneyFromNumber(value);
+ const n = parseMoneyInput(String(value));
+ return n > 0 ? formatMoneyFromNumber(n) : String(value);
+}
 import { Label } from "@/components/ui/label";
 import {
  Select,
@@ -131,7 +140,7 @@ function toEditForm(p: Record<string, unknown>): EditForm {
  employer_address: String(p.employer_address ?? ""),
  employer_phone: String(p.employer_phone ?? ""),
  employment_start_date: String(p.employment_start_date ?? ""),
- monthly_income: String(p.monthly_income ?? ""),
+ monthly_income: moneyFieldFromPayload(p.monthly_income),
  business_name: String(p.business_name ?? ""),
  business_type: String(p.business_type ?? ""),
  business_address: String(p.business_address ?? ""),
@@ -140,7 +149,7 @@ function toEditForm(p: Record<string, unknown>): EditForm {
  cheque_number: String(p.cheque_number ?? ""),
  payment_reference: String(p.payment_reference ?? ""),
  registration_fee_paid: Boolean(p.registration_fee_paid),
- registration_fee_amount: String(p.registration_fee_amount ?? ""),
+ registration_fee_amount: moneyFieldFromPayload(p.registration_fee_amount),
  registration_fee_paid_at: String(p.registration_fee_paid_at ?? ""),
  status: (p.status as CustomerStatus) || "active",
  risk_level: (p.risk_level as RiskLevel) || "medium",
@@ -179,7 +188,7 @@ function formToPatchBody(form: EditForm): Record<string, unknown> {
  employer_address: form.employer_address,
  employer_phone: form.employer_phone,
  employment_start_date: form.employment_start_date,
- monthly_income: form.monthly_income,
+ monthly_income: form.monthly_income ? parseMoneyInput(form.monthly_income) : null,
  business_name: form.business_name,
  business_type: form.business_type,
  business_address: form.business_address,
@@ -188,7 +197,9 @@ function formToPatchBody(form: EditForm): Record<string, unknown> {
  cheque_number: form.cheque_number,
  payment_reference: form.payment_reference,
  registration_fee_paid: form.registration_fee_paid,
- registration_fee_amount: form.registration_fee_amount,
+ registration_fee_amount: form.registration_fee_amount
+ ? parseMoneyInput(form.registration_fee_amount)
+ : null,
  registration_fee_paid_at: form.registration_fee_paid_at,
  status: form.status,
  risk_level: form.risk_level,
@@ -608,12 +619,10 @@ export function CustomerEditDialog({
  </div>
  <div className="space-y-2">
  <Label htmlFor="edit-income">Monthly income</Label>
- <Input
+ <MoneyInput
  id="edit-income"
- type="number"
- min={0}
  value={form.monthly_income}
- onChange={(e) => updateField("monthly_income", e.target.value)}
+ onValueChange={(value) => updateField("monthly_income", value)}
  />
  </div>
  <div className="space-y-2 md:col-span-2">
@@ -784,12 +793,10 @@ export function CustomerEditDialog({
  </div>
  <div className="space-y-2">
  <Label htmlFor="edit-reg-amt">Registration fee amount</Label>
- <Input
+ <MoneyInput
  id="edit-reg-amt"
- type="number"
- min={0}
  value={form.registration_fee_amount}
- onChange={(e) => updateField("registration_fee_amount", e.target.value)}
+ onValueChange={(value) => updateField("registration_fee_amount", value)}
  />
  </div>
  <div className="space-y-2">

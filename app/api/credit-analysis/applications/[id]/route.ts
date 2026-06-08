@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { extractApplicationDetail } from "@/lib/application-adapters";
 import { requireApiUser, ensureResourceBranchAllowed } from "@/lib/authorization";
-import { falcoServerFetch } from "@/lib/server-falco";
+import { fetchCreditAnalysisApplicationContext } from "@/lib/credit-analysis-server";
 
 function branchIdFromCreditAnalysisEnvelope(data: unknown): string | undefined {
  if (!data || typeof data !== "object") return undefined;
@@ -22,10 +21,7 @@ export async function GET(
  if ("response" in auth) return auth.response;
  const { id } = await context.params;
 
- const res = await falcoServerFetch<unknown>(
- `/credit-analysis/applications/${encodeURIComponent(id)}`,
- { request }
- );
+ const res = await fetchCreditAnalysisApplicationContext(request, id);
  if (!res.ok) {
  return NextResponse.json(
  { message: res.error.message, details: res.error.details },

@@ -1,21 +1,18 @@
 import { NextResponse } from "next/server";
-import { requireApiUser, resolvedBranchIdForListQuery } from "@/lib/authorization";
-import { falcoServerFetch } from "@/lib/server-falco";
+import { requireApiUser } from "@/lib/authorization";
+import { fetchCreditAnalysisApplicationsList } from "@/lib/credit-analysis-server";
 
 export async function GET(request: Request) {
  const auth = await requireApiUser(request);
  if ("response" in auth) return auth.response;
 
  const url = new URL(request.url);
- const res = await falcoServerFetch<unknown>("/credit-analysis/applications", {
- request,
- query: {
- page: url.searchParams.get("page") ?? "1",
- page_size: url.searchParams.get("page_size") ?? "50",
- status: url.searchParams.get("status") ?? undefined,
- branch_id: resolvedBranchIdForListQuery(auth.user, url.searchParams.get("branch_id")),
- assigned_analyst_id: url.searchParams.get("assigned_analyst_id") ?? undefined,
- },
+ const res = await fetchCreditAnalysisApplicationsList(request, auth.user, {
+ page: url.searchParams.get("page"),
+ page_size: url.searchParams.get("page_size"),
+ status: url.searchParams.get("status"),
+ branch_id: url.searchParams.get("branch_id"),
+ assigned_analyst_id: url.searchParams.get("assigned_analyst_id"),
  });
 
  if (!res.ok) {

@@ -50,15 +50,17 @@ import {
  TableRow,
 } from "@/components/ui/table";
 import { exportBranchReportPdf } from "@/lib/branch-report-pdf";
+import { loadReportExportDetailRows } from "@/lib/report-export-data";
 import { formatCurrency, formatDateTime } from "@/lib/formatters";
 import { normalizePortfolioSummary, type PortfolioSummaryView } from "@/lib/portfolio-summary";
 import { agingColor, normalizeAgingReport, type AgingReportView } from "@/lib/reports-aging";
 import {
+ buildMonthlyActivityView,
  getPeriodRange,
  mergeMonthlyActivity,
  normalizeTimeseries,
- type MonthlyActivityRow,
 } from "@/lib/reports-timeseries";
+import { isBranchScopedStaffRole } from "@/lib/role-portal";
 import { useSessionUser } from "@/lib/use-session-user";
 
 function formatYAxis(value: number) {
@@ -99,7 +101,7 @@ export default function ReportsPage() {
  const isSuperAdmin = user?.role === "super_admin";
  const isOfficerView = user?.role === "loan_officer";
  const isManagerView = user?.role === "branch_manager";
- const isScopedRole = isManagerView || isOfficerView;
+ const isScopedRole = isBranchScopedStaffRole(user?.role);
  const scopedBranchId = isScopedRole && user?.branch_id?.trim() ? user.branch_id.trim() : null;
 
  const [period, setPeriod] = useState("6m");
@@ -226,27 +228,36 @@ export default function ReportsPage() {
  return [];
  }, [branchPerformance, scopedBranchId, metrics, scopeLabel]);
 
+ const monthlyActivity = useMemo(() => buildMonthlyActivityView(monthlyData), [monthlyData]);
+
  const portfolioMoM = useMemo(() => {
- if (monthlyData.length < 2) return null;
- const prev = monthlyData[monthlyData.length - 2]?.outstanding ?? 0;
- const curr = monthlyData[monthlyData.length - 1]?.outstanding ?? metrics?.totalPortfolio ?? 0;
+ const rows = monthlyActivity.displayRows;
+ if (rows.length < 2) return null;
+ const prev = rows[rows.length - 2]?.outstanding ?? 0;
+ const curr = rows[rows.length - 1]?.outstanding ?? metrics?.totalPortfolio ?? 0;
  if (prev <= 0) return null;
  return ((curr - prev) / prev) * 100;
- }, [monthlyData, metrics?.totalPortfolio]);
+ }, [monthlyActivity.displayRows, metrics?.totalPortfolio]);
 
  const growthChartData = useMemo(
  () =>
- monthlyData.map((row) => ({
+ monthlyActivity.displayRows.map((row) => ({
  month: row.month,
  portfolio: row.outstanding > 0 ? row.outstanding : row.disbursements,
  })),
- [monthlyData]
+ [monthlyActivity.displayRows]
  );
 
  const exportReport = async () => {
  if (!portfolio || !metrics) return;
  setExporting(true);
  try {
+ const detailRows = await loadReportExportDetailRows({
+ branchId: effectiveBranchId,
+ from: range.from,
+ to: range.to,
+ });
+
  const payload = {
  branchName: scopeLabel,
  periodLabel: range.label,
@@ -279,10 +290,10 @@ export default function ReportsPage() {
  outstanding: b.outstanding,
  collectionRate: b.collectionRate,
  })),
- applications: [],
- customers: [],
- loans: [],
- collections: [],
+ applications: detailRows.applications,
+ customers: detailRows.customers,
+ loans: detailRows.loans,
+ collections: detailRows.collections,
  };
 
  if (exportOption === "json") {
@@ -526,9 +537,9 @@ export default function ReportsPage() {
  </CardHeader>
  <CardContent>
  <div className="h-[300px]">
- {monthlyData.length ? (
+ {monthlyActivity.displayRows.length ? (
  <ResponsiveContainer width="100%" height="100%">
- <BarChart data={monthlyData}>
+ <BarChart data={monthlyActivity.displayRows}>
  <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
  <XAxis dataKey="month" />
  <YAxis tickFormatter={formatYAxis} />
@@ -610,52 +621,131 @@ export default function ReportsPage() {
  </div>
 
  <Card>
- <CardHeader>
+ <CardHeader className="space-y-3">
+ <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+ <div>
  <CardTitle>Loan Activity Summary</CardTitle>
- <CardDescription>Monthly disbursements, collections, and loan counts from live data</CardDescription>
+ <CardDescription>
+ Period totals and monthly breakdown for {range.label.toLowerCase()}
+ </CardDescription>
+ </div>
+ {monthlyActivity.activeMonths > 0 ? (
+ <Badge variant="secondary" className="w-fit shrink-0">
+ {monthlyActivity.activeMonths} active month
+ {monthlyActivity.activeMonths === 1 ? "" : "s"}
+ </Badge>
+ ) : null}
+ </div>
+ {monthlyActivity.activeMonths > 0 ? (
+ <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+ <div className="rounded-lg border bg-muted/30 px-3 py-2">
+ <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+ Total disbursed
+ </p>
+ <p className="mt-0.5 text-lg font-semibold tabular-nums">
+ {formatCurrency(monthlyActivity.periodTotals.disbursements)}
+ </p>
+ </div>
+ <div className="rounded-lg border bg-muted/30 px-3 py-2">
+ <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+ Total collected
+ </p>
+ <p className="mt-0.5 text-lg font-semibold tabular-nums text-emerald-700">
+ {formatCurrency(monthlyActivity.periodTotals.collections)}
+ </p>
+ </div>
+ <div className="rounded-lg border bg-muted/30 px-3 py-2">
+ <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+ New loans
+ </p>
+ <p className="mt-0.5 text-lg font-semibold tabular-nums">
+ {monthlyActivity.periodTotals.newLoans.toLocaleString()}
+ </p>
+ </div>
+ <div className="rounded-lg border bg-muted/30 px-3 py-2">
+ <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+ Collection rate
+ </p>
+ <p className="mt-0.5 text-lg font-semibold tabular-nums">
+ {monthlyActivity.periodTotals.disbursements > 0
+ ? `${(
+ (monthlyActivity.periodTotals.collections /
+ monthlyActivity.periodTotals.disbursements) *
+ 100
+ ).toFixed(1)}%`
+ : "—"}
+ </p>
+ </div>
+ </div>
+ ) : null}
  </CardHeader>
- <CardContent>
+ <CardContent className="space-y-3">
+ {monthlyActivity.displayRows.length ? (
+ <>
+ {monthlyActivity.hiddenEmptyMonths > 0 ? (
+ <p className="text-xs text-muted-foreground">
+ Showing {monthlyActivity.displayRows.length} month
+ {monthlyActivity.displayRows.length === 1 ? "" : "s"} with activity.{" "}
+ {monthlyActivity.hiddenEmptyMonths} empty month
+ {monthlyActivity.hiddenEmptyMonths === 1 ? "" : "s"} hidden from the list.
+ </p>
+ ) : null}
+ <div className="overflow-x-auto rounded-md border">
  <Table>
  <TableHeader>
- <TableRow>
+ <TableRow className="bg-muted/40">
  <TableHead>Month</TableHead>
  <TableHead className="text-right">Disbursements</TableHead>
  <TableHead className="text-right">Collections</TableHead>
- <TableHead className="text-right">New Loans</TableHead>
- <TableHead className="text-right">Closed Loans</TableHead>
- <TableHead className="text-right">Net Growth</TableHead>
+ <TableHead className="text-right">New loans</TableHead>
+ <TableHead className="text-right">Payments</TableHead>
  </TableRow>
  </TableHeader>
  <TableBody>
- {monthlyData.length ? (
- monthlyData.map((month) => (
+ {monthlyActivity.displayRows.map((month) => (
  <TableRow key={month.month}>
  <TableCell className="font-medium">{month.month}</TableCell>
- <TableCell className="text-right">{formatCurrency(month.disbursements)}</TableCell>
- <TableCell className="text-right">{formatCurrency(month.collections)}</TableCell>
- <TableCell className="text-right">{month.newLoans}</TableCell>
- <TableCell className="text-right">{month.closedLoans}</TableCell>
- <TableCell className="text-right">
- <span
- className={
- month.newLoans - month.closedLoans >= 0 ? "text-accent" : "text-destructive"
- }
- >
- {month.newLoans - month.closedLoans >= 0 ? "+" : ""}
- {month.newLoans - month.closedLoans}
- </span>
+ <TableCell className="text-right tabular-nums">
+ {month.disbursements > 0 ? formatCurrency(month.disbursements) : "—"}
+ </TableCell>
+ <TableCell className="text-right tabular-nums">
+ {month.collections > 0 ? formatCurrency(month.collections) : "—"}
+ </TableCell>
+ <TableCell className="text-right tabular-nums">
+ {month.newLoans > 0 ? month.newLoans : "—"}
+ </TableCell>
+ <TableCell className="text-right tabular-nums">
+ {month.collectionCount > 0 ? month.collectionCount : "—"}
  </TableCell>
  </TableRow>
- ))
- ) : (
- <TableRow>
- <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
- No monthly activity for the selected range.
+ ))}
+ <TableRow className="border-t-2 bg-muted/20 font-semibold">
+ <TableCell>Period total</TableCell>
+ <TableCell className="text-right tabular-nums">
+ {formatCurrency(monthlyActivity.periodTotals.disbursements)}
+ </TableCell>
+ <TableCell className="text-right tabular-nums">
+ {formatCurrency(monthlyActivity.periodTotals.collections)}
+ </TableCell>
+ <TableCell className="text-right tabular-nums">
+ {monthlyActivity.periodTotals.newLoans || "—"}
+ </TableCell>
+ <TableCell className="text-right tabular-nums">
+ {monthlyActivity.periodTotals.collectionCount || "—"}
  </TableCell>
  </TableRow>
- )}
  </TableBody>
  </Table>
+ </div>
+ </>
+ ) : (
+ <div className="rounded-lg border border-dashed py-10 text-center">
+ <p className="text-sm font-medium text-foreground">No loan activity in this period</p>
+ <p className="mt-1 text-xs text-muted-foreground">
+ Try a wider date range or confirm disbursements and payments were recorded for this branch.
+ </p>
+ </div>
+ )}
  </CardContent>
  </Card>
  </TabsContent>

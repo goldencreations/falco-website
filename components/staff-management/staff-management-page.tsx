@@ -38,6 +38,7 @@ import {
 } from "@/components/staff-management/utils";
 import { useBranchAssignment } from "@/components/branch-assignment-context";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { formatApiResponseError } from "@/lib/falco-api";
 import { useSessionUser } from "@/lib/use-session-user";
 
 type AdminTab = "directory" | "pending" | "access";
@@ -134,9 +135,24 @@ function StaffManagementPageInner() {
  try {
  const res = await fetch("/api/staff/provisioning?status=pending", { credentials: "include" });
  const data = await res.json().catch(() => ({}));
- setProvisioningRows(
- res.ok ? extractProvisioningRequestsList(data).filter((r) => r.status === "pending") : []
+ if (!res.ok) {
+ setProvisioningRows([]);
+ if (res.status === 401) {
+ toast.error("Session expired. Sign in again to manage staff.");
+ } else if (res.status === 503) {
+ toast.error(
+ formatApiResponseError(
+ data,
+ "Cannot reach the Falco API. Check your internet connection and FALCO_API_BASE_URL, then restart the app."
+ )
  );
+ }
+ return;
+ }
+ setProvisioningRows(extractProvisioningRequestsList(data).filter((r) => r.status === "pending"));
+ } catch {
+ setProvisioningRows([]);
+ toast.error("Network error loading pending hire requests.");
  } finally {
  setLoadingProvisioning(false);
  }
@@ -284,14 +300,18 @@ function StaffManagementPageInner() {
  };
  if (!res.ok) {
  const msg =
- typeof data.error === "string"
- ? data.error
- : typeof data.message === "string"
- ? data.message
- : res.status === 401
- ? "Unauthorized — sign in again."
- : "Request failed.";
+ res.status === 401
+ ? "Your session expired. Sign out, sign in again as Super Admin, then retry."
+ : res.status === 503
+ ? formatApiResponseError(
+ data,
+ "Cannot reach the Falco API. Open /api/health in the browser to test connectivity, then restart npm start."
+ )
+ : formatApiResponseError(data, "Could not create staff member.");
  setCreateFormError(msg);
+ if (res.status === 401) {
+ toast.error("Session expired. Please sign in again.");
+ }
  if (res.status === 401) toast.error("Session expired. Sign in again.");
  return;
  }

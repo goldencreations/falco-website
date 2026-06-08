@@ -65,6 +65,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
+import { forceCachedReload } from "@/lib/client-fetch-cache";
 import { exportDisbursementToPdf } from "@/lib/disbursement-pdf";
 import {
  type DisbursementKpis,
@@ -78,7 +79,10 @@ import {
  type Disbursement,
  type DisbursementPaymentChannel,
 } from "@/lib/disbursement-types";
-import { canPrepareDisbursement as userCanPrepareDisbursement } from "@/lib/disbursement-permissions";
+import {
+ canApproveDisbursement as userCanApproveDisbursement,
+ canPrepareDisbursement as userCanPrepareDisbursement,
+} from "@/lib/disbursement-permissions";
 import { useSessionUser } from "@/lib/use-session-user";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/formatters";
 import { formatApiResponseError } from "@/lib/falco-api";
@@ -124,8 +128,12 @@ const APPLICATION_STATUS_LABELS: Record<LoanApplicationStatus, string> = {
 
 const CHANNEL_OPTIONS = Object.keys(DISBURSEMENT_CHANNEL_LABELS) as DisbursementPaymentChannel[];
 
-function canActAsAdmin(role: string | undefined) {
- return role === "super_admin";
+function staffDisplayLabel(name: string | undefined, userId: string | undefined): string {
+ const label = name?.trim();
+ if (!label) return "—";
+ if (userId && label === userId) return "—";
+ if (/^\d+$/.test(label)) return "—";
+ return label;
 }
 
 function MiniSpark({ className }: { className?: string }) {
@@ -159,9 +167,9 @@ function DisbursementDetailPanel({
 }) {
  const customerName = row.customer_display_name ?? "";
  const loanNumber = row.loan_number ?? row.loan_id;
- const prepared = row.prepared_by_name ?? row.prepared_by;
- const approved = row.approved_by_name ?? row.approved_by ?? "—";
- const rejectedU = row.rejected_by_name ?? row.rejected_by ?? "—";
+ const prepared = staffDisplayLabel(row.prepared_by_name, row.prepared_by);
+ const approved = staffDisplayLabel(row.approved_by_name, row.approved_by ?? undefined) || "—";
+ const rejectedU = staffDisplayLabel(row.rejected_by_name, row.rejected_by ?? undefined) || "—";
  const sc = statusConfig[row.status];
 
  return (
@@ -313,7 +321,10 @@ export default function DisbursementsPage() {
  permissions: user.permissions ?? [],
  })
  : false;
- const isBranchScoped = user?.role === "branch_manager" || user?.role === "loan_officer";
+ const isBranchScoped =
+ user?.role === "branch_manager" ||
+ user?.role === "loan_officer" ||
+ user?.role === "accountant";
  const [searchQuery, setSearchQuery] = useState("");
  const [statusFilter, setStatusFilter] = useState<string>("all");
  const [rows, setRows] = useState<DisbursementViewRow[]>([]);
@@ -703,7 +714,7 @@ export default function DisbursementsPage() {
  }
  };
 
- const admin = canActAsAdmin(user?.role);
+ const canApprove = user ? userCanApproveDisbursement(user) : false;
 
  const chartData = useMemo(() => {
  if (!kpis) return [];
@@ -751,7 +762,7 @@ export default function DisbursementsPage() {
  loanNumber: row.loan_number ?? row.loan_id,
  customerName: row.customer_display_name ?? "—",
  channelLabel: DISBURSEMENT_CHANNEL_LABELS[row.method],
- preparedByName: row.prepared_by_name ?? row.prepared_by,
+ preparedByName: staffDisplayLabel(row.prepared_by_name, row.prepared_by),
  approvedByName: row.approved_by ? row.approved_by_name ?? row.approved_by : null,
  rejectedByName: row.rejected_by ? row.rejected_by_name ?? row.rejected_by : null,
  });
@@ -959,7 +970,7 @@ export default function DisbursementsPage() {
  </Select>
  </div>
  <div className="flex flex-wrap gap-2">
- <Button type="button" variant="outline" size="sm" onClick={() => load()} disabled={loading}>
+ <Button type="button" variant="outline" size="sm" onClick={() => forceCachedReload(load)} disabled={loading}>
  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
  <span className="ml-2">Refresh</span>
  </Button>
@@ -1072,7 +1083,7 @@ export default function DisbursementsPage() {
  }
  >
  <TableCell className="py-2 text-xs font-medium">{app.application_number}</TableCell>
- <TableCell className="py-2 text-xs">{app.customer_display_name}</TableCell>
+            <TableCell className="py-2 text-xs">{app.customer_display_name || "—"}</TableCell>
  <TableCell className="py-2">
  <Badge
  variant={canSelect ? "default" : "secondary"}
@@ -1115,7 +1126,7 @@ export default function DisbursementsPage() {
  <button
  type="button"
  className="text-primary hover:underline"
- onClick={() => void loadEligibleLoans()}
+ onClick={() => forceCachedReload(loadEligibleLoans)}
  >
  refresh
  </button>
@@ -1170,7 +1181,9 @@ export default function DisbursementsPage() {
  return (
  <SelectItem key={app.id} value={app.id} disabled={!canPick || preparingApplicationId === app.id}>
  <span className="font-medium">{app.application_number}</span>
- <span className="text-muted-foreground"> · {app.customer_display_name}</span>
+              {app.customer_display_name ? (
+                <span className="text-muted-foreground"> · {app.customer_display_name}</span>
+              ) : null}
  {app.loan_number ? (
  <span className="text-muted-foreground"> · {app.loan_number}</span>
  ) : null}
@@ -1221,7 +1234,7 @@ export default function DisbursementsPage() {
  )}
  <span className="text-muted-foreground">
  {" "}
- · {l.customer_display_name ?? "Customer"}
+              {l.customer_display_name ? ` · ${l.customer_display_name}` : ""}
  </span>
  </SelectItem>
  ))}
@@ -1470,7 +1483,9 @@ export default function DisbursementsPage() {
  <TableCell>
  <Badge variant={sc.variant}>{sc.label}</Badge>
  </TableCell>
- <TableCell className="text-sm">{row.prepared_by_name ?? row.prepared_by}</TableCell>
+ <TableCell className="text-sm">
+ {staffDisplayLabel(row.prepared_by_name, row.prepared_by)}
+ </TableCell>
  <TableCell className="text-xs text-muted-foreground">
  <div className="space-y-0.5">
  {row.approved_at && <div>Approved {formatDate(row.approved_at)}</div>}
@@ -1484,7 +1499,7 @@ export default function DisbursementsPage() {
  <Button size="sm" variant="ghost" onClick={() => setViewRow(row)}>
  <Eye className="h-4 w-4" />
  </Button>
- {admin && row.status === "pending_approval" && (
+ {canApprove && row.status === "pending_approval" && (
  <>
  <Button
  size="sm"
@@ -1508,7 +1523,7 @@ export default function DisbursementsPage() {
  </Button>
  </>
  )}
- {admin && row.status === "approved" && (
+ {canApprove && row.status === "approved" && (
  <Button
  size="sm"
  onClick={() => {
@@ -1567,14 +1582,14 @@ export default function DisbursementsPage() {
  </div>
  <div className="flex justify-between">
  <span className="text-muted-foreground">Prepared by</span>
- <span>{row.prepared_by_name ?? row.prepared_by}</span>
+ <span>{staffDisplayLabel(row.prepared_by_name, row.prepared_by)}</span>
  </div>
  <div className="flex flex-wrap gap-2 pt-1">
  <Button size="sm" variant="outline" className="flex-1" onClick={() => setViewRow(row)}>
  <Eye className="mr-1 h-4 w-4" />
  View
  </Button>
- {admin && row.status === "pending_approval" && (
+ {canApprove && row.status === "pending_approval" && (
  <>
  <Button
  size="sm"
@@ -1599,7 +1614,7 @@ export default function DisbursementsPage() {
  </Button>
  </>
  )}
- {admin && row.status === "approved" && (
+ {canApprove && row.status === "approved" && (
  <Button
  size="sm"
  className="flex-1"

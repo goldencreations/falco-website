@@ -18,6 +18,7 @@ export const STAFF_ROLE_OPTIONS: Array<{
  { label: "Super Admin", value: "super_admin", portalAccess: true },
  { label: "Branch Manager", value: "branch_manager", portalAccess: true },
  { label: "Loan Officer", value: "loan_officer", portalAccess: true },
+ { label: "Accountant", value: "accountant", portalAccess: true },
  { label: "Credit Analyst", value: "credit_analyst", portalAccess: false },
  { label: "Collections Officer", value: "collections_officer", portalAccess: false },
 ];
@@ -78,6 +79,7 @@ const ROLE_LABELS: Record<StaffRole, string> = {
  super_admin: "Super Admin",
  branch_manager: "Branch Manager",
  loan_officer: "Loan Officer",
+ accountant: "Accountant",
  credit_analyst: "Credit Analyst",
  collections_officer: "Collections Officer",
 };
@@ -90,6 +92,7 @@ const ROLE_BADGE_CLASSES: Record<StaffRole, string> = {
  super_admin: "border-destructive/25 bg-destructive/10 text-destructive",
  branch_manager: "border-info/20 bg-info/10 text-info",
  loan_officer: "border-primary/20 bg-primary/10 text-primary",
+ accountant: "border-teal-500/25 bg-teal-500/10 text-teal-800 ",
  credit_analyst: "border-violet-500/25 bg-violet-500/10 text-violet-700 ",
  collections_officer: "border-amber-500/25 bg-amber-500/10 text-amber-800 ",
 };

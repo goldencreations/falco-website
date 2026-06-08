@@ -27,6 +27,7 @@ import {
  canManagerReviewApplication,
 } from "@/lib/application-workflow-permissions";
 import { formatCurrency } from "@/lib/formatters";
+import { forceCachedReload } from "@/lib/client-fetch-cache";
 import { useSessionUser } from "@/lib/use-session-user";
 import type { LoanApplicationStatus } from "@/lib/types";
 
@@ -82,9 +83,9 @@ export default function PendingReviewPage() {
  setListLoading(true);
  setListError(null);
  try {
- const ctx = await fetchApplicationEnrichmentContext(scopeBranchId);
+ const ctx = await fetchApplicationEnrichmentContext(scopeBranchId, { role: effectiveRole });
  const params = new URLSearchParams();
- params.set("page_size", "100");
+ params.set("page_size", isOfficer ? "80" : "100");
  if (scopeBranchId) params.set("branch_id", scopeBranchId);
  const res = await fetch(`/api/applications?${params.toString()}`, { credentials: "include" });
  const json = await res.json();
@@ -105,7 +106,7 @@ export default function PendingReviewPage() {
  } finally {
  setListLoading(false);
  }
- }, [scopeBranchId]);
+ }, [scopeBranchId, effectiveRole, isOfficer]);
 
  useEffect(() => {
  void reload();
@@ -181,7 +182,7 @@ export default function PendingReviewPage() {
  </div>
  </div>
  <div className="flex flex-wrap gap-2">
- <Button type="button" variant="outline" size="sm" className="h-9" onClick={() => void reload()} disabled={listLoading}>
+ <Button type="button" variant="outline" size="sm" className="h-9" onClick={() => forceCachedReload(reload)} disabled={listLoading}>
  {listLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
  Refresh
  </Button>
