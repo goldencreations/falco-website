@@ -242,6 +242,10 @@ export default function NewCustomerPage() {
   if (!leadId) return;
   appliedLeadPrefillRef.current = true;
   setLeadPrefillId(leadId);
+  const parsedLat = fields.lat ? Number(fields.lat) : NaN;
+  const parsedLng = fields.lng ? Number(fields.lng) : NaN;
+  const homeLat = !Number.isNaN(parsedLat) && parsedLat >= -90 && parsedLat <= 90 ? parsedLat : null;
+  const homeLng = !Number.isNaN(parsedLng) && parsedLng >= -180 && parsedLng <= 180 ? parsedLng : null;
   setForm((prev) => ({
    ...prev,
    full_name: fields.full_name || prev.full_name,
@@ -253,6 +257,8 @@ export default function NewCustomerPage() {
    street: fields.street || prev.street,
    notes: fields.notes || prev.notes,
    branch_id: fields.branch_id || prev.branch_id,
+   home_latitude: homeLat ?? prev.home_latitude,
+   home_longitude: homeLng ?? prev.home_longitude,
   }));
  }, [searchParams]);
 

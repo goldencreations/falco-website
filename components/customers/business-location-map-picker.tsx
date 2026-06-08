@@ -9,11 +9,8 @@ import "leaflet/dist/leaflet.css";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { parseMapLink } from "@/lib/parse-map-link";
 import { cn } from "@/lib/utils";
-import { Link2, MapPin } from "lucide-react";
+import { LocateFixed, Loader2, MapPin } from "lucide-react";
 
 /** Default center: Dar es Salaam, TZ (aligns with Nominatim country filter on the form). */
 const DEFAULT_CENTER: LatLngTuple = [-6.7924, 39.2083];
@@ -96,29 +93,33 @@ export function CustomerLocationMapPicker({
   purpose = "business",
 }: CustomerLocationMapPickerProps) {
   const copy = LOCATION_COPY[purpose];
-  const [mapLink, setMapLink] = useState("");
-  const [linkError, setLinkError] = useState<string | null>(null);
-  const [linkSuccess, setLinkSuccess] = useState(false);
+  const [isLocating, setIsLocating] = useState(false);
+  const [geoError, setGeoError] = useState<string | null>(null);
   const hasPin = latitude != null && longitude != null;
   const markerPosition: LatLngTuple | null = hasPin ? [latitude, longitude] : null;
-  const linkFieldId = `map-link-${purpose}`;
 
-  const applyMapLink = () => {
-    setLinkSuccess(false);
-    const result = parseMapLink(mapLink);
-    if (!result.ok) {
-      setLinkError(result.message);
+  const handleBrowserLocation = () => {
+    if (!navigator.geolocation) {
+      setGeoError("Geolocation is not supported in this browser.");
       return;
     }
-    setLinkError(null);
-    setLinkSuccess(true);
-    onPick(result.latitude, result.longitude);
+    setIsLocating(true);
+    setGeoError(null);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setIsLocating(false);
+        onPick(pos.coords.latitude, pos.coords.longitude);
+      },
+      () => {
+        setIsLocating(false);
+        setGeoError("Could not get your location. Check browser permissions and try again.");
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
   };
 
   const handleClear = () => {
-    setMapLink("");
-    setLinkError(null);
-    setLinkSuccess(false);
+    setGeoError(null);
     onClear();
   };
 
@@ -134,58 +135,25 @@ export function CustomerLocationMapPicker({
         </Badge>
       </div>
 
-      <div className="space-y-2 rounded-md border border-border/80 bg-muted/20 p-3">
-        <Label htmlFor={linkFieldId} className="flex items-center gap-1.5 text-xs font-medium">
-          <Link2 className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
-          Paste map link
-        </Label>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
-          <Input
-            id={linkFieldId}
-            type="url"
-            inputMode="url"
-            autoComplete="off"
-            placeholder="Google Maps, Apple Maps, or lat, lng"
-            value={mapLink}
-            onChange={(e) => {
-              setMapLink(e.target.value);
-              if (linkError) setLinkError(null);
-              if (linkSuccess) setLinkSuccess(false);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                applyMapLink();
-              }
-            }}
-            className="h-9 min-w-0 flex-1 bg-background text-sm"
-          />
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            className="h-9 shrink-0 sm:px-4"
-            disabled={!mapLink.trim()}
-            onClick={applyMapLink}
-          >
-            Use link
-          </Button>
-        </div>
-        <p className="text-[10px] leading-relaxed text-muted-foreground">
-          Supports full Google Maps, Apple Maps, and OpenStreetMap URLs, or coordinates like{" "}
-          <span className="font-mono">-6.7924, 39.2083</span>. Short share links must be opened and copied
-          as the full URL.
-        </p>
-        {linkError ? (
-          <p
-            role="alert"
-            className="rounded-md border border-destructive/25 bg-destructive/10 px-2.5 py-2 text-xs text-destructive"
-          >
-            {linkError}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={isLocating}
+          onClick={handleBrowserLocation}
+        >
+          {isLocating ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          ) : (
+            <LocateFixed className="h-4 w-4" aria-hidden />
+          )}
+          {isLocating ? "Getting location…" : "Use browser location"}
+        </Button>
+        {geoError ? (
+          <p role="alert" className="text-xs text-destructive">
+            {geoError}
           </p>
-        ) : null}
-        {linkSuccess && !linkError ? (
-          <p className="text-xs text-emerald-800">Coordinates applied from link. Drag the pin to refine if needed.</p>
         ) : null}
       </div>
 

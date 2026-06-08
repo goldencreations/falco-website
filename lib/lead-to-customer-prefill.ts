@@ -56,6 +56,8 @@ export function buildNewCustomerUrlFromLead(lead: LeadView, role?: string): stri
   set("street", lead.locationName);
   set("notes", lead.notes);
   set("branch_id", lead.branchId);
+  set("lat", lead.latitude);
+  set("lng", lead.longitude);
 
   const query = params.toString();
   return query ? `${path}?${query}` : path;
@@ -71,6 +73,8 @@ export type LeadCustomerPrefillFields = {
   street: string;
   notes: string;
   branch_id: string;
+  lat: string;
+  lng: string;
 };
 
 export function parseLeadPrefillFromSearchParams(
@@ -94,6 +98,8 @@ export function parseLeadPrefillFromSearchParams(
       street: get("street"),
       notes: get("notes"),
       branch_id: get("branch_id"),
+      lat: get("lat"),
+      lng: get("lng"),
     },
   };
 }
