@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Building2, Home, Save, Store, UserPlus, Users } from "lucide-react";
+import { ArrowLeft, Building2, Home, Paperclip, Save, Store, UserPlus, Users } from "lucide-react";
+import { CustomerAttachmentsFields } from "@/components/customers/customer-attachments-fields";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,6 +28,11 @@ import {
  activeBranchesForAssignment,
  loanOfficersForBranch,
 } from "@/lib/customer-assignment-options";
+import {
+ emptyCustomerAttachments,
+ validateCustomerAttachments,
+ type CustomerAttachmentFormState,
+} from "@/lib/customer-attachments";
 import { formatValidationDetails } from "@/lib/falco-api";
 import { useSessionUser } from "@/lib/use-session-user";
 
@@ -190,6 +196,12 @@ export default function NewCustomerPage() {
  const [loanOfficers, setLoanOfficers] = useState<User[]>([]);
  const [officersLoading, setOfficersLoading] = useState(false);
  const [officersError, setOfficersError] = useState("");
+ const [attachments, setAttachments] = useState<CustomerAttachmentFormState>(emptyCustomerAttachments);
+
+ const attachmentCount =
+ (attachments.home_location_photo ? 1 : 0) +
+ (attachments.business_location_photo ? 1 : 0) +
+ attachments.supporting_documents.length;
 
  const loadBranches = useCallback(async () => {
  if (lockedBranchId) {
@@ -508,6 +520,12 @@ export default function NewCustomerPage() {
  const message = validate();
  if (message) {
  setError(message);
+ return;
+ }
+
+ const attachmentValidation = validateCustomerAttachments(attachments);
+ if (!attachmentValidation.ok) {
+ setError(attachmentValidation.error);
  return;
  }
 
@@ -1049,6 +1067,19 @@ export default function NewCustomerPage() {
 
  <Card>
  <CardHeader>
+ <CardTitle>Attachments</CardTitle>
+ <CardDescription>
+ Optional photos and documents for field verification. Files are held on this form until customer
+ upload is enabled on the API.
+ </CardDescription>
+ </CardHeader>
+ <CardContent>
+ <CustomerAttachmentsFields value={attachments} onChange={setAttachments} />
+ </CardContent>
+ </Card>
+
+ <Card>
+ <CardHeader>
  <CardTitle>Risk & Registration</CardTitle>
  </CardHeader>
  <CardContent className="space-y-4">
@@ -1174,6 +1205,15 @@ export default function NewCustomerPage() {
  {form.business_latitude != null ? "Recorded" : "Not set"}
  </Badge>
  </div>
+ <div className="flex items-center justify-between rounded-md border px-3 py-2 text-xs">
+ <span className="inline-flex items-center gap-1 text-muted-foreground">
+ <Paperclip className="h-3 w-3" />
+ Attachments selected
+ </span>
+ <Badge variant={attachmentCount > 0 ? "default" : "outline"}>
+ {attachmentCount > 0 ? attachmentCount : "None"}
+ </Badge>
+ </div>
  </div>
 
  {error ? (
@@ -1192,14 +1232,15 @@ export default function NewCustomerPage() {
  type="button"
  variant="outline"
  className="w-full"
- onClick={() =>
+ onClick={() => {
  setForm({
  ...defaultForm,
  created_by: effectiveUserId,
  branch_id: lockedBranchId,
  loan_officer_id: lockedOfficerId,
- })
- }
+ });
+ setAttachments(emptyCustomerAttachments());
+ }}
  >
  <Save className="mr-2 h-4 w-4" />
  Reset Form

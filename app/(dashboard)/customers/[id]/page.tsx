@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
  ArrowLeft,
@@ -25,8 +25,11 @@ import {
  FileText,
  Activity,
  Download,
+ Paperclip,
  PieChart,
  BarChart3,
+ Shield,
+ Users,
 } from "lucide-react";
 import {
  LineChart,
@@ -50,7 +53,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -73,14 +76,26 @@ import {
  AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { CustomerAttachmentsDisplay } from "@/components/customers/customer-attachments-display";
+import { CustomerCollateralPanel } from "@/components/customers/customer-collateral-panel";
 import { CustomerEditDialog } from "@/components/customers/customer-edit-dialog";
+import { CustomerGuarantorPanel } from "@/components/customers/customer-guarantor-panel";
+import {
+ extractCustomerAttachmentsFromRow,
+ hasCustomerAttachmentData,
+} from "@/lib/customer-attachments";
+import {
+ extractCollateralFromApplications,
+ extractGuarantorsFromApplications,
+ extractPassportPhotoUrl,
+} from "@/lib/customer-profile-extras";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/formatters";
 import { adaptApiCustomerRowToCustomer, extractCustomerDetail } from "@/lib/customer-adapters";
 import type { CustomerPortfolioData } from "@/lib/customer-portfolio-detail";
 import { customerToFormPayload } from "@/lib/customer-payload";
 import type { LoanListRow } from "@/lib/loan-adapters";
 import { useSessionUser } from "@/lib/use-session-user";
-import type { Customer, Payment, RiskGrade, LoanStatus } from "@/lib/types";
+import type { Customer, LoanApplication, Payment, RiskGrade, LoanStatus } from "@/lib/types";
 
 const riskGradeConfig: Record<RiskGrade, { label: string; color: string; bgColor: string }> = {
  A: { label: "Grade A - Low Risk", color: "text-emerald-700", bgColor: "bg-emerald-100" },
@@ -190,12 +205,27 @@ export default function CustomerDetailPage({
  const [creditHistory, setCreditHistory] = useState<CustomerPortfolioData["creditHistory"]>([]);
  const [balanceSnapshot, setBalanceSnapshot] = useState<CustomerPortfolioData["balanceSnapshot"]>([]);
  const [applicationCount, setApplicationCount] = useState(0);
+ const [customerApplications, setCustomerApplications] = useState<LoanApplication[]>([]);
  const [sourceRow, setSourceRow] = useState<Record<string, unknown> | null>(null);
  const [editOpen, setEditOpen] = useState(false);
  const [blacklistOpen, setBlacklistOpen] = useState(false);
  const [blacklistReason, setBlacklistReason] = useState("");
  const [blacklistSaving, setBlacklistSaving] = useState(false);
  const [blacklistError, setBlacklistError] = useState("");
+
+ const customerAttachments = useMemo(
+ () => extractCustomerAttachmentsFromRow(sourceRow),
+ [sourceRow]
+ );
+ const passportPhotoUrl = useMemo(() => extractPassportPhotoUrl(sourceRow), [sourceRow]);
+ const collateralRows = useMemo(
+ () => extractCollateralFromApplications(customerApplications),
+ [customerApplications]
+ );
+ const guarantorRows = useMemo(
+ () => extractGuarantorsFromApplications(customerApplications),
+ [customerApplications]
+ );
 
  useEffect(() => {
  let cancelled = false;
@@ -256,6 +286,8 @@ export default function CustomerDetailPage({
  setLoanDistribution([]);
  setCreditHistory([]);
  setBalanceSnapshot([]);
+ setApplicationCount(0);
+ setCustomerApplications([]);
  return;
  }
  setCustomerLoans(body.loans ?? []);
@@ -265,6 +297,7 @@ export default function CustomerDetailPage({
  setCreditHistory(body.creditHistory ?? []);
  setBalanceSnapshot(body.balanceSnapshot ?? []);
  setApplicationCount(body.applications?.length ?? 0);
+ setCustomerApplications(body.applications ?? []);
  } catch {
  if (!cancelled) {
  setPortfolioError("Network error loading portfolio");
@@ -525,7 +558,14 @@ export default function CustomerDetailPage({
  <Card className="border-l-4 border-l-primary">
  <CardContent className="p-6">
  <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
- <Avatar className="h-24 w-24 ring-4 ring-primary/20">
+ <Avatar className="h-24 w-24 shrink-0 ring-4 ring-primary/20">
+ {passportPhotoUrl ? (
+ <AvatarImage
+ src={passportPhotoUrl}
+ alt={`${customer.first_name} ${customer.last_name}`}
+ className="object-cover"
+ />
+ ) : null}
  <AvatarFallback className="bg-primary text-primary-foreground text-3xl font-bold">
  {customer.first_name[0]}
  {customer.last_name[0]}
@@ -664,7 +704,7 @@ export default function CustomerDetailPage({
 
  {/* Tabs */}
  <Tabs defaultValue="analytics" className="space-y-4">
- <TabsList className="bg-muted/50">
+ <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 bg-muted/50 p-1">
  <TabsTrigger value="analytics" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
  <BarChart3 className="mr-2 h-4 w-4" />
  Analytics & Trends
@@ -680,6 +720,18 @@ export default function CustomerDetailPage({
  <TabsTrigger value="payments" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
  <Wallet className="mr-2 h-4 w-4" />
  Payments ({customerPayments.length})
+ </TabsTrigger>
+ <TabsTrigger value="attachments" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+ <Paperclip className="mr-2 h-4 w-4" />
+ Attachment / Uploads
+ </TabsTrigger>
+ <TabsTrigger value="collateral" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+ <Shield className="mr-2 h-4 w-4" />
+ Collateral
+ </TabsTrigger>
+ <TabsTrigger value="guarantors" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+ <Users className="mr-2 h-4 w-4" />
+ Guarantor Details & Attachment
  </TabsTrigger>
  </TabsList>
 
@@ -1247,6 +1299,32 @@ export default function CustomerDetailPage({
  </Table>
  </CardContent>
  </Card>
+ </TabsContent>
+
+ <TabsContent value="attachments">
+ {hasCustomerAttachmentData(customerAttachments) ? (
+ <CustomerAttachmentsDisplay attachments={customerAttachments} />
+ ) : (
+ <Card>
+ <CardHeader>
+ <CardTitle className="text-base">Attachment / Uploads</CardTitle>
+ <CardDescription>No attachment files on record for this customer yet.</CardDescription>
+ </CardHeader>
+ <CardContent>
+ <p className="text-sm text-muted-foreground">
+ Upload home/business photos and supporting documents when creating or editing the customer.
+ </p>
+ </CardContent>
+ </Card>
+ )}
+ </TabsContent>
+
+ <TabsContent value="collateral">
+ <CustomerCollateralPanel rows={collateralRows} />
+ </TabsContent>
+
+ <TabsContent value="guarantors">
+ <CustomerGuarantorPanel rows={guarantorRows} />
  </TabsContent>
  </Tabs>
  </div>
