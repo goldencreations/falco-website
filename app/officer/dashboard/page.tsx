@@ -17,6 +17,7 @@ import {
  UsersRound,
  Wallet,
 } from "lucide-react";
+import { OfficerBranchProgressSection } from "@/components/officer/officer-branch-progress-section";
 import { OfficerPageHeader } from "@/components/officer-page-header";
 import { useOfficerSession } from "@/components/officer-session-context";
 import { Badge } from "@/components/ui/badge";
@@ -275,6 +276,10 @@ export default function OfficerDashboardPage() {
  </CardContent>
  </Card>
  </section>
+
+ {branchId ? (
+ <OfficerBranchProgressSection branchId={branchId} officerId={user.id} />
+ ) : null}
 
  <section>
  <Card>

@@ -55,6 +55,7 @@ export function CustomerAttachmentsDisplay({ attachments }: Props) {
             <PhotoBlock
               title="Home location photo"
               rawUrl={homeLocationPhotoUrl}
+              url={homeLocationPhotoUrl}
               icon={<Home className="h-4 w-4 text-emerald-700" aria-hidden />}
             />
           ) : null}
@@ -62,6 +63,7 @@ export function CustomerAttachmentsDisplay({ attachments }: Props) {
             <PhotoBlock
               title="Business location photo"
               rawUrl={businessLocationPhotoUrl}
+              url={businessLocationPhotoUrl}
               icon={<Store className="h-4 w-4 text-amber-700" aria-hidden />}
             />
           ) : null}
@@ -99,6 +101,28 @@ export function CustomerAttachmentsDisplay({ attachments }: Props) {
                   </li>
                 );
               })}
+              {supportingDocuments.map((doc) => (
+                <li
+                  key={doc.url}
+                  className="flex flex-col gap-2 px-3 py-2.5 text-sm sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <span className="min-w-0 truncate font-medium">{doc.name}</span>
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    <Button type="button" variant="outline" size="sm" asChild>
+                      <a href={doc.url} target="_blank" rel="noopener noreferrer">
+                        <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                        View
+                      </a>
+                    </Button>
+                    <Button type="button" variant="secondary" size="sm" asChild>
+                      <a href={doc.url} download>
+                        <Download className="mr-1.5 h-3.5 w-3.5" />
+                        Download
+                      </a>
+                    </Button>
+                  </div>
+                </li>
+              ))}
             </ul>
           </div>
         ) : null}

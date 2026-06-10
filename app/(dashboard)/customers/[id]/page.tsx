@@ -713,6 +713,10 @@ export default function CustomerDetailPage({
  <BarChart3 className="mr-1.5 h-4 w-4 sm:mr-2" />
  <span className="sm:hidden">Analytics</span>
  <span className="hidden sm:inline">Analytics & Trends</span>
+ <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 bg-muted/50 p-1">
+ <TabsTrigger value="analytics" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+ <BarChart3 className="mr-2 h-4 w-4" />
+ Analytics & Trends
  </TabsTrigger>
  <TabsTrigger
  value="details"

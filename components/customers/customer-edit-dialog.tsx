@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { Loader2 } from "lucide-react";
+import { CustomerAttachmentsFields } from "@/components/customers/customer-attachments-fields";
 import { Button } from "@/components/ui/button";
 import {
  Dialog,
@@ -32,6 +33,12 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+ emptyCustomerAttachments,
+ extractCustomerAttachmentsFromRow,
+ validateCustomerAttachments,
+ type CustomerAttachmentFormState,
+} from "@/lib/customer-attachments";
 import { formatValidationDetails } from "@/lib/falco-api";
 import { customerToFormPayload } from "@/lib/customer-payload";
 import { adaptApiCustomerRowToCustomer, extractCustomerDetail } from "@/lib/customer-adapters";
@@ -242,6 +249,12 @@ export function CustomerEditDialog({
  const [loanOfficers, setLoanOfficers] = useState<User[]>([]);
  const [officersLoading, setOfficersLoading] = useState(false);
  const [officersError, setOfficersError] = useState("");
+ const [attachments, setAttachments] = useState<CustomerAttachmentFormState>(emptyCustomerAttachments);
+
+ const existingAttachments = useMemo(
+ () => extractCustomerAttachmentsFromRow(sourceRow),
+ [sourceRow]
+ );
 
  const loadBranches = useCallback(async () => {
  setBranchesLoading(true);
@@ -328,10 +341,12 @@ export function CustomerEditDialog({
  if (!open) {
  setForm(null);
  setError("");
+ setAttachments(emptyCustomerAttachments());
  return;
  }
  const base = customerToFormPayload(customer, sourceRow);
  setForm(toEditForm(base));
+ setAttachments(emptyCustomerAttachments());
  }, [open, customer, sourceRow]);
 
  const updateField = <K extends keyof EditForm>(key: K, value: EditForm[K]) => {
@@ -373,6 +388,11 @@ export function CustomerEditDialog({
  const msg = validate();
  if (msg) {
  setError(msg);
+ return;
+ }
+ const attachmentValidation = validateCustomerAttachments(attachments);
+ if (!attachmentValidation.ok) {
+ setError(attachmentValidation.error);
  return;
  }
  setSaving(true);
@@ -793,6 +813,23 @@ export function CustomerEditDialog({
  <Input id="edit-cheque" value={form.cheque_number} onChange={(e) => updateField("cheque_number", e.target.value)} />
  </div>
  </div>
+
+ <Separator />
+
+ <div className="space-y-1">
+ <p className="text-sm font-semibold">Attachments</p>
+ <p className="text-xs text-muted-foreground">
+ Optional location photos and supporting documents. New files are kept on this form until customer
+ upload is enabled on the API.
+ </p>
+ </div>
+ <CustomerAttachmentsFields
+ value={attachments}
+ onChange={setAttachments}
+ existingHomeUrl={existingAttachments.homeLocationPhotoUrl}
+ existingBusinessUrl={existingAttachments.businessLocationPhotoUrl}
+ existingDocuments={existingAttachments.supportingDocuments}
+ />
 
  <DialogFooter className="gap-2 sm:gap-0">
  <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
