@@ -710,14 +710,10 @@ export default function CustomerDetailPage({
  value="analytics"
  className="shrink-0 flex-none px-2.5 py-2 text-xs sm:flex-1 sm:px-3 sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
  >
- <BarChart3 className="mr-1.5 h-4 w-4 sm:mr-2" />
- <span className="sm:hidden">Analytics</span>
- <span className="hidden sm:inline">Analytics & Trends</span>
- <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 bg-muted/50 p-1">
- <TabsTrigger value="analytics" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
- <BarChart3 className="mr-2 h-4 w-4" />
- Analytics & Trends
- </TabsTrigger>
+<BarChart3 className="mr-1.5 h-4 w-4 sm:mr-2" />
+<span className="sm:hidden">Analytics</span>
+<span className="hidden sm:inline">Analytics & Trends</span>
+</TabsTrigger>
  <TabsTrigger
  value="details"
  className="shrink-0 flex-none px-2.5 py-2 text-xs sm:flex-1 sm:px-3 sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
