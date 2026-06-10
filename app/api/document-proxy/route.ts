@@ -63,17 +63,16 @@ export async function GET(request: Request) {
     );
   }
 
-  const contentType = upstream.headers.get("content-type") ?? "application/octet-stream";
-  const contentDisposition = upstream.headers.get("content-disposition");
-  const body = await upstream.arrayBuffer();
-
   const headers = new Headers({
-    "Content-Type": contentType,
-    "Cache-Control": "private, max-age=300",
+    "Content-Type": upstream.headers.get("content-type") ?? "application/octet-stream",
+    "Cache-Control": "private, max-age=3600, stale-while-revalidate=86400",
   });
+  const contentDisposition = upstream.headers.get("content-disposition");
   if (contentDisposition) {
     headers.set("Content-Disposition", contentDisposition);
   }
+  const contentLength = upstream.headers.get("content-length");
+  if (contentLength) headers.set("Content-Length", contentLength);
 
-  return new NextResponse(body, { status: 200, headers });
+  return new NextResponse(upstream.body, { status: 200, headers });
 }

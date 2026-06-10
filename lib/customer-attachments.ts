@@ -7,11 +7,14 @@ export type CustomerAttachmentFormState = {
 export type CustomerAttachmentDocument = {
   name: string;
   url: string;
+  previewUrl?: string | null;
 };
 
 export type CustomerAttachmentDisplay = {
   homeLocationPhotoUrl: string | null;
+  homeLocationPhotoPreviewUrl: string | null;
   businessLocationPhotoUrl: string | null;
+  businessLocationPhotoPreviewUrl: string | null;
   supportingDocuments: CustomerAttachmentDocument[];
 };
 
@@ -86,9 +89,10 @@ function readDocuments(value: unknown): CustomerAttachmentDocument[] {
     if (!item || typeof item !== "object") continue;
     const o = item as Record<string, unknown>;
     const url = readUrl(o.url ?? o.download_url ?? o.href);
+    const previewUrl = readUrl(o.preview_url ?? o.signed_url ?? o.thumbnail_url);
     const name = typeof o.name === "string" ? o.name : typeof o.filename === "string" ? o.filename : null;
-    if (url && name) out.push({ name, url });
-    else if (url) out.push({ name: url.split("/").pop() ?? "Document", url });
+    if (url && name) out.push({ name, url, previewUrl });
+    else if (url) out.push({ name: url.split("/").pop() ?? "Document", url, previewUrl });
   }
   return out;
 }
@@ -98,7 +102,13 @@ export function extractCustomerAttachmentsFromRow(
   row: Record<string, unknown> | null | undefined
 ): CustomerAttachmentDisplay {
   if (!row) {
-    return { homeLocationPhotoUrl: null, businessLocationPhotoUrl: null, supportingDocuments: [] };
+    return {
+      homeLocationPhotoUrl: null,
+      homeLocationPhotoPreviewUrl: null,
+      businessLocationPhotoUrl: null,
+      businessLocationPhotoPreviewUrl: null,
+      supportingDocuments: [],
+    };
   }
 
   const md =
@@ -117,18 +127,32 @@ export function extractCustomerAttachmentsFromRow(
     readUrl(attachmentsBlock.home_location_photo_url) ??
     readUrl(attachmentsBlock.home_location_photo);
 
+  const homeLocationPhotoPreviewUrl =
+    readUrl(md.home_location_photo_preview_url) ??
+    readUrl(attachmentsBlock.home_location_photo_preview_url);
+
   const businessLocationPhotoUrl =
     readUrl(md.business_location_photo_url) ??
     readUrl(md.business_location_photo) ??
     readUrl(attachmentsBlock.business_location_photo_url) ??
     readUrl(attachmentsBlock.business_location_photo);
 
+  const businessLocationPhotoPreviewUrl =
+    readUrl(md.business_location_photo_preview_url) ??
+    readUrl(attachmentsBlock.business_location_photo_preview_url);
+
   const supportingDocuments =
     readDocuments(md.supporting_documents).length > 0
       ? readDocuments(md.supporting_documents)
       : readDocuments(attachmentsBlock.supporting_documents);
 
-  return { homeLocationPhotoUrl, businessLocationPhotoUrl, supportingDocuments };
+  return {
+    homeLocationPhotoUrl,
+    homeLocationPhotoPreviewUrl,
+    businessLocationPhotoUrl,
+    businessLocationPhotoPreviewUrl,
+    supportingDocuments,
+  };
 }
 
 export function hasCustomerAttachmentData(display: CustomerAttachmentDisplay): boolean {

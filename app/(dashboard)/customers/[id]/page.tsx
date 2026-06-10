@@ -86,9 +86,14 @@ import {
 import {
  extractCollateralFromApplications,
  extractGuarantorsFromApplications,
+ extractPassportPhotoPreviewUrl,
  extractPassportPhotoUrl,
 } from "@/lib/customer-profile-extras";
-import { toProxyUrl } from "@/lib/document-proxy";
+import {
+ getCachedCustomerPortfolio,
+ setCachedCustomerPortfolio,
+} from "@/lib/customer-portfolio-cache";
+import { resolveMediaViewUrl } from "@/components/media/cached-media-preview";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/formatters";
 import { adaptApiCustomerRowToCustomer, extractCustomerDetail } from "@/lib/customer-adapters";
 import type { CustomerPortfolioData } from "@/lib/customer-portfolio-detail";
@@ -218,6 +223,14 @@ export default function CustomerDetailPage({
  [sourceRow]
  );
  const passportPhotoUrl = useMemo(() => extractPassportPhotoUrl(sourceRow), [sourceRow]);
+ const passportPhotoPreviewUrl = useMemo(
+ () => extractPassportPhotoPreviewUrl(sourceRow),
+ [sourceRow]
+ );
+ const passportAvatarSrc = useMemo(
+ () => resolveMediaViewUrl(passportPhotoPreviewUrl, passportPhotoUrl),
+ [passportPhotoPreviewUrl, passportPhotoUrl]
+ );
  const collateralRows = useMemo(
  () => extractCollateralFromApplications(customerApplications),
  [customerApplications]
@@ -227,69 +240,7 @@ export default function CustomerDetailPage({
  [customerApplications]
  );
 
- useEffect(() => {
- let cancelled = false;
- const id = resolvedParams.id;
- (async () => {
- setLoading(true);
- setLoadError("");
- try {
- const r = await fetch(`/api/customers/${encodeURIComponent(id)}`, { credentials: "include" });
- const body = (await r.json().catch(() => ({}))) as { message?: string };
- if (cancelled) return;
- if (!r.ok) {
- setLoadError(typeof body.message === "string" ? body.message : `Could not load customer (${r.status})`);
- setCustomer(null);
- setSourceRow(null);
- return;
- }
- const row = extractCustomerDetail(body);
- if (!row) {
- setLoadError("Unexpected response from server.");
- setCustomer(null);
- setSourceRow(null);
- return;
- }
- setSourceRow(row);
- setCustomer(adaptApiCustomerRowToCustomer(row));
- } catch {
- if (!cancelled) setLoadError("Network error");
- setCustomer(null);
- setSourceRow(null);
- } finally {
- if (!cancelled) setLoading(false);
- }
- })();
- return () => {
- cancelled = true;
- };
- }, [resolvedParams.id]);
-
- useEffect(() => {
- let cancelled = false;
- const id = resolvedParams.id;
- (async () => {
- setPortfolioLoading(true);
- setPortfolioError("");
- try {
- const r = await fetch(`/api/customers/${encodeURIComponent(id)}/portfolio`, {
- credentials: "include",
- cache: "no-store",
- });
- const body = (await r.json().catch(() => ({}))) as CustomerPortfolioData & { message?: string };
- if (cancelled) return;
- if (!r.ok) {
- setPortfolioError(typeof body.message === "string" ? body.message : "Could not load loan portfolio");
- setCustomerLoans([]);
- setCustomerPayments([]);
- setPaymentTrend([]);
- setLoanDistribution([]);
- setCreditHistory([]);
- setBalanceSnapshot([]);
- setApplicationCount(0);
- setCustomerApplications([]);
- return;
- }
+ const applyPortfolio = (body: CustomerPortfolioData) => {
  setCustomerLoans(body.loans ?? []);
  setCustomerPayments(body.payments ?? []);
  setPaymentTrend(body.paymentTrend ?? []);
@@ -298,14 +249,85 @@ export default function CustomerDetailPage({
  setBalanceSnapshot(body.balanceSnapshot ?? []);
  setApplicationCount(body.applications?.length ?? 0);
  setCustomerApplications(body.applications ?? []);
+ };
+
+ useEffect(() => {
+ let cancelled = false;
+ const id = resolvedParams.id;
+
+ const cachedPortfolio = getCachedCustomerPortfolio(id);
+ if (cachedPortfolio) {
+ applyPortfolio(cachedPortfolio);
+ setPortfolioLoading(false);
+ }
+
+ (async () => {
+ setLoading(true);
+ setPortfolioLoading(!cachedPortfolio);
+ setLoadError("");
+ setPortfolioError("");
+ try {
+ const [customerRes, portfolioRes] = await Promise.all([
+ fetch(`/api/customers/${encodeURIComponent(id)}`, { credentials: "include" }),
+ fetch(`/api/customers/${encodeURIComponent(id)}/portfolio`, { credentials: "include" }),
+ ]);
+ const customerBody = (await customerRes.json().catch(() => ({}))) as { message?: string };
+ const portfolioBody = (await portfolioRes.json().catch(() => ({}))) as CustomerPortfolioData & {
+ message?: string;
+ };
+ if (cancelled) return;
+
+ if (!customerRes.ok) {
+ setLoadError(
+ typeof customerBody.message === "string"
+ ? customerBody.message
+ : `Could not load customer (${customerRes.status})`
+ );
+ setCustomer(null);
+ setSourceRow(null);
+ } else {
+ const row = extractCustomerDetail(customerBody);
+ if (!row) {
+ setLoadError("Unexpected response from server.");
+ setCustomer(null);
+ setSourceRow(null);
+ } else {
+ setSourceRow(row);
+ setCustomer(adaptApiCustomerRowToCustomer(row));
+ }
+ }
+
+ if (!portfolioRes.ok) {
+ if (!cachedPortfolio) {
+ setPortfolioError(
+ typeof portfolioBody.message === "string"
+ ? portfolioBody.message
+ : "Could not load loan portfolio"
+ );
+ setCustomerLoans([]);
+ setCustomerPayments([]);
+ setApplicationCount(0);
+ setCustomerApplications([]);
+ }
+ } else {
+ setCachedCustomerPortfolio(id, portfolioBody);
+ applyPortfolio(portfolioBody);
+ setPortfolioError("");
+ }
  } catch {
  if (!cancelled) {
+ if (!customer) setLoadError("Network error");
+ if (!cachedPortfolio) {
  setPortfolioError("Network error loading portfolio");
  setCustomerLoans([]);
  setCustomerPayments([]);
  }
+ }
  } finally {
- if (!cancelled) setPortfolioLoading(false);
+ if (!cancelled) {
+ setLoading(false);
+ setPortfolioLoading(false);
+ }
  }
  })();
  return () => {
@@ -559,11 +581,12 @@ export default function CustomerDetailPage({
  <CardContent className="p-6">
  <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
  <Avatar className="h-24 w-24 shrink-0 ring-4 ring-primary/20">
-          {passportPhotoUrl ? (
+          {passportAvatarSrc ? (
             <AvatarImage
-              src={toProxyUrl(passportPhotoUrl) ?? passportPhotoUrl}
+              src={passportAvatarSrc}
               alt={`${customer.first_name} ${customer.last_name}`}
               className="object-cover"
+              loading="lazy"
             />
           ) : null}
  <AvatarFallback className="bg-primary text-primary-foreground text-3xl font-bold">

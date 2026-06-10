@@ -26,11 +26,13 @@ export function useSessionUser() {
  useEffect(() => {
  let active = true;
 
- const load = async () => {
+ const load = async (bypassCache = false) => {
  try {
  const response = await fetch(
  "/api/session",
- withCacheBypass({ credentials: "include", cache: "no-store" })
+ bypassCache
+ ? withCacheBypass({ credentials: "include", cache: "no-store" })
+ : { credentials: "include" }
  );
  if (!response.ok) return;
  const payload = (await response.json()) as { user?: SessionUserClient };
@@ -44,7 +46,7 @@ export function useSessionUser() {
 
  const interval = window.setInterval(() => {
  if (document.visibilityState !== "visible") return;
- void load();
+ void load(true);
  }, SESSION_KEEPALIVE_MS);
 
  return () => {

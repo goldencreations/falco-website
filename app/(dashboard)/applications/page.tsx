@@ -151,13 +151,16 @@ export default function ApplicationsPage() {
  setListLoading(true);
  setActionError(null);
  try {
- const ctx = await fetchApplicationEnrichmentContext(scopeBranchId, { role: effectiveRole });
- setEnrichmentCtx(ctx);
-
  const params = new URLSearchParams();
  params.set("page_size", isOfficerView ? "80" : "100");
  if (scopeBranchId) params.set("branch_id", scopeBranchId);
- const res = await fetch(`/api/applications?${params.toString()}`, { credentials: "include" });
+
+ const [ctx, res] = await Promise.all([
+ fetchApplicationEnrichmentContext(scopeBranchId, { role: effectiveRole }),
+ fetch(`/api/applications?${params.toString()}`, { credentials: "include" }),
+ ]);
+ setEnrichmentCtx(ctx);
+
  const json = await res.json();
  if (!res.ok) {
  throw new Error(typeof json.message === "string" ? json.message : "Failed to load applications");

@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { extractApplicationDetail } from "@/lib/application-adapters";
-import { ensureResourceBranchAllowed, requireApiUser } from "@/lib/authorization";
+import { verifyApplicationUploadAccess } from "@/lib/server-application-upload";
 import { getFalcoApiBaseUrl } from "@/lib/falco-api";
 import { falcoServerFetch, resolveFalcoAccessToken } from "@/lib/server-falco";
 
@@ -72,25 +71,9 @@ export async function POST(
  request: Request,
  context: { params: Promise<{ id: string }> }
 ) {
- const auth = await requireApiUser(request);
- if ("response" in auth) return auth.response;
  const { id } = await context.params;
-
- const pre = await falcoServerFetch<unknown>(`/applications/${encodeURIComponent(id)}`, { request });
- if (!pre.ok) {
- return NextResponse.json(
- { message: pre.error.message, details: pre.error.details },
- { status: pre.error.status }
- );
- }
- const row = extractApplicationDetail(pre.data);
- if (row) {
- const denied = ensureResourceBranchAllowed(
- auth.user,
- row.branch_id != null ? String(row.branch_id) : undefined
- );
+ const denied = await verifyApplicationUploadAccess(request, id);
  if (denied) return denied;
- }
 
  const contentType = request.headers.get("content-type") ?? "";
 

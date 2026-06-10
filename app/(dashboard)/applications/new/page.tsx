@@ -59,7 +59,17 @@ import {
  runPostCreateWorkflow,
  uploadApplicationDocumentsFromForm,
 } from "@/lib/application-workflow";
+import {
+ extractLinkedApplicationIds,
+ fetchLinkedApplicationIds,
+ linkedIdsNeedRefresh,
+ uploadCollateralAndGuarantorFiles,
+} from "@/lib/application-linked-uploads";
 import { APPLICATION_DOCUMENTS_OPTIONAL } from "@/lib/application-workflow-config";
+import {
+  debugApplicationCreate,
+  summarizeApplicationBody,
+} from "@/lib/application-debug";
 import { useSessionUser } from "@/lib/use-session-user";
 import { MoneyInput } from "@/components/forms/money-input";
 import { TzValidatedInput } from "@/components/forms/tz-validated-input";
@@ -143,38 +153,49 @@ function NewApplicationPageContent() {
  }, []);
 
  useEffect(() => {
- void loadLoanProducts();
- }, [loadLoanProducts]);
-
- useEffect(() => {
  let cancelled = false;
- const params = new URLSearchParams();
- params.set("page_size", isScopedRole ? "80" : "150");
- if (scopeBranchId) params.set("branch_id", scopeBranchId);
- void fetch(`/api/customers?${params.toString()}`, { credentials: "include" })
- .then((r) => r.json())
- .then((json) => {
- if (!cancelled) setCustomers(extractCustomersList(json));
+ setProductsLoading(true);
+ setProductsError("");
+
+ const listParams = new URLSearchParams();
+ listParams.set("page_size", "80");
+ if (scopeBranchId) listParams.set("branch_id", scopeBranchId);
+
+ const groupParams = new URLSearchParams({ page_size: "80", status: "active" });
+ if (scopeBranchId) groupParams.set("branch_id", scopeBranchId);
+
+ void Promise.all([
+ fetch("/api/falco/products?is_active=true", { credentials: "include" }),
+ fetch(`/api/customers?${listParams.toString()}`, { credentials: "include" }),
+ fetch(`/api/groups?${groupParams.toString()}`, { credentials: "include" }),
+ ])
+ .then(async ([productsRes, customersRes, groupsRes]) => {
+ if (cancelled) return;
+ const [productsJson, customersJson, groupsJson] = await Promise.all([
+ productsRes.json(),
+ customersRes.json(),
+ groupsRes.json(),
+ ]);
+ if (!productsRes.ok) {
+ const j = productsJson as { message?: string; error?: string };
+ setProductsError(j.message ?? j.error ?? `Could not load products (${productsRes.status})`);
+ setLoanProducts([]);
+ } else {
+ const list = extractProductsList(productsJson);
+ setLoanProducts(list);
+ if (!list.length) {
+ setProductsError("No active loan products found. Create products under Loan Products first.");
+ }
+ }
+ if (customersRes.ok) setCustomers(extractCustomersList(customersJson));
+ if (groupsRes.ok) setGroups(extractGroupsList(groupsJson));
  })
- .catch(() => {});
- return () => {
- cancelled = true;
- };
- }, [scopeBranchId]);
-
- useEffect(() => {
- let cancelled = false;
- const params = new URLSearchParams({
- page_size: isScopedRole ? "80" : "150",
- status: "active",
+ .catch(() => {
+ if (!cancelled) setProductsError("Could not load form data from the server.");
+ })
+ .finally(() => {
+ if (!cancelled) setProductsLoading(false);
  });
- if (scopeBranchId) params.set("branch_id", scopeBranchId);
- void fetch(`/api/groups?${params.toString()}`, { credentials: "include" })
- .then((r) => r.json())
- .then((json) => {
- if (!cancelled) setGroups(extractGroupsList(json));
- })
- .catch(() => {});
  return () => {
  cancelled = true;
  };
@@ -222,8 +243,13 @@ function NewApplicationPageContent() {
  longitude: "",
  });
 
+ const [editAppDetail, setEditAppDetail] = useState<Record<string, unknown> | null>(null);
+
  useEffect(() => {
- if (!editId) return;
+ if (!editId) {
+ setEditAppDetail(null);
+ return;
+ }
  let cancelled = false;
  setEditLoading(true);
  void fetch(`/api/applications/${encodeURIComponent(editId)}`, { credentials: "include" })
@@ -232,6 +258,20 @@ function NewApplicationPageContent() {
  if (cancelled) return;
  const app = extractApplicationDetail(json);
  if (!app) return;
+ setEditAppDetail(app);
+ setEditingApplicationId(editId);
+ })
+ .finally(() => {
+ if (!cancelled) setEditLoading(false);
+ });
+ return () => {
+ cancelled = true;
+ };
+ }, [editId]);
+
+ useEffect(() => {
+ if (!editAppDetail) return;
+ const app = editAppDetail;
  const customerId = String(app.customer_id ?? "");
  const productId = String(app.product_id ?? "");
  const cust = customers.find((c) => c.id === customerId);
@@ -239,7 +279,7 @@ function NewApplicationPageContent() {
  if (cust) setSelectedCustomer(cust);
  if (prod) setSelectedProduct(prod);
  if (app.loan_mode === "group_based" || app.loan_mode === "individual") {
- setLoanMode(app.loan_mode);
+ setLoanMode(app.loan_mode as LoanMode);
  }
  if (app.loan_mode === "group_based" && app.group_id) {
  const grp = groups.find((g) => g.id === String(app.group_id));
@@ -253,15 +293,7 @@ function NewApplicationPageContent() {
  term: String(app.term_days ?? ""),
  purpose: String(app.purpose ?? ""),
  }));
- setEditingApplicationId(editId);
- })
- .finally(() => {
- if (!cancelled) setEditLoading(false);
- });
- return () => {
- cancelled = true;
- };
- }, [editId, customers, loanProducts, groups]);
+ }, [editAppDetail, customers, loanProducts, groups]);
 
  const resolveChairpersonCustomer = useCallback(
  async (group: LoanGroup): Promise<Customer | null> => {
@@ -584,6 +616,13 @@ function NewApplicationPageContent() {
  };
 
  const handleSubmit = async (isDraft: boolean) => {
+ debugApplicationCreate("handleSubmit — start", {
+  isDraft,
+  editId: editingApplicationId,
+  customer_id: selectedCustomer?.id,
+  product_id: selectedProduct?.id,
+  role: effectiveRole,
+ });
  if (isSaving) return;
  if (!hasBorrower || !selectedCustomer || !selectedProduct) return;
  if (isGroupMode && !selectedGroup) {
@@ -621,6 +660,7 @@ function NewApplicationPageContent() {
  .map((g) => ({
  full_name: g.name.trim(),
  phone: g.phone.replace(/\D/g, "") || g.phone.trim(),
+ national_id: g.nationalId.trim() || undefined,
  relationship: g.relationship === "other" ? g.otherRelationship || "other" : g.relationship,
  }));
 
@@ -661,9 +701,12 @@ function NewApplicationPageContent() {
  location,
  });
 
+ debugApplicationCreate("handleSubmit — payload ready", summarizeApplicationBody(body));
+
  setIsSaving(true);
  try {
  const isEdit = Boolean(editingApplicationId);
+ debugApplicationCreate(isEdit ? "PATCH /api/applications/:id — sending" : "POST /api/applications — sending");
  const res = isEdit
  ? await fetch(`/api/applications/${encodeURIComponent(editingApplicationId!)}`, {
  method: "PATCH",
@@ -679,46 +722,93 @@ function NewApplicationPageContent() {
  });
 
  const data = await res.json().catch(() => ({}));
+ debugApplicationCreate("handleSubmit — API response", {
+  ok: res.ok,
+  status: res.status,
+  response_keys: data && typeof data === "object" ? Object.keys(data as object) : [],
+ });
  if (!res.ok) {
+ debugApplicationCreate("handleSubmit — save failed", data);
  alert(formatClientApiError(data, `Save failed (${res.status})`));
  return;
  }
 
  const applicationId =
  editingApplicationId ?? extractApplicationIdFromResponse(data) ?? null;
+ debugApplicationCreate("handleSubmit — application id", { applicationId });
  if (!applicationId) {
+ debugApplicationCreate("handleSubmit — missing application id in response", data);
  alert("Application saved but id was not returned.");
  router.push(applicationsBasePath);
  return;
  }
 
- if (!editingApplicationId) {
+ const isNewApplication = !editingApplicationId;
+ if (isNewApplication) {
  setEditingApplicationId(applicationId);
- const next = new URLSearchParams(searchParams.toString());
- next.set("edit", applicationId);
- router.replace(`${pathname}?${next.toString()}`, { scroll: false });
  }
 
  const officerId =
  selectedCustomer.assigned_loan_officer_id ||
  (effectiveRole === "loan_officer" && user?.id ? user.id : undefined);
- if (officerId) {
- const assign = await assignApplicationOfficerApi(applicationId, {
- assigned_officer_id: officerId,
- });
- if (!assign.ok) {
- console.warn("Officer assign:", assign.error);
+
+ const hasLinkedFiles =
+  collaterals.some((c) => c.image) ||
+  guarantors.some((g) => g.idFront || g.idBack);
+
+ let linkedIds = extractLinkedApplicationIds(data);
+ if (!linkedIds || (hasLinkedFiles && linkedIdsNeedRefresh(linkedIds, collaterals, guarantors))) {
+  linkedIds = (await fetchLinkedApplicationIds(applicationId)) ?? linkedIds;
  }
+ debugApplicationCreate("handleSubmit — linked IDs", linkedIds);
+
+ if (hasLinkedFiles && !linkedIds) {
+  alert(
+   "Application saved but collateral/guarantor IDs were not returned. Refresh and try uploading files again."
+  );
+  return;
+ }
+
+ const assignPromise = officerId
+  ? assignApplicationOfficerApi(applicationId, { assigned_officer_id: officerId })
+  : Promise.resolve({ ok: true as const });
+
+ const linkedUploadPromise =
+  linkedIds && hasLinkedFiles
+   ? uploadCollateralAndGuarantorFiles(applicationId, linkedIds, collaterals, guarantors)
+   : Promise.resolve({ ok: true as const });
+
+ const [assign, linkedUpload] = await Promise.all([assignPromise, linkedUploadPromise]);
+
+ if (!assign.ok) {
+  console.warn("Officer assign:", assign.error);
+ }
+ debugApplicationCreate("handleSubmit — collateral/guarantor upload result", {
+  ok: linkedUpload.ok,
+  error: linkedUpload.ok ? undefined : linkedUpload.error,
+ });
+ if (!linkedUpload.ok) {
+  alert(`File upload failed: ${linkedUpload.error}`);
+  return;
  }
 
  if (!isDraft) {
  const required = selectedProduct.required_documents ?? [];
+ debugApplicationCreate("handleSubmit — uploading documents", {
+  applicationId,
+  required_count: required.length,
+  file_types: Object.keys(documentFiles).filter((k) => documentFiles[k]),
+ });
 
  const docUpload = await uploadApplicationDocumentsFromForm(
  applicationId,
  documentFiles,
  required
  );
+ debugApplicationCreate("handleSubmit — document upload result", {
+  ok: docUpload.ok,
+  error: docUpload.ok ? undefined : docUpload.error,
+ });
  if (!docUpload.ok) {
  console.warn("Document upload:", docUpload.error);
  if (!APPLICATION_DOCUMENTS_OPTIONAL) {
@@ -727,14 +817,19 @@ function NewApplicationPageContent() {
  }
  }
 
+ debugApplicationCreate("handleSubmit — running post-create workflow", { applicationId, role: effectiveRole });
  const workflow = await runPostCreateWorkflow({
  applicationId,
  isDraft: false,
  role: effectiveRole,
  approvedAmount: amount,
  actorName: user?.full_name ?? "User",
- documentFiles,
+ documentFiles: {},
  requiredDocuments: required,
+ });
+ debugApplicationCreate("handleSubmit — workflow result", {
+  ok: workflow.ok,
+  error: workflow.ok ? undefined : workflow.error,
  });
  if (!workflow.ok) {
  alert(workflow.error);
@@ -752,8 +847,15 @@ function NewApplicationPageContent() {
  return;
  }
 
+ debugApplicationCreate("handleSubmit — draft saved", { applicationId });
+ if (isNewApplication) {
+ const next = new URLSearchParams(searchParams.toString());
+ next.set("edit", applicationId);
+ router.replace(`${pathname}?${next.toString()}`, { scroll: false });
+ }
  router.push(`${applicationsBasePath}?highlight=${applicationId}`);
- } catch {
+ } catch (err) {
+ debugApplicationCreate("handleSubmit — network error", err);
  alert("Unable to reach server.");
  } finally {
  setIsSaving(false);

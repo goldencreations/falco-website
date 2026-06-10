@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
+import { CachedMediaPreview } from "@/components/media/cached-media-preview";
 import {
   CheckCircle,
   Clock,
@@ -33,44 +33,19 @@ import { toProxyUrl } from "@/lib/document-proxy";
 import { formatCurrency, formatDateTime } from "@/lib/formatters";
 import type { LoanApplicationStatus } from "@/lib/types";
 
-/**
- * Renders an image preview.
- * - `src` is tried first (e.g. backend preview_url, usable without auth).
- * - If `src` fails (expired signed URL, CORS, etc.) and `fallbackSrc` is
- *   provided, falls back to it automatically (e.g. proxy URL with Bearer token).
- * - Collapses to nothing if both fail, or if the content is not an image (PDF).
- */
 function DocumentPreview({
-  src,
-  fallbackSrc,
+  previewUrl,
+  authUrl,
   alt,
 }: {
-  src: string;
-  fallbackSrc?: string | null;
+  previewUrl?: string | null;
+  authUrl?: string | null;
   alt: string;
 }) {
-  const [failed, setFailed] = useState(false);
-  const [triedFallback, setTriedFallback] = useState(false);
-
-  if (failed) return null;
-
-  const activeSrc = triedFallback && fallbackSrc ? fallbackSrc : src;
-
+  if (!previewUrl && !authUrl) return null;
   return (
     <div className="border-t bg-muted/20 px-3 pb-3 pt-2">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={activeSrc}
-        alt={alt}
-        className="max-h-48 w-full rounded-md object-contain"
-        onError={() => {
-          if (!triedFallback && fallbackSrc) {
-            setTriedFallback(true);
-          } else {
-            setFailed(true);
-          }
-        }}
-      />
+      <CachedMediaPreview previewUrl={previewUrl} authUrl={authUrl} alt={alt} />
     </div>
   );
 }
@@ -258,15 +233,12 @@ export function ApplicationDetailPanel({
                           ) : null}
                         </div>
                       </div>
-                      {col.image_preview_url ? (
-                        // preview_url works directly; if it expires, fall back to proxy
+                      {col.image_preview_url || col.image_url ? (
                         <DocumentPreview
-                          src={col.image_preview_url}
-                          fallbackSrc={downloadUrl}
+                          previewUrl={col.image_preview_url}
+                          authUrl={col.image_url}
                           alt={col.type}
                         />
-                      ) : downloadUrl ? (
-                        <DocumentPreview src={downloadUrl} alt={col.type} />
                       ) : null}
                     </li>
                   );
@@ -289,7 +261,6 @@ export function ApplicationDetailPanel({
                 {application.guarantors.map((g: GuarantorRow, i: number) => {
                   const frontDownloadUrl = g.id_front_url ? toProxyUrl(g.id_front_url) : null;
                   const backDownloadUrl = g.id_back_url ? toProxyUrl(g.id_back_url) : null;
-                  const legacyProxyUrl = !g.id_front_preview_url && g.document_url ? toProxyUrl(g.document_url) : null;
                   return (
                     <li key={g.id ?? i} className="overflow-hidden rounded-lg border">
                       <div className="px-3 py-2.5 space-y-1">
@@ -329,15 +300,11 @@ export function ApplicationDetailPanel({
                               </Button>
                             ) : null}
                           </div>
-                          {g.id_front_preview_url ? (
-                            <DocumentPreview
-                              src={g.id_front_preview_url}
-                              fallbackSrc={frontDownloadUrl}
-                              alt={`${g.full_name} ID front`}
-                            />
-                          ) : frontDownloadUrl ? (
-                            <DocumentPreview src={frontDownloadUrl} alt={`${g.full_name} ID front`} />
-                          ) : null}
+                          <DocumentPreview
+                            previewUrl={g.id_front_preview_url}
+                            authUrl={g.id_front_url}
+                            alt={`${g.full_name} ID front`}
+                          />
                         </div>
                       ) : null}
                       {/* ID back */}
@@ -353,20 +320,16 @@ export function ApplicationDetailPanel({
                               </Button>
                             ) : null}
                           </div>
-                          {g.id_back_preview_url ? (
-                            <DocumentPreview
-                              src={g.id_back_preview_url}
-                              fallbackSrc={backDownloadUrl}
-                              alt={`${g.full_name} ID back`}
-                            />
-                          ) : backDownloadUrl ? (
-                            <DocumentPreview src={backDownloadUrl} alt={`${g.full_name} ID back`} />
-                          ) : null}
+                          <DocumentPreview
+                            previewUrl={g.id_back_preview_url}
+                            authUrl={g.id_back_url}
+                            alt={`${g.full_name} ID back`}
+                          />
                         </div>
                       ) : null}
                       {/* Legacy single-document fallback for older API responses */}
-                      {legacyProxyUrl ? (
-                        <DocumentPreview src={legacyProxyUrl} alt={`${g.full_name} document`} />
+                      {g.document_url ? (
+                        <DocumentPreview authUrl={g.document_url} alt={`${g.full_name} document`} />
                       ) : null}
                     </li>
                   );
@@ -412,9 +375,7 @@ export function ApplicationDetailPanel({
         {/* Uploaded documents — shown last so collateral/guarantor images appear first */}
         <Separator className="my-5" />
         <div className="space-y-3">
-          {detailLoading ? (
-            <p className="text-sm text-muted-foreground">Loading documents…</p>
-          ) : application.documents?.length ? (
+          {application.documents?.length ? (
             <ul className="space-y-3 text-sm">
               {[...application.documents]
                 .sort((a, b) =>
@@ -425,6 +386,7 @@ export function ApplicationDetailPanel({
                 .map((doc) => {
                 const hasUrl = Boolean(doc.url);
                 const proxyUrl = hasUrl ? toProxyUrl(doc.url) : null;
+                const viewUrl = doc.preview_url ?? proxyUrl;
                 const label = formatRequiredDocumentLabel(documentTypeFromRow(doc));
                 return (
                   <li
@@ -452,25 +414,33 @@ export function ApplicationDetailPanel({
                             Pending
                           </Badge>
                         )}
-                        {proxyUrl ? (
+                        {viewUrl ? (
                           <>
                             <Button type="button" variant="ghost" size="sm" className="h-7 px-2" asChild>
-                              <a href={proxyUrl} target="_blank" rel="noopener noreferrer">
+                              <a href={viewUrl} target="_blank" rel="noopener noreferrer">
                                 <ExternalLink className="h-3.5 w-3.5" />
                                 <span className="sr-only">View</span>
                               </a>
                             </Button>
-                            <Button type="button" variant="ghost" size="sm" className="h-7 px-2" asChild>
-                              <a href={proxyUrl} download={doc.name ?? true}>
-                                <Download className="h-3.5 w-3.5" />
-                                <span className="sr-only">Download</span>
-                              </a>
-                            </Button>
+                            {proxyUrl ? (
+                              <Button type="button" variant="ghost" size="sm" className="h-7 px-2" asChild>
+                                <a href={proxyUrl} download={doc.name ?? true}>
+                                  <Download className="h-3.5 w-3.5" />
+                                  <span className="sr-only">Download</span>
+                                </a>
+                              </Button>
+                            ) : null}
                           </>
                         ) : null}
                       </div>
                     </div>
-                    {proxyUrl ? <DocumentPreview src={proxyUrl} alt={label} /> : null}
+                    {viewUrl ? (
+                      <DocumentPreview
+                        previewUrl={doc.preview_url}
+                        authUrl={doc.url}
+                        alt={label}
+                      />
+                    ) : null}
                   </li>
                 );
               })}
