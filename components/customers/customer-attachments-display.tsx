@@ -1,17 +1,28 @@
 "use client";
 
-import { Download, ExternalLink, FileText, Home, Store } from "lucide-react";
+import {
+  Download,
+  ExternalLink,
+  FileText,
+  Home,
+  Shield,
+  Store,
+  User,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import {
   CachedMediaPreview,
   resolveMediaViewUrl,
 } from "@/components/media/cached-media-preview";
-import type { CustomerAttachmentDisplay } from "@/lib/customer-attachments";
+import { documentTypeFromRow, formatRequiredDocumentLabel } from "@/lib/application-documents";
+import { shouldShowGuarantorLegacyDocument } from "@/lib/application-detail-display";
+import type { CustomerProfileAttachments } from "@/lib/customer-profile-attachments";
 import { toProxyUrl } from "@/lib/document-proxy";
 
 type Props = {
-  attachments: CustomerAttachmentDisplay;
+  attachments: CustomerProfileAttachments;
 };
 
 function PhotoBlock({
@@ -105,38 +116,57 @@ function DocumentRow({
 
 export function CustomerAttachmentsDisplay({ attachments }: Props) {
   const {
+    passportPhotoUrl,
+    passportPhotoPreviewUrl,
     homeLocationPhotoUrl,
     homeLocationPhotoPreviewUrl,
     businessLocationPhotoUrl,
     businessLocationPhotoPreviewUrl,
     supportingDocuments,
+    applicationAttachments,
   } = attachments;
+
+  const hasProfilePhotos = Boolean(
+    passportPhotoUrl || homeLocationPhotoUrl || businessLocationPhotoUrl
+  );
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Attachments</CardTitle>
-        <CardDescription>Home and business location photos and supporting documents on file.</CardDescription>
+        <CardTitle className="text-base">Attachment / Uploads</CardTitle>
+        <CardDescription>
+          Customer profile photos, supporting documents, and files from loan applications.
+        </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid gap-4 md:grid-cols-2">
-          {homeLocationPhotoUrl ? (
-            <PhotoBlock
-              title="Home location photo"
-              authUrl={homeLocationPhotoUrl}
-              previewUrl={homeLocationPhotoPreviewUrl}
-              icon={<Home className="h-4 w-4 text-emerald-700" aria-hidden />}
-            />
-          ) : null}
-          {businessLocationPhotoUrl ? (
-            <PhotoBlock
-              title="Business location photo"
-              authUrl={businessLocationPhotoUrl}
-              previewUrl={businessLocationPhotoPreviewUrl}
-              icon={<Store className="h-4 w-4 text-amber-700" aria-hidden />}
-            />
-          ) : null}
-        </div>
+      <CardContent className="space-y-6">
+        {hasProfilePhotos ? (
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {passportPhotoUrl ? (
+              <PhotoBlock
+                title="Passport photo"
+                authUrl={passportPhotoUrl}
+                previewUrl={passportPhotoPreviewUrl}
+                icon={<User className="h-4 w-4 text-sky-700" aria-hidden />}
+              />
+            ) : null}
+            {homeLocationPhotoUrl ? (
+              <PhotoBlock
+                title="Home location photo"
+                authUrl={homeLocationPhotoUrl}
+                previewUrl={homeLocationPhotoPreviewUrl}
+                icon={<Home className="h-4 w-4 text-emerald-700" aria-hidden />}
+              />
+            ) : null}
+            {businessLocationPhotoUrl ? (
+              <PhotoBlock
+                title="Business location photo"
+                authUrl={businessLocationPhotoUrl}
+                previewUrl={businessLocationPhotoPreviewUrl}
+                icon={<Store className="h-4 w-4 text-amber-700" aria-hidden />}
+              />
+            ) : null}
+          </div>
+        ) : null}
 
         {supportingDocuments.length > 0 ? (
           <div className="space-y-2">
@@ -156,6 +186,132 @@ export function CustomerAttachmentsDisplay({ attachments }: Props) {
             </ul>
           </div>
         ) : null}
+
+        {applicationAttachments.map((app, index) => {
+          const collateralPhotos = app.collaterals.filter(
+            (c) => c.image_url || c.image_preview_url
+          );
+          const guarantorPhotos = app.guarantors.flatMap((g) => {
+            const items: Array<{
+              key: string;
+              title: string;
+              authUrl: string;
+              previewUrl?: string | null;
+            }> = [];
+            if (g.id_front_url || g.id_front_preview_url) {
+              items.push({
+                key: `${g.id ?? g.full_name}-front`,
+                title: `${g.full_name} — ID front`,
+                authUrl: g.id_front_url ?? g.id_front_preview_url ?? "",
+                previewUrl: g.id_front_preview_url ?? g.id_front_url,
+              });
+            }
+            if (g.id_back_url || g.id_back_preview_url) {
+              items.push({
+                key: `${g.id ?? g.full_name}-back`,
+                title: `${g.full_name} — ID back`,
+                authUrl: g.id_back_url ?? g.id_back_preview_url ?? "",
+                previewUrl: g.id_back_preview_url ?? g.id_back_url,
+              });
+            }
+            if (shouldShowGuarantorLegacyDocument(g) && g.document_url) {
+              items.push({
+                key: `${g.id ?? g.full_name}-legacy`,
+                title: `${g.full_name} — ID document`,
+                authUrl: g.document_url,
+              });
+            }
+            return items;
+          });
+          const appDocuments = app.documents.filter((d) => d.url || d.preview_url);
+
+          return (
+            <div key={app.applicationId} className="space-y-4">
+              {index > 0 || hasProfilePhotos || supportingDocuments.length > 0 ? (
+                <Separator />
+              ) : null}
+              <div className="space-y-1">
+                <p className="text-sm font-semibold">
+                  Application {app.applicationNumber}
+                </p>
+                {app.productName ? (
+                  <p className="text-xs text-muted-foreground">{app.productName}</p>
+                ) : null}
+              </div>
+
+              {collateralPhotos.length > 0 ? (
+                <div className="space-y-2">
+                  <p className="flex items-center gap-1.5 text-sm font-medium">
+                    <Shield className="h-4 w-4 text-primary" aria-hidden />
+                    Collateral
+                  </p>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {collateralPhotos.map((col, i) => {
+                      const authUrl = col.image_url ?? col.image_preview_url ?? "";
+                      const title = col.description
+                        ? `Collateral — ${col.type}: ${col.description}`
+                        : `Collateral — ${col.type}`;
+                      return (
+                        <PhotoBlock
+                          key={col.id ?? `${col.type}-${i}`}
+                          title={title}
+                          authUrl={authUrl}
+                          previewUrl={col.image_preview_url}
+                          icon={<Shield className="h-4 w-4 text-primary" aria-hidden />}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+
+              {guarantorPhotos.length > 0 ? (
+                <div className="space-y-2">
+                  <p className="flex items-center gap-1.5 text-sm font-medium">
+                    <User className="h-4 w-4 text-muted-foreground" aria-hidden />
+                    Guarantor ID documents
+                  </p>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {guarantorPhotos.map((item) => (
+                      <PhotoBlock
+                        key={item.key}
+                        title={item.title}
+                        authUrl={item.authUrl}
+                        previewUrl={item.previewUrl}
+                        icon={<User className="h-4 w-4 text-muted-foreground" aria-hidden />}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {appDocuments.length > 0 ? (
+                <div className="space-y-2">
+                  <p className="flex items-center gap-1.5 text-sm font-medium">
+                    <FileText className="h-4 w-4 text-muted-foreground" aria-hidden />
+                    Application documents
+                  </p>
+                  <ul className="space-y-2">
+                    {appDocuments.map((doc) => {
+                      const url = doc.url ?? doc.preview_url!;
+                      const name =
+                        doc.name?.trim() ||
+                        formatRequiredDocumentLabel(documentTypeFromRow(doc));
+                      return (
+                        <DocumentRow
+                          key={doc.id ?? `${name}-${url}`}
+                          name={name}
+                          url={url}
+                          previewUrl={doc.preview_url}
+                        />
+                      );
+                    })}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
       </CardContent>
     </Card>
   );

@@ -8,7 +8,8 @@ import {
  type LoanListRow,
 } from "@/lib/loan-adapters";
 import { falcoServerFetch } from "@/lib/server-falco";
-import type { LoanApplication, Payment } from "@/lib/types";
+import type { ApplicationViewRow } from "@/lib/application-adapters";
+import type { Payment } from "@/lib/types";
 
 export type PaymentTrendPoint = {
  month: string;
@@ -36,7 +37,7 @@ export type BalanceSnapshotPoint = {
 export type CustomerPortfolioData = {
  loans: LoanListRow[];
  payments: Payment[];
- applications: LoanApplication[];
+ applications: ApplicationViewRow[];
  paymentTrend: PaymentTrendPoint[];
  loanDistribution: LoanDistributionPoint[];
  creditHistory: CreditScorePoint[];

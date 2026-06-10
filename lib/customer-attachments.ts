@@ -82,19 +82,98 @@ function readUrl(value: unknown): string | null {
   return t.length > 0 ? t : null;
 }
 
+function normalizeDocType(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_")
+    .replace(/-/g, "_");
+}
+
+function readNestedDocument(
+  o: Record<string, unknown>,
+  key: string
+): { url: string | null; previewUrl: string | null } {
+  const doc = o[key];
+  if (!doc || typeof doc !== "object") return { url: null, previewUrl: null };
+  const d = doc as Record<string, unknown>;
+  return {
+    url: readUrl(d.url ?? d.download_url ?? d.href),
+    previewUrl: readUrl(d.preview_url ?? d.signed_url ?? d.thumbnail_url),
+  };
+}
+
+function readPhotoFromSources(
+  sources: Record<string, unknown>[],
+  urlKeys: string[],
+  docKeys: string[]
+): { url: string | null; previewUrl: string | null } {
+  for (const source of sources) {
+    for (const key of urlKeys) {
+      const url = readUrl(source[key]);
+      if (url) {
+        const preview =
+          readUrl(source[`${key}_preview_url`]) ??
+          readUrl(source[`${key.replace(/_url$/, "")}_preview_url`]);
+        return { url, previewUrl: preview };
+      }
+    }
+    for (const key of docKeys) {
+      const nested = readNestedDocument(source, key);
+      if (nested.url) return nested;
+    }
+  }
+  return { url: null, previewUrl: null };
+}
+
 function readDocuments(value: unknown): CustomerAttachmentDocument[] {
   if (!Array.isArray(value)) return [];
   const out: CustomerAttachmentDocument[] = [];
   for (const item of value) {
     if (!item || typeof item !== "object") continue;
     const o = item as Record<string, unknown>;
-    const url = readUrl(o.url ?? o.download_url ?? o.href);
-    const previewUrl = readUrl(o.preview_url ?? o.signed_url ?? o.thumbnail_url);
-    const name = typeof o.name === "string" ? o.name : typeof o.filename === "string" ? o.filename : null;
+    const nested = readNestedDocument(o, "document");
+    const url =
+      readUrl(o.url ?? o.download_url ?? o.href) ?? nested.url;
+    const previewUrl =
+      readUrl(o.preview_url ?? o.signed_url ?? o.thumbnail_url) ?? nested.previewUrl;
+    const type = normalizeDocType(o.type ?? o.document_type);
+    const name =
+      (typeof o.name === "string" && o.name.trim()) ||
+      (typeof o.filename === "string" && o.filename.trim()) ||
+      (type ? type.replace(/_/g, " ") : null);
     if (url && name) out.push({ name, url, previewUrl });
     else if (url) out.push({ name: url.split("/").pop() ?? "Document", url, previewUrl });
   }
   return out;
+}
+
+function documentsByType(
+  docs: CustomerAttachmentDocument[],
+  sourceRows: Record<string, unknown>[]
+): CustomerAttachmentDocument[] {
+  const typed: CustomerAttachmentDocument[] = [];
+  for (const source of sourceRows) {
+    const list = Array.isArray(source.documents) ? source.documents : [];
+    for (const item of list) {
+      if (!item || typeof item !== "object") continue;
+      const o = item as Record<string, unknown>;
+      const type = normalizeDocType(o.type ?? o.document_type);
+      if (!type || /passport|home_location|business_location|profile_photo|customer_photo/.test(type)) {
+        continue;
+      }
+      const nested = readNestedDocument(o, "document");
+      const url = readUrl(o.url) ?? nested.url;
+      if (!url) continue;
+      const previewUrl = readUrl(o.preview_url) ?? nested.previewUrl;
+      const name =
+        (typeof o.name === "string" && o.name.trim()) ||
+        type.replace(/_/g, " ");
+      typed.push({ name, url, previewUrl });
+    }
+  }
+  const seen = new Set(docs.map((d) => d.url));
+  return [...docs, ...typed.filter((d) => !seen.has(d.url))];
 }
 
 /** Read attachment URLs from API customer row metadata (when backend provides them). */
@@ -121,30 +200,38 @@ export function extractCustomerAttachmentsFromRow(
       ? (md.attachments as Record<string, unknown>)
       : {};
 
-  const homeLocationPhotoUrl =
-    readUrl(md.home_location_photo_url) ??
-    readUrl(md.home_location_photo) ??
-    readUrl(attachmentsBlock.home_location_photo_url) ??
-    readUrl(attachmentsBlock.home_location_photo);
+  const sources = [row, md, attachmentsBlock];
 
-  const homeLocationPhotoPreviewUrl =
-    readUrl(md.home_location_photo_preview_url) ??
-    readUrl(attachmentsBlock.home_location_photo_preview_url);
+  const homePhoto = readPhotoFromSources(
+    sources,
+    ["home_location_photo_url", "home_location_photo"],
+    ["home_location_photo_document", "home_location_document", "home_photo_document"]
+  );
 
-  const businessLocationPhotoUrl =
-    readUrl(md.business_location_photo_url) ??
-    readUrl(md.business_location_photo) ??
-    readUrl(attachmentsBlock.business_location_photo_url) ??
-    readUrl(attachmentsBlock.business_location_photo);
+  const businessPhoto = readPhotoFromSources(
+    sources,
+    ["business_location_photo_url", "business_location_photo"],
+    ["business_location_photo_document", "business_location_document", "business_photo_document"]
+  );
 
-  const businessLocationPhotoPreviewUrl =
-    readUrl(md.business_location_photo_preview_url) ??
-    readUrl(attachmentsBlock.business_location_photo_preview_url);
+  const homeLocationPhotoUrl = homePhoto.url;
+  const homeLocationPhotoPreviewUrl = homePhoto.previewUrl;
+  const businessLocationPhotoUrl = businessPhoto.url;
+  const businessLocationPhotoPreviewUrl = businessPhoto.previewUrl;
 
-  const supportingDocuments =
-    readDocuments(md.supporting_documents).length > 0
-      ? readDocuments(md.supporting_documents)
-      : readDocuments(attachmentsBlock.supporting_documents);
+  let supportingDocuments = [
+    ...readDocuments(row.documents),
+    ...readDocuments(md.documents),
+    ...readDocuments(md.supporting_documents),
+    ...readDocuments(attachmentsBlock.supporting_documents),
+    ...readDocuments(attachmentsBlock.documents),
+  ];
+
+  const byUrl = new Map<string, CustomerAttachmentDocument>();
+  for (const doc of supportingDocuments) {
+    if (!byUrl.has(doc.url)) byUrl.set(doc.url, doc);
+  }
+  supportingDocuments = documentsByType(Array.from(byUrl.values()), sources);
 
   return {
     homeLocationPhotoUrl,

@@ -1,7 +1,8 @@
 "use client";
 
-import { use, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import { ArrowLeft, UserCheck, Users, Loader2 } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { GroupMembersPanel } from "@/components/group-members-panel";
@@ -35,7 +36,7 @@ export default function GroupDetailPage({
  }
  setError(null);
  try {
- const res = await fetch(`/api/groups/${encodeURIComponent(resolved.id)}`, {
+ const res = await fetch(`/api/groups/${encodeURIComponent(groupId)}`, {
  credentials: "include",
  });
  const json = (await res.json()) as unknown;
@@ -96,7 +97,7 @@ export default function GroupDetailPage({
  setLoading(false);
  }
  }
- }, [resolved.id]);
+ }, [groupId]);
 
  useEffect(() => {
  void loadGroup();
@@ -207,7 +208,7 @@ export default function GroupDetailPage({
  </div>
 
  <GroupMembersPanel
- groupId={resolved.id}
+ groupId={groupId}
  group={group}
  readOnly={user?.role === "loan_officer"}
  customerDetailHref={(id) => resolvePortalHref(user?.role, `/customers/${id}`)}

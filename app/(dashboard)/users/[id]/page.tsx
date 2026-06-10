@@ -1,7 +1,8 @@
 "use client";
 
-import { use, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import {
  ArrowLeft,
  UserCog,
@@ -48,14 +49,10 @@ import {
 
 type Timeframe = "7d" | "30d" | "90d" | "ytd" | "all";
 
-export default function StaffProfilePage({
- params,
-}: {
- params: Promise<{ id: string }>;
-}) {
- const resolvedParams = use(params);
+export default function StaffProfilePage() {
+ const { id: staffId } = useParams<{ id: string }>();
  const [timeframe, setTimeframe] = useState<Timeframe>("30d");
- const staff = users.find((user) => user.id === resolvedParams.id);
+ const staff = users.find((user) => user.id === staffId);
 
  const referenceDate = useMemo(() => {
  const timestamps = [

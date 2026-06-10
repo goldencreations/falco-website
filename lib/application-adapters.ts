@@ -131,19 +131,31 @@ function normalizeDocuments(raw: unknown[]): LoanDocument[] {
   };
  });
 
- // Deduplicate by type: if a type appears more than once, keep whichever
- // entry has a real URL (non-empty), otherwise keep the first occurrence.
+ // Deduplicate by type; prefer entries with URLs and preview URLs.
  const seen = new Map<string, LoanDocument>();
  for (const doc of parsed) {
   const existing = seen.get(doc.type);
   if (!existing) {
    seen.set(doc.type, doc);
-  } else if (!existing.url && doc.url) {
-   // Upgrade to the version that has an actual URL
-   seen.set(doc.type, doc);
+  } else {
+   const existingScore = (existing.url ? 2 : 0) + (existing.preview_url ? 1 : 0);
+   const docScore = (doc.url ? 2 : 0) + (doc.preview_url ? 1 : 0);
+   if (docScore > existingScore) seen.set(doc.type, doc);
   }
  }
- return Array.from(seen.values());
+
+ // Drop exact duplicate files (same URL path) under different types.
+ const byUrl = new Map<string, LoanDocument>();
+ for (const doc of seen.values()) {
+  const urlKey = (doc.url || doc.preview_url || "").split("?")[0];
+  if (!urlKey) {
+   byUrl.set(`${doc.type}|${doc.id || doc.name}`, doc);
+   continue;
+  }
+  const existing = byUrl.get(urlKey);
+  if (!existing) byUrl.set(urlKey, doc);
+ }
+ return Array.from(byUrl.values());
 }
 
 export type CollateralRow = {

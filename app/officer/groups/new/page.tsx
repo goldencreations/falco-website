@@ -1,5 +1,1 @@
-import { redirect } from "next/navigation";
-
-export default function OfficerNewGroupPage() {
- redirect("/officer/groups");
-}
+export { default } from "@/app/(dashboard)/groups/new/page";
