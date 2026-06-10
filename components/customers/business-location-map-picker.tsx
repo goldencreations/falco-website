@@ -10,7 +10,7 @@ import "leaflet/dist/leaflet.css";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { LocateFixed, Loader2, MapPin } from "lucide-react";
+import { ExternalLink, LocateFixed, Loader2, MapPin } from "lucide-react";
 
 /** Default center: Dar es Salaam, TZ (aligns with Nominatim country filter on the form). */
 const DEFAULT_CENTER: LatLngTuple = [-6.7924, 39.2083];
@@ -204,11 +204,29 @@ export function CustomerLocationMapPicker({
         </Button>
       </div>
       {hasPin ? (
-        <div className="space-y-0.5">
-          <p className="text-[11px] font-medium text-emerald-800">{copy.recorded}</p>
-          <p className="font-mono text-[11px] text-muted-foreground">
-            {latitude.toFixed(6)}, {longitude.toFixed(6)}
-          </p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="space-y-0.5">
+            <p className="text-[11px] font-medium text-emerald-800">{copy.recorded}</p>
+            <p className="font-mono text-[11px] text-muted-foreground">
+              {latitude.toFixed(6)}, {longitude.toFixed(6)}
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="shrink-0 gap-1.5"
+            asChild
+          >
+            <a
+              href={`https://www.google.com/maps/dir/?api=1&destination=${latitude.toFixed(6)},${longitude.toFixed(6)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              Get Directions
+            </a>
+          </Button>
         </div>
       ) : (
         <p className="text-[11px] text-muted-foreground">{copy.empty}</p>

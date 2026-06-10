@@ -524,7 +524,7 @@ export async function runPostCreateWorkflow(options: {
  documentFiles?: Record<string, File | null | undefined>;
  requiredDocuments?: string[];
 }): Promise<{ ok: true } | { ok: false; error: string }> {
- const { applicationId, isDraft, role, approvedAmount, actorName } = options;
+ const { applicationId, isDraft, role, approvedAmount } = options;
  if (isDraft) return { ok: true };
 
  if (options.requiredDocuments?.length) {
@@ -537,14 +537,13 @@ export async function runPostCreateWorkflow(options: {
  }
 
  if (roleShouldAutoActivate(role)) {
- const activated = await runAdminActivateApplicationWorkflow(
- applicationId,
- approvedAmount,
- actorName,
- options.documentFiles
- );
- if (activated.ok) return { ok: true };
- if (role === "super_admin" || role === "branch_manager") return activated;
+  // Use the server-side approve route which properly handles workflow_stage
+  // transitions (assigns "manager" stage before reviewing, then "top_admin" for
+  // final approval) rather than manually calling the review endpoint client-side
+  // which can result in 422 when the stage hasn't been updated yet.
+  const activated = await approveApplicationApi(applicationId, approvedAmount);
+  if (activated.ok) return { ok: true };
+  if (role === "super_admin" || role === "branch_manager") return activated;
  }
 
  const submit = await submitApplicationApi(applicationId);

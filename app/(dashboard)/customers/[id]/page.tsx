@@ -88,6 +88,7 @@ import {
  extractGuarantorsFromApplications,
  extractPassportPhotoUrl,
 } from "@/lib/customer-profile-extras";
+import { toProxyUrl } from "@/lib/document-proxy";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/formatters";
 import { adaptApiCustomerRowToCustomer, extractCustomerDetail } from "@/lib/customer-adapters";
 import type { CustomerPortfolioData } from "@/lib/customer-portfolio-detail";
@@ -558,13 +559,13 @@ export default function CustomerDetailPage({
  <CardContent className="p-6">
  <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
  <Avatar className="h-24 w-24 shrink-0 ring-4 ring-primary/20">
- {passportPhotoUrl ? (
- <AvatarImage
- src={passportPhotoUrl}
- alt={`${customer.first_name} ${customer.last_name}`}
- className="object-cover"
- />
- ) : null}
+          {passportPhotoUrl ? (
+            <AvatarImage
+              src={toProxyUrl(passportPhotoUrl) ?? passportPhotoUrl}
+              alt={`${customer.first_name} ${customer.last_name}`}
+              className="object-cover"
+            />
+          ) : null}
  <AvatarFallback className="bg-primary text-primary-foreground text-3xl font-bold">
  {customer.first_name[0]}
  {customer.last_name[0]}
@@ -703,36 +704,63 @@ export default function CustomerDetailPage({
 
  {/* Tabs */}
  <Tabs defaultValue="analytics" className="space-y-4">
- <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 bg-muted/50 p-1">
- <TabsTrigger value="analytics" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
- <BarChart3 className="mr-2 h-4 w-4" />
- Analytics & Trends
+ <div className="-mx-4 overflow-x-auto px-4 [-webkit-overflow-scrolling:touch] [scrollbar-width:none] sm:mx-0 sm:overflow-visible sm:px-0 [&::-webkit-scrollbar]:hidden">
+ <TabsList className="flex h-auto w-max min-w-full flex-nowrap justify-start gap-1 bg-muted/50 p-1 sm:w-full sm:flex-wrap">
+ <TabsTrigger
+ value="analytics"
+ className="shrink-0 flex-none px-2.5 py-2 text-xs sm:flex-1 sm:px-3 sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+ >
+ <BarChart3 className="mr-1.5 h-4 w-4 sm:mr-2" />
+ <span className="sm:hidden">Analytics</span>
+ <span className="hidden sm:inline">Analytics & Trends</span>
  </TabsTrigger>
- <TabsTrigger value="details" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
- <User className="mr-2 h-4 w-4" />
- Personal Details
+ <TabsTrigger
+ value="details"
+ className="shrink-0 flex-none px-2.5 py-2 text-xs sm:flex-1 sm:px-3 sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+ >
+ <User className="mr-1.5 h-4 w-4 sm:mr-2" />
+ <span className="sm:hidden">Details</span>
+ <span className="hidden sm:inline">Personal Details</span>
  </TabsTrigger>
- <TabsTrigger value="loans" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
- <CreditCard className="mr-2 h-4 w-4" />
+ <TabsTrigger
+ value="loans"
+ className="shrink-0 flex-none px-2.5 py-2 text-xs sm:flex-1 sm:px-3 sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+ >
+ <CreditCard className="mr-1.5 h-4 w-4 sm:mr-2" />
  Loans ({customerLoans.length})
  </TabsTrigger>
- <TabsTrigger value="payments" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
- <Wallet className="mr-2 h-4 w-4" />
+ <TabsTrigger
+ value="payments"
+ className="shrink-0 flex-none px-2.5 py-2 text-xs sm:flex-1 sm:px-3 sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+ >
+ <Wallet className="mr-1.5 h-4 w-4 sm:mr-2" />
  Payments ({customerPayments.length})
  </TabsTrigger>
- <TabsTrigger value="attachments" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
- <Paperclip className="mr-2 h-4 w-4" />
- Attachment / Uploads
+ <TabsTrigger
+ value="attachments"
+ className="shrink-0 flex-none px-2.5 py-2 text-xs sm:flex-1 sm:px-3 sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+ >
+ <Paperclip className="mr-1.5 h-4 w-4 sm:mr-2" />
+ <span className="sm:hidden">Files</span>
+ <span className="hidden sm:inline">Attachment / Uploads</span>
  </TabsTrigger>
- <TabsTrigger value="collateral" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
- <Shield className="mr-2 h-4 w-4" />
+ <TabsTrigger
+ value="collateral"
+ className="shrink-0 flex-none px-2.5 py-2 text-xs sm:flex-1 sm:px-3 sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+ >
+ <Shield className="mr-1.5 h-4 w-4 sm:mr-2" />
  Collateral
  </TabsTrigger>
- <TabsTrigger value="guarantors" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
- <Users className="mr-2 h-4 w-4" />
- Guarantor Details & Attachment
+ <TabsTrigger
+ value="guarantors"
+ className="shrink-0 flex-none px-2.5 py-2 text-xs sm:flex-1 sm:px-3 sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+ >
+ <Users className="mr-1.5 h-4 w-4 sm:mr-2" />
+ <span className="sm:hidden">Guarantor</span>
+ <span className="hidden sm:inline">Guarantor Details & Attachment</span>
  </TabsTrigger>
  </TabsList>
+ </div>
 
  {/* Analytics Tab */}
  <TabsContent value="analytics" className="space-y-6">

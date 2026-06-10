@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
  ArrowLeft,
+ ExternalLink,
  Search,
  Upload,
  Send,
@@ -1501,22 +1502,33 @@ onValueChange={(value) => {
  <LocateFixed className="mr-2 h-4 w-4" />
  {isLocating ? "Getting browser location..." : "Use Browser Location"}
  </Button>
- {formData.latitude && formData.longitude && (
- <div className="overflow-hidden rounded-lg border border-border">
- <div className="flex items-center gap-2 border-b border-border bg-muted px-3 py-2 text-sm">
- <MapPin className="h-4 w-4 text-primary" />
- <span>
- {formData.latitude}, {formData.longitude}
- </span>
- </div>
- <iframe
- title="Customer location map"
- src={`https://maps.google.com/maps?q=${formData.latitude},${formData.longitude}&z=15&output=embed`}
- className="h-64 w-full"
- loading="lazy"
- />
- </div>
- )}
+    {formData.latitude && formData.longitude && (
+              <div className="overflow-hidden rounded-lg border border-border">
+                <div className="flex items-center justify-between gap-2 border-b border-border bg-muted px-3 py-2 text-sm">
+                  <div className="flex items-center gap-2">
+                    <MapPin className="h-4 w-4 text-primary" />
+                    <span className="font-mono text-xs">
+                      {formData.latitude}, {formData.longitude}
+                    </span>
+                  </div>
+                  <a
+                    href={`https://www.google.com/maps/dir/?api=1&destination=${formData.latitude},${formData.longitude}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    Get Directions
+                  </a>
+                </div>
+                <iframe
+                  title="Customer location map"
+                  src={`https://maps.google.com/maps?q=${formData.latitude},${formData.longitude}&z=15&output=embed`}
+                  className="h-64 w-full"
+                  loading="lazy"
+                />
+              </div>
+            )}
  </CardContent>
  </Card>
 
