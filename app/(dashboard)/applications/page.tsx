@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Download,
   Loader2,
@@ -16,14 +17,13 @@ import {
   FileText,
   Scale,
   Trash2,
-  X,
 } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import {
  Bar,
  BarChart,
@@ -59,17 +59,14 @@ import {
  Dialog,
  DialogContent,
  DialogDescription,
-  DialogFooter,
+ DialogFooter,
  DialogTitle,
 } from "@/components/ui/dialog";
 import {
- adaptApiApplicationListRow,
- extractApplicationDetail,
  extractApplicationsList,
  type ApplicationViewRow,
 } from "@/lib/application-adapters";
 import {
- enrichApplicationRow,
  enrichApplicationRows,
  fetchApplicationEnrichmentContext,
  type EnrichmentContext,
@@ -80,20 +77,20 @@ import {
  type DeleteApplicationTarget,
 } from "@/components/applications/delete-application-dialog";
 import {
- documentTypeFromRow,
  fetchApplicationDocumentStatus,
  formatRequiredDocumentLabel,
 } from "@/lib/application-documents";
 import {
   activateApplicationApi,
-  buildApplicationChecklist,
   canDeleteApplication,
+  deleteApplicationApi,
   getApplicationWorkflowActions,
   approveApplicationApi,
   runAdminActivateApplicationWorkflow,
 } from "@/lib/application-workflow";
 import { formatCurrency, formatDateTime } from "@/lib/formatters";
 import { exportApplicationToPdf } from "@/lib/application-pdf";
+import { resolvePortalPath } from "@/lib/portal-paths";
 import { useSessionUser } from "@/lib/use-session-user";
 import type { LoanApplicationStatus } from "@/lib/types";
 
@@ -112,6 +109,7 @@ const statusConfig: Record<
 };
 
 export default function ApplicationsPage() {
+ const router = useRouter();
  const { user } = useSessionUser();
  const effectiveRole = user?.role ?? "super_admin";
  const isManagerView = effectiveRole === "branch_manager";
@@ -127,6 +125,7 @@ export default function ApplicationsPage() {
  : "/applications/new";
  const creditAnalysisPath =
  effectiveRole === "loan_officer" ? "/officer/credit-analysis" : "/credit-analysis";
+ const applicationDetailPath = (id: string) => resolvePortalPath(user?.role, `/applications/${id}`);
  const [searchQuery, setSearchQuery] = useState("");
  const [statusFilter, setStatusFilter] = useState<string>("all");
  const [applications, setApplications] = useState<ApplicationViewRow[]>([]);
@@ -142,11 +141,11 @@ export default function ApplicationsPage() {
  } | null>(null);
  const [activateDocFiles, setActivateDocFiles] = useState<Record<string, File | null>>({});
  const [enrichmentCtx, setEnrichmentCtx] = useState<EnrichmentContext | null>(null);
- const [detailRow, setDetailRow] = useState<ApplicationViewRow | null>(null);
- const [detailLoading, setDetailLoading] = useState(false);
  const [activateUploadedTypes, setActivateUploadedTypes] = useState<string[]>([]);
  const [successMessage, setSuccessMessage] = useState<string | null>(null);
  const [deleteTarget, setDeleteTarget] = useState<DeleteApplicationTarget | null>(null);
+ const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+ const [bulkDeleting, setBulkDeleting] = useState(false);
 
  const reloadApplications = useCallback(async () => {
  setListLoading(true);
@@ -177,10 +176,18 @@ export default function ApplicationsPage() {
  }, [reloadApplications]);
 
  useEffect(() => {
+ setSelectedIds((prev) => {
+ const valid = new Set(applications.map((app) => app.id));
+ const next = new Set([...prev].filter((id) => valid.has(id)));
+ return next.size === prev.size ? prev : next;
+ });
+ }, [applications]);
+
+ useEffect(() => {
  if (typeof window === "undefined") return;
  const id = new URLSearchParams(window.location.search).get("id")?.trim();
- if (id) setSelectedApplicationId(id);
- }, []);
+ if (id) router.replace(applicationDetailPath(id));
+ }, [router, user?.role]);
 
  useEffect(() => {
  if (typeof window === "undefined") return;
@@ -191,7 +198,6 @@ export default function ApplicationsPage() {
  );
  }
  }, []);
- const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(null);
  /** Branch managers and loan officers see all applications in their assigned branch. */
  const visibleApplications = scopeBranchId
  ? applications.filter((app) => app.branch_id === scopeBranchId)
@@ -207,6 +213,72 @@ export default function ApplicationsPage() {
 
  return matchesSearch && matchesStatus;
  });
+ const deletableApplications = useMemo(
+ () =>
+  filteredApplications.filter((app) => canDeleteApplication(effectiveRole, app, user?.id)),
+ [filteredApplications, effectiveRole, user?.id]
+ );
+
+ const selectedDeletableCount = useMemo(
+ () => deletableApplications.filter((app) => selectedIds.has(app.id)).length,
+ [deletableApplications, selectedIds]
+ );
+
+ const allDeletableSelected =
+ deletableApplications.length > 0 && selectedDeletableCount === deletableApplications.length;
+ const someDeletableSelected =
+ selectedDeletableCount > 0 && selectedDeletableCount < deletableApplications.length;
+
+ const toggleApplicationSelection = (id: string, checked: boolean) => {
+ setSelectedIds((prev) => {
+ const next = new Set(prev);
+ if (checked) next.add(id);
+ else next.delete(id);
+ return next;
+ });
+ };
+
+ const toggleSelectAllDeletable = (checked: boolean) => {
+ if (!checked) {
+ setSelectedIds(new Set());
+ return;
+ }
+ setSelectedIds(new Set(deletableApplications.map((app) => app.id)));
+ };
+
+ const handleBulkDelete = async () => {
+ const targets = deletableApplications.filter((app) => selectedIds.has(app.id));
+ if (targets.length === 0) return;
+ setBulkDeleting(true);
+ setActionError(null);
+ let deleted = 0;
+ const failures: string[] = [];
+ for (const app of targets) {
+ setActionBusyId(app.id);
+ const result = await deleteApplicationApi(app.id);
+ if (result.ok) {
+ deleted += 1;
+ } else {
+ failures.push(`${app.application_number}: ${result.error}`);
+ }
+ }
+ setActionBusyId(null);
+ setBulkDeleting(false);
+ setSelectedIds(new Set());
+ await reloadApplications();
+ if (failures.length > 0) {
+ setActionError(
+ failures.length === targets.length
+ ? failures[0] ?? "Bulk delete failed."
+ : `Deleted ${deleted} of ${targets.length}. ${failures[0]}`
+ );
+ } else {
+ setSuccessMessage(
+ `Deleted ${deleted} application${deleted === 1 ? "" : "s"} from the database.`
+ );
+ }
+ };
+
  const statusCounts = visibleApplications.reduce(
  (acc, app) => {
  acc[app.status] = (acc[app.status] || 0) + 1;
@@ -215,44 +287,6 @@ export default function ApplicationsPage() {
  {} as Record<string, number>
  );
 
- const listSelectedApplication = selectedApplicationId
- ? visibleApplications.find((app) => app.id === selectedApplicationId) ?? null
- : null;
- const selectedApplication = detailRow ?? listSelectedApplication;
- const selectedAssignedOfficer = selectedApplication?.officerName ?? "Unassigned";
-
- useEffect(() => {
- if (!selectedApplicationId) {
- setDetailRow(null);
- return;
- }
- let cancelled = false;
- setDetailLoading(true);
- void (async () => {
- const ctx =
- enrichmentCtx ?? (await fetchApplicationEnrichmentContext(scopeBranchId, { role: effectiveRole }));
- if (cancelled) return;
- if (!enrichmentCtx) setEnrichmentCtx(ctx);
- const res = await fetch(`/api/applications/${encodeURIComponent(selectedApplicationId)}`, {
- credentials: "include",
- });
- const json = await res.json();
- if (cancelled) return;
- const detail = extractApplicationDetail(json);
- if (!detail) return;
- const row = enrichApplicationRow(
- adaptApiApplicationListRow({ application: detail }),
- ctx
- );
- setDetailRow(row);
- })()
- .finally(() => {
- if (!cancelled) setDetailLoading(false);
- });
- return () => {
- cancelled = true;
- };
- }, [selectedApplicationId, enrichmentCtx, scopeBranchId, effectiveRole]);
  const openDeleteDialog = (app: ApplicationViewRow) => {
  setDeleteTarget({
  id: app.id,
@@ -263,8 +297,6 @@ export default function ApplicationsPage() {
 
  const handleApplicationDeleted = () => {
  setDeleteTarget(null);
- setSelectedApplicationId(null);
- setDetailRow(null);
  setSuccessMessage("Application deleted from the database.");
  void reloadApplications();
  };
@@ -361,8 +393,6 @@ export default function ApplicationsPage() {
  }
  await reloadApplications();
  setActionBusyId(null);
- setSelectedApplicationId(null);
- setDetailRow(null);
  return true;
  };
 
@@ -388,18 +418,6 @@ export default function ApplicationsPage() {
  const inProgressArc = (inProgressCount / progressTotal) * arcLength;
  const pendingArc = (pendingCount / progressTotal) * arcLength;
 
- const exportSelectedApplicationPdf = () => {
- if (!selectedApplication) return;
- exportApplicationToPdf({
- application: selectedApplication,
- customerName: selectedApplication.customerDisplayName,
- customerNumber: selectedApplication.customerNumber,
- productName: selectedApplication.productName,
- branchName: selectedApplication.branchName,
- createdByName: selectedApplication.creatorName || selectedApplication.created_by,
- });
- };
-
  return (
  <>
  <DashboardHeader
@@ -422,7 +440,7 @@ export default function ApplicationsPage() {
  </p>
  <h2 className="mt-1 text-lg font-semibold tracking-tight">Professional loan application monitoring</h2>
  <p className="mt-1 text-sm text-muted-foreground">
- Review, open details in-place, and export a formal PDF record directly from this page.
+ Review applications, open full detail pages, and export formal PDF records.
  </p>
  </div>
  {(effectiveRole === "super_admin" || effectiveRole === "branch_manager" || effectiveRole === "loan_officer") ? (
@@ -658,6 +676,38 @@ export default function ApplicationsPage() {
  {/* Applications Table */}
  <Card className="overflow-hidden border-emerald-100">
  <CardContent className="space-y-4 p-0">
+ {isTopAdminView && selectedDeletableCount > 0 ? (
+ <div className="flex flex-col gap-2 border-b border-emerald-100 bg-emerald-50/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+ <p className="text-sm font-medium">
+ {selectedDeletableCount} application{selectedDeletableCount === 1 ? "" : "s"} selected
+ </p>
+ <div className="flex flex-wrap gap-2">
+ <Button
+ type="button"
+ variant="outline"
+ size="sm"
+ disabled={bulkDeleting}
+ onClick={() => setSelectedIds(new Set())}
+ >
+ Clear selection
+ </Button>
+ <Button
+ type="button"
+ variant="destructive"
+ size="sm"
+ disabled={bulkDeleting}
+ onClick={() => void handleBulkDelete()}
+ >
+ {bulkDeleting ? (
+ <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+ ) : (
+ <Trash2 className="mr-2 h-4 w-4" />
+ )}
+ Delete selected
+ </Button>
+ </div>
+ </div>
+ ) : null}
  <div className="grid gap-3 p-4 sm:hidden">
  {filteredApplications.length === 0 ? (
  <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
@@ -667,10 +717,21 @@ export default function ApplicationsPage() {
  filteredApplications.map((app) => {
  const status = statusConfig[app.status];
  const StatusIcon = status.icon;
+ const rowDeletable = canDeleteApplication(effectiveRole, app, user?.id);
  return (
  <div key={app.id} className="rounded-xl border border-emerald-100 bg-emerald-50/30 p-3">
  <div className="flex items-start justify-between gap-2">
+ <div className="flex items-start gap-2">
+ {isTopAdminView && rowDeletable ? (
+ <Checkbox
+ className="mt-0.5"
+ checked={selectedIds.has(app.id)}
+ onCheckedChange={(checked) => toggleApplicationSelection(app.id, checked === true)}
+ aria-label={`Select ${app.application_number}`}
+ />
+ ) : null}
  <p className="font-mono text-xs font-medium">{app.application_number}</p>
+ </div>
  <Badge variant={status.variant} className="gap-1">
  <StatusIcon className="h-3 w-3" />
  {status.label}
@@ -683,11 +744,22 @@ export default function ApplicationsPage() {
  </p>
  <p className="mt-1 text-sm font-semibold">{formatCurrency(app.requested_amount)}</p>
  <div className="mt-3 flex gap-2">
- <Button size="sm" variant="outline" className="h-8 flex-1" onClick={() => setSelectedApplicationId(app.id)}>
+ <Button size="sm" variant="outline" className="h-8 flex-1" asChild>
+ <Link href={applicationDetailPath(app.id)}>
  <Eye className="mr-1 h-3.5 w-3.5" />
  View Details
+ </Link>
  </Button>
- <Button size="sm" className="h-8 flex-1 bg-emerald-600 hover:bg-emerald-700" onClick={() => setSelectedApplicationId(app.id)}>
+ <Button size="sm" className="h-8 flex-1 bg-emerald-600 hover:bg-emerald-700" onClick={() => {
+ exportApplicationToPdf({
+ application: app,
+ customerName: app.customerDisplayName,
+ customerNumber: app.customerNumber,
+ productName: app.productName,
+ branchName: app.branchName,
+ createdByName: app.creatorName || app.created_by,
+ });
+ }}>
  <Download className="mr-1 h-3.5 w-3.5" />
  PDF
  </Button>
@@ -703,6 +775,16 @@ export default function ApplicationsPage() {
  <Table className="min-w-[780px] lg:min-w-0">
  <TableHeader>
  <TableRow>
+ {isTopAdminView ? (
+ <TableHead className="w-10">
+ <Checkbox
+ checked={allDeletableSelected ? true : someDeletableSelected ? "indeterminate" : false}
+ onCheckedChange={(checked) => toggleSelectAllDeletable(checked === true)}
+ disabled={deletableApplications.length === 0}
+ aria-label="Select all deletable applications"
+ />
+ </TableHead>
+ ) : null}
  <TableHead>Application #</TableHead>
  <TableHead>Customer</TableHead>
  <TableHead className="hidden lg:table-cell">Loan Officer</TableHead>
@@ -717,7 +799,10 @@ export default function ApplicationsPage() {
  <TableBody>
  {filteredApplications.length === 0 ? (
  <TableRow>
- <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
+ <TableCell
+ colSpan={isTopAdminView ? 10 : 9}
+ className="py-8 text-center text-muted-foreground"
+ >
  No applications found
  </TableCell>
  </TableRow>
@@ -725,9 +810,21 @@ export default function ApplicationsPage() {
  filteredApplications.map((app) => {
  const status = statusConfig[app.status];
  const StatusIcon = status.icon;
+ const rowDeletable = canDeleteApplication(effectiveRole, app, user?.id);
 
  return (
- <TableRow key={app.id}>
+ <TableRow key={app.id} data-state={selectedIds.has(app.id) ? "selected" : undefined}>
+ {isTopAdminView ? (
+ <TableCell>
+ {rowDeletable ? (
+ <Checkbox
+ checked={selectedIds.has(app.id)}
+ onCheckedChange={(checked) => toggleApplicationSelection(app.id, checked === true)}
+ aria-label={`Select ${app.application_number}`}
+ />
+ ) : null}
+ </TableCell>
+ ) : null}
  <TableCell className="font-mono text-sm">
  {app.application_number}
  </TableCell>
@@ -764,9 +861,11 @@ export default function ApplicationsPage() {
  </Button>
  </DropdownMenuTrigger>
  <DropdownMenuContent align="end">
- <DropdownMenuItem onClick={() => setSelectedApplicationId(app.id)}>
+ <DropdownMenuItem asChild>
+ <Link href={applicationDetailPath(app.id)}>
  <Eye className="mr-2 h-4 w-4" />
  View Details
+ </Link>
  </DropdownMenuItem>
  <DropdownMenuItem
  onClick={() => {
@@ -849,281 +948,6 @@ export default function ApplicationsPage() {
 </Card>
 </div>
 </main>
-
-<Dialog open={Boolean(selectedApplication)} onOpenChange={(open) => !open && setSelectedApplicationId(null)}>
-<DialogContent
-showCloseButton={false}
-className="flex max-h-[min(92vh,820px)] max-w-[calc(100vw-1.5rem)] flex-col gap-0 overflow-hidden border border-border/80 p-0 sm:max-w-3xl"
->
-{selectedApplication ? (
-<>
-<div className="relative border-b bg-gradient-to-r from-emerald-950/95 via-emerald-900 to-emerald-950 px-6 pb-6 pt-6 text-primary-foreground">
-<button
-type="button"
-onClick={() => setSelectedApplicationId(null)}
-className="absolute right-4 top-4 rounded-md p-1.5 text-emerald-100/90 transition-colors hover:bg-white/10 hover:text-white"
-aria-label="Close"
->
-<X className="h-4 w-4" />
-</button>
-<div className="flex flex-col gap-3 pr-10 sm:flex-row sm:items-start sm:justify-between">
-<div className="space-y-1">
-<p className="font-mono text-[11px] uppercase tracking-widest text-emerald-100/90">
-Loan application record
-</p>
-<DialogTitle className="text-left text-xl font-semibold tracking-tight text-white">
-{selectedApplication.application_number}
-</DialogTitle>
-<DialogDescription className="text-left text-emerald-100/90">
-{selectedApplication.customerDisplayName} · {selectedApplication.productName}
-</DialogDescription>
-</div>
-<Badge
-className="w-fit border-white/20 bg-white/15 text-white backdrop-blur-sm hover:bg-white/20"
-variant="outline"
->
-{statusConfig[selectedApplication.status].label}
-</Badge>
-</div>
-<p className="pointer-events-none absolute bottom-2 right-6 hidden rotate-[-10deg] select-none border-2 border-white/20 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.25em] text-white/25 sm:block">
-Falco Financial
-</p>
-</div>
-
-<div className="max-h-[min(54vh,500px)] overflow-y-auto px-6 py-5">
-<div className="grid gap-6 md:grid-cols-2">
-<div className="space-y-4">
-<div>
-<h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-Amount & terms
-</h4>
-<p className="mt-1 text-2xl font-bold tabular-nums text-foreground">
-{formatCurrency(selectedApplication.requested_amount)}
-</p>
-<p className="mt-1 text-sm text-muted-foreground">
-Requested over {selectedApplication.term_days} days
-</p>
-</div>
-<Separator />
-<dl className="grid gap-2 text-sm">
-<div className="flex justify-between gap-4">
-<dt className="text-muted-foreground">Purpose</dt>
-<dd className="text-right font-medium">
-{selectedApplication.purpose?.trim() &&
-selectedApplication.purpose.trim().toLowerCase() !== "general purpose" ? (
- selectedApplication.purpose
-) : (
- <Badge variant="outline" className="font-normal">
- Required — add purpose
- </Badge>
-)}
-</dd>
-</div>
-<div className="flex justify-between gap-4">
-<dt className="text-muted-foreground">Collateral</dt>
-<dd className="text-right">{selectedApplication.collateral_type ?? "—"}</dd>
-</div>
-<div className="flex justify-between gap-4">
-<dt className="text-muted-foreground">Collateral value</dt>
-<dd className="text-right tabular-nums">
-{selectedApplication.collateral_value
-? formatCurrency(selectedApplication.collateral_value)
-: "—"}
-</dd>
-</div>
-</dl>
-</div>
-<div className="space-y-4">
-<h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-Applicant & workflow
-</h4>
-<dl className="grid gap-3 rounded-xl border bg-muted/30 p-4 text-sm">
-<div>
-<dt className="text-muted-foreground">Customer</dt>
-<dd className="font-medium">{selectedApplication.customerDisplayName}</dd>
-<dd className="text-xs text-muted-foreground">{selectedApplication.customerNumber}</dd>
-</div>
-<div>
-<dt className="text-muted-foreground">Branch</dt>
-<dd>{selectedApplication.branchName}</dd>
-</div>
-<div>
-<dt className="text-muted-foreground">Loan product</dt>
-<dd className="font-medium">
-{selectedApplication.productName || "—"}
-{selectedApplication.product_id ? (
- <span className="ml-1 text-xs font-normal text-muted-foreground">
- (#{selectedApplication.product_id})
- </span>
-) : null}
-</dd>
-</div>
-<div>
-<dt className="text-muted-foreground">Created by</dt>
-<dd>{selectedApplication.creatorName || selectedApplication.created_by}</dd>
-</div>
-<div>
-<dt className="text-muted-foreground">Assigned loan officer</dt>
-<dd>{selectedAssignedOfficer}</dd>
-</div>
-<div>
-<dt className="text-muted-foreground">Created</dt>
-<dd>{formatDateTime(selectedApplication.created_at)}</dd>
-</div>
-</dl>
-</div>
-</div>
-
-<Separator className="my-5" />
-<div className="space-y-2">
-<h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-Uploaded documents
-</h4>
-{detailLoading ? (
-<p className="text-sm text-muted-foreground">Loading documents…</p>
-) : selectedApplication.documents?.length ? (
-<ul className="space-y-2 text-sm">
-{selectedApplication.documents.map((doc) => (
-<li
-key={doc.id || `${doc.type}-${doc.name}`}
-className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2"
->
-<span className="font-medium">{formatRequiredDocumentLabel(documentTypeFromRow(doc))}</span>
-<span className="text-muted-foreground">{doc.name}</span>
-{doc.verified ? (
-<Badge variant="outline" className="text-emerald-700">
-Verified
-</Badge>
-) : (
-<Badge variant="outline">Pending</Badge>
-)}
-</li>
-))}
-</ul>
-) : (
-<p className="text-sm text-muted-foreground">No documents uploaded yet.</p>
-)}
-</div>
-
-{selectedApplication.status === "draft" ? (
-<>
-<Separator className="my-5" />
-<div className="space-y-2">
-<h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-Application checklist
-</h4>
-<div className="flex flex-wrap gap-2">
-{buildApplicationChecklist(
- selectedApplication,
- effectiveRole,
- selectedApplication.required_documents
-).map((item) => (
-<Badge
-key={item.key}
-variant={item.complete ? "default" : "outline"}
-className={item.complete ? "bg-emerald-600 hover:bg-emerald-700" : "border-amber-300 text-amber-900"}
->
-{item.complete ? "✓ " : "○ "}
-{item.label}
-{!item.complete && item.hint ? ` — ${item.hint}` : ""}
-</Badge>
-))}
-</div>
-</div>
-</>
-) : null}
-
-{(selectedApplication.review_notes || selectedApplication.rejection_reason) && (
-<>
-<Separator className="my-5" />
-<div className="space-y-3">
-{selectedApplication.review_notes && (
-<div className="rounded-lg border bg-background p-3">
-<p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-Review notes
-</p>
-<p className="mt-1 whitespace-pre-line text-sm">{selectedApplication.review_notes}</p>
-</div>
-)}
-{selectedApplication.rejection_reason && (
-<div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3">
-<p className="text-xs font-semibold uppercase tracking-wide text-destructive">
-Rejection reason
-</p>
-<p className="mt-1 text-sm text-destructive">{selectedApplication.rejection_reason}</p>
-</div>
-)}
-</div>
-</>
-)}
-</div>
-
-<div className="flex flex-col-reverse gap-2 border-t bg-muted/20 px-6 py-4 sm:flex-row sm:justify-end sm:gap-3">
-<Button variant="outline" onClick={() => setSelectedApplicationId(null)}>
-Close
-</Button>
-{selectedApplication.status === "draft" ? (
-<Button asChild variant="secondary">
-<Link href={`${applicationsNewPath}?edit=${selectedApplication.id}`}>
-<Pencil className="mr-2 h-4 w-4" />
-Continue draft
-</Link>
-</Button>
-) : null}
-{selectedApplication.status === "pending_disbursement" ? (
-<Button className="bg-emerald-600 hover:bg-emerald-700" asChild>
-<Link
- href={
- selectedApplication.loan_id
- ? `/disbursements?loanId=${encodeURIComponent(selectedApplication.loan_id)}`
- : "/disbursements"
- }
->
-Create disbursement
-</Link>
-</Button>
-) : null}
-{getApplicationWorkflowActions(
-  selectedApplication,
-  effectiveRole,
-  user?.full_name ?? "User"
-).map((wf) => (
-<Button
-  key={wf.id}
-  variant={wf.variant === "destructive" ? "destructive" : "default"}
-  className={wf.variant === "destructive" ? undefined : "bg-emerald-600 hover:bg-emerald-700"}
-  disabled={actionBusyId === selectedApplication.id}
-  onClick={() =>
-    void (wf.id === "admin_activate"
-      ? handleAdminActivate(selectedApplication)
-      : runWorkflowAction(selectedApplication.id, wf.run))
-  }
->
-{actionBusyId === selectedApplication.id ? (
-  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-) : null}
-{wf.label}
-</Button>
-))}
-<Button variant="outline" onClick={exportSelectedApplicationPdf}>
-<Download className="mr-2 h-4 w-4" />
-Export PDF
-</Button>
-{canDeleteApplication(effectiveRole, selectedApplication, user?.id) ? (
-<Button
- variant="destructive"
- disabled={actionBusyId === selectedApplication.id}
- onClick={() => openDeleteDialog(selectedApplication)}
->
-<Trash2 className="mr-2 h-4 w-4" />
-Delete application
-</Button>
-) : null}
-</div>
-</>
-) : null}
-</DialogContent>
-</Dialog>
 
 <DeleteApplicationDialog
  open={deleteTarget != null}

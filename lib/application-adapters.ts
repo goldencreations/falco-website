@@ -21,43 +21,193 @@ function normalizeDocTypeSlug(t: string): string {
  .replace(/-/g, "_");
 }
 
-function normalizeDocuments(raw: unknown[]): LoanDocument[] {
- return raw.map((item) => {
- const o = item as Record<string, unknown>;
- const type = normalizeDocTypeSlug(String(o.type ?? o.document_type ?? ""));
- return {
- id: String(o.id ?? ""),
- name: String(o.name ?? ""),
- type,
- url: String(o.url ?? ""),
- uploaded_at: String(o.uploaded_at ?? ""),
- verified: Boolean(o.verified),
- verified_by: o.verified_by != null ? String(o.verified_by) : undefined,
- };
- });
+function readRawUrl(o: Record<string, unknown>, ...keys: string[]): string | undefined {
+  for (const k of keys) {
+    const v = o[k];
+    if (typeof v === "string" && v.trim().length > 0) return v.trim();
+  }
+  return undefined;
 }
 
+function extractDocumentField(
+  o: Record<string, unknown>,
+  key: string
+): { url?: string; preview_url?: string } {
+  const doc = o[key];
+  if (doc && typeof doc === "object") {
+    const d = doc as Record<string, unknown>;
+    return {
+      url: typeof d.url === "string" && d.url.trim() ? d.url.trim() : undefined,
+      preview_url:
+        typeof d.preview_url === "string" && d.preview_url.trim()
+          ? d.preview_url.trim()
+          : undefined,
+    };
+  }
+  return {};
+}
+
+function normalizeCollaterals(raw: unknown[]): CollateralRow[] {
+  return raw
+    .filter((item) => item && typeof item === "object")
+    .map((item) => {
+      const o = item as Record<string, unknown>;
+      const imgDoc = extractDocumentField(o, "image_document");
+      return {
+        id: o.id != null ? String(o.id) : undefined,
+        type: String(o.type ?? o.collateral_type ?? "").trim(),
+        description: o.description != null ? String(o.description).trim() : undefined,
+        estimated_value:
+          o.estimated_value != null
+            ? Number(o.estimated_value)
+            : o.value != null
+            ? Number(o.value)
+            : undefined,
+        // preview_url: usable directly in <img> without auth (expires ~15 min)
+        image_preview_url: imgDoc.preview_url,
+        // url: requires Bearer auth — use via document proxy for download
+        image_url: imgDoc.url ?? readRawUrl(o, "image_url", "photo_url", "image", "photo"),
+      };
+    })
+    .filter((c) => c.type.length > 0);
+}
+
+function normalizeGuarantors(raw: unknown[]): GuarantorRow[] {
+  return raw
+    .filter((item) => item && typeof item === "object")
+    .map((item) => {
+      const o = item as Record<string, unknown>;
+      const frontDoc = extractDocumentField(o, "id_front_document");
+      const backDoc = extractDocumentField(o, "id_back_document");
+      return {
+        id: o.id != null ? String(o.id) : undefined,
+        full_name: String(o.full_name ?? o.name ?? "").trim(),
+        phone: o.phone != null ? String(o.phone).trim() : undefined,
+        relationship: o.relationship != null ? String(o.relationship).trim() : undefined,
+        national_id: o.national_id != null ? String(o.national_id).trim() : undefined,
+        address: o.address != null ? String(o.address).trim() : undefined,
+        // ID front — preview usable in <img> directly; url requires auth
+        id_front_preview_url: frontDoc.preview_url,
+        id_front_url: frontDoc.url,
+        // ID back — same pattern
+        id_back_preview_url: backDoc.preview_url,
+        id_back_url: backDoc.url,
+        // Legacy fallback for older API responses
+        document_url: readRawUrl(o, "document_url", "id_document_url", "national_id_url"),
+      };
+    })
+    .filter((g) => g.full_name.length > 0);
+}
+
+function normalizeReferences(raw: unknown[]): ReferenceRow[] {
+  return raw
+    .filter((item) => item && typeof item === "object")
+    .map((item) => {
+      const o = item as Record<string, unknown>;
+      return {
+        id: o.id != null ? String(o.id) : undefined,
+        full_name: String(o.full_name ?? o.name ?? "").trim(),
+        phone: o.phone != null ? String(o.phone).trim() : undefined,
+        relationship: o.relationship != null ? String(o.relationship).trim() : undefined,
+      };
+    })
+    .filter((r) => r.full_name.length > 0);
+}
+
+function normalizeDocuments(raw: unknown[]): LoanDocument[] {
+ const parsed = raw.map((item) => {
+  const o = item as Record<string, unknown>;
+  const type = normalizeDocTypeSlug(String(o.type ?? o.document_type ?? ""));
+  return {
+   id: String(o.id ?? ""),
+   name: String(o.name ?? ""),
+   type,
+   url: String(o.url ?? ""),
+   uploaded_at: String(o.uploaded_at ?? ""),
+   verified: Boolean(o.verified),
+   verified_by: o.verified_by != null ? String(o.verified_by) : undefined,
+  };
+ });
+
+ // Deduplicate by type: if a type appears more than once, keep whichever
+ // entry has a real URL (non-empty), otherwise keep the first occurrence.
+ const seen = new Map<string, LoanDocument>();
+ for (const doc of parsed) {
+  const existing = seen.get(doc.type);
+  if (!existing) {
+   seen.set(doc.type, doc);
+  } else if (!existing.url && doc.url) {
+   // Upgrade to the version that has an actual URL
+   seen.set(doc.type, doc);
+  }
+ }
+ return Array.from(seen.values());
+}
+
+export type CollateralRow = {
+  id?: string;
+  type: string;
+  description?: string;
+  estimated_value?: number;
+  /** Direct <img> src — no auth required, expires ~15 min. Prefer over image_url for display. */
+  image_preview_url?: string;
+  /** Authenticated download URL — must be fetched with Bearer token (use document proxy). */
+  image_url?: string;
+};
+
+export type GuarantorRow = {
+  id?: string;
+  full_name: string;
+  phone?: string;
+  relationship?: string;
+  national_id?: string;
+  address?: string;
+  /** Direct <img> src for ID front — no auth required, expires ~15 min. */
+  id_front_preview_url?: string;
+  /** Authenticated download URL for ID front. */
+  id_front_url?: string;
+  /** Direct <img> src for ID back — no auth required, expires ~15 min. */
+  id_back_preview_url?: string;
+  /** Authenticated download URL for ID back. */
+  id_back_url?: string;
+  /** Legacy fallback: single document URL (older API). */
+  document_url?: string;
+};
+
+export type ReferenceRow = {
+  id?: string;
+  full_name: string;
+  phone?: string;
+  relationship?: string;
+};
+
 export type ApplicationViewRow = LoanApplication & {
- customerSearchText: string;
- customerDisplayName: string;
- customerNumber: string;
- productName: string;
- branchName: string;
- creatorName: string;
- officerName: string;
- assigned_officer_id?: string;
- /** RM from nested customer on list rows when customer_id map is incomplete. */
- customer_loan_officer_id?: string;
- required_documents?: string[];
- loan_id?: string;
- loan_number?: string;
- /** API status string before normalization (for workflow transitions). */
- raw_status?: string;
- workflow_stage?: ApplicationWorkflowStage;
- businessName?: string;
- monthlyIncome?: number;
- riskGrade?: RiskGrade | string;
- creditScore?: number;
+  customerSearchText: string;
+  customerDisplayName: string;
+  customerNumber: string;
+  productName: string;
+  branchName: string;
+  creatorName: string;
+  officerName: string;
+  assigned_officer_id?: string;
+  /** RM from nested customer on list rows when customer_id map is incomplete. */
+  customer_loan_officer_id?: string;
+  required_documents?: string[];
+  loan_id?: string;
+  loan_number?: string;
+  /** API status string before normalization (for workflow transitions). */
+  raw_status?: string;
+  workflow_stage?: ApplicationWorkflowStage;
+  businessName?: string;
+  monthlyIncome?: number;
+  riskGrade?: RiskGrade | string;
+  creditScore?: number;
+  /** Collaterals array from the API */
+  collaterals?: CollateralRow[];
+  /** Guarantors array from the API */
+  guarantors?: GuarantorRow[];
+  /** References array from the API */
+  references?: ReferenceRow[];
 };
 
 function asStatus(v: string | undefined): LoanApplicationStatus {
@@ -180,8 +330,12 @@ export function adaptApiApplicationListRow(row: Record<string, unknown>): Applic
  customerLoanOfficerId = resolveCustomerLoanOfficerId(custObj as Record<string, unknown>);
  }
 
- const rawDocuments = Array.isArray(app.documents) ? app.documents : [];
- const documents = normalizeDocuments(rawDocuments);
+  const rawDocuments = Array.isArray(app.documents) ? app.documents : [];
+  const documents = normalizeDocuments(rawDocuments);
+
+  const collaterals = normalizeCollaterals(Array.isArray(app.collaterals) ? app.collaterals : []);
+  const guarantors = normalizeGuarantors(Array.isArray(app.guarantors) ? app.guarantors : []);
+  const references = normalizeReferences(Array.isArray(app.references) ? app.references : []);
 
  const cust = customerSearchTextFromRow(app);
  const profile = customerProfileFromApp(app);
@@ -273,11 +427,14 @@ export function adaptApiApplicationListRow(row: Record<string, unknown>): Applic
  required_documents,
  loan_id: loan_id || undefined,
  loan_number: loan_number || undefined,
- businessName: profile.businessName || undefined,
- monthlyIncome: profile.monthlyIncome,
- riskGrade: profile.riskGrade,
- creditScore: profile.creditScore,
- };
+    businessName: profile.businessName || undefined,
+    monthlyIncome: profile.monthlyIncome,
+    riskGrade: profile.riskGrade,
+    creditScore: profile.creditScore,
+    collaterals: collaterals.length > 0 ? collaterals : undefined,
+    guarantors: guarantors.length > 0 ? guarantors : undefined,
+    references: references.length > 0 ? references : undefined,
+  };
 }
 
 export function extractApplicationsList(json: unknown): ApplicationViewRow[] {
