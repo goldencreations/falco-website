@@ -29,11 +29,30 @@ function readRawUrl(o: Record<string, unknown>, ...keys: string[]): string | und
   return undefined;
 }
 
+function extractDocumentField(
+  o: Record<string, unknown>,
+  key: string
+): { url?: string; preview_url?: string } {
+  const doc = o[key];
+  if (doc && typeof doc === "object") {
+    const d = doc as Record<string, unknown>;
+    return {
+      url: typeof d.url === "string" && d.url.trim() ? d.url.trim() : undefined,
+      preview_url:
+        typeof d.preview_url === "string" && d.preview_url.trim()
+          ? d.preview_url.trim()
+          : undefined,
+    };
+  }
+  return {};
+}
+
 function normalizeCollaterals(raw: unknown[]): CollateralRow[] {
   return raw
     .filter((item) => item && typeof item === "object")
     .map((item) => {
       const o = item as Record<string, unknown>;
+      const imgDoc = extractDocumentField(o, "image_document");
       return {
         id: o.id != null ? String(o.id) : undefined,
         type: String(o.type ?? o.collateral_type ?? "").trim(),
@@ -44,7 +63,10 @@ function normalizeCollaterals(raw: unknown[]): CollateralRow[] {
             : o.value != null
             ? Number(o.value)
             : undefined,
-        image_url: readRawUrl(o, "image_url", "photo_url", "image", "photo", "url"),
+        // preview_url: usable directly in <img> without auth (expires ~15 min)
+        image_preview_url: imgDoc.preview_url,
+        // url: requires Bearer auth — use via document proxy for download
+        image_url: imgDoc.url ?? readRawUrl(o, "image_url", "photo_url", "image", "photo"),
       };
     })
     .filter((c) => c.type.length > 0);
@@ -55,6 +77,8 @@ function normalizeGuarantors(raw: unknown[]): GuarantorRow[] {
     .filter((item) => item && typeof item === "object")
     .map((item) => {
       const o = item as Record<string, unknown>;
+      const frontDoc = extractDocumentField(o, "id_front_document");
+      const backDoc = extractDocumentField(o, "id_back_document");
       return {
         id: o.id != null ? String(o.id) : undefined,
         full_name: String(o.full_name ?? o.name ?? "").trim(),
@@ -62,14 +86,14 @@ function normalizeGuarantors(raw: unknown[]): GuarantorRow[] {
         relationship: o.relationship != null ? String(o.relationship).trim() : undefined,
         national_id: o.national_id != null ? String(o.national_id).trim() : undefined,
         address: o.address != null ? String(o.address).trim() : undefined,
-        document_url: readRawUrl(
-          o,
-          "document_url",
-          "id_document_url",
-          "national_id_url",
-          "photo_url",
-          "image_url",
-        ),
+        // ID front — preview usable in <img> directly; url requires auth
+        id_front_preview_url: frontDoc.preview_url,
+        id_front_url: frontDoc.url,
+        // ID back — same pattern
+        id_back_preview_url: backDoc.preview_url,
+        id_back_url: backDoc.url,
+        // Legacy fallback for older API responses
+        document_url: readRawUrl(o, "document_url", "id_document_url", "national_id_url"),
       };
     })
     .filter((g) => g.full_name.length > 0);
@@ -125,6 +149,9 @@ export type CollateralRow = {
   type: string;
   description?: string;
   estimated_value?: number;
+  /** Direct <img> src — no auth required, expires ~15 min. Prefer over image_url for display. */
+  image_preview_url?: string;
+  /** Authenticated download URL — must be fetched with Bearer token (use document proxy). */
   image_url?: string;
 };
 
@@ -135,6 +162,15 @@ export type GuarantorRow = {
   relationship?: string;
   national_id?: string;
   address?: string;
+  /** Direct <img> src for ID front — no auth required, expires ~15 min. */
+  id_front_preview_url?: string;
+  /** Authenticated download URL for ID front. */
+  id_front_url?: string;
+  /** Direct <img> src for ID back — no auth required, expires ~15 min. */
+  id_back_preview_url?: string;
+  /** Authenticated download URL for ID back. */
+  id_back_url?: string;
+  /** Legacy fallback: single document URL (older API). */
   document_url?: string;
 };
 

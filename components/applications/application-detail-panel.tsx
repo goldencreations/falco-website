@@ -34,21 +34,42 @@ import { formatCurrency, formatDateTime } from "@/lib/formatters";
 import type { LoanApplicationStatus } from "@/lib/types";
 
 /**
- * Tries to render a document as an image preview via the proxy URL.
- * If the backend returns a non-image (PDF, etc.) the browser fires onError
- * and the preview collapses to nothing — no JS mime-type guessing required.
+ * Renders an image preview.
+ * - `src` is tried first (e.g. backend preview_url, usable without auth).
+ * - If `src` fails (expired signed URL, CORS, etc.) and `fallbackSrc` is
+ *   provided, falls back to it automatically (e.g. proxy URL with Bearer token).
+ * - Collapses to nothing if both fail, or if the content is not an image (PDF).
  */
-function DocumentPreview({ src, alt }: { src: string; alt: string }) {
+function DocumentPreview({
+  src,
+  fallbackSrc,
+  alt,
+}: {
+  src: string;
+  fallbackSrc?: string | null;
+  alt: string;
+}) {
   const [failed, setFailed] = useState(false);
+  const [triedFallback, setTriedFallback] = useState(false);
+
   if (failed) return null;
+
+  const activeSrc = triedFallback && fallbackSrc ? fallbackSrc : src;
+
   return (
     <div className="border-t bg-muted/20 px-3 pb-3 pt-2">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={src}
+        src={activeSrc}
         alt={alt}
         className="max-h-48 w-full rounded-md object-contain"
-        onError={() => setFailed(true)}
+        onError={() => {
+          if (!triedFallback && fallbackSrc) {
+            setTriedFallback(true);
+          } else {
+            setFailed(true);
+          }
+        }}
       />
     </div>
   );
@@ -201,20 +222,208 @@ export function ApplicationDetailPanel({
           </div>
         </div>
 
+        {/* Collateral section */}
+        {application.collaterals && application.collaterals.length > 0 ? (
+          <>
+            <Separator className="my-5" />
+            <div className="space-y-3">
+              <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <Shield className="h-3.5 w-3.5" />
+                Collateral
+              </h4>
+              <ul className="space-y-2 text-sm">
+                {application.collaterals.map((col: CollateralRow, i: number) => {
+                  const downloadUrl = col.image_url ? toProxyUrl(col.image_url) : null;
+                  return (
+                    <li key={col.id ?? i} className="overflow-hidden rounded-lg border">
+                      <div className="flex flex-wrap items-start justify-between gap-2 bg-muted/20 px-3 py-2.5">
+                        <div className="space-y-0.5 min-w-0">
+                          <p className="font-medium capitalize">{col.type}</p>
+                          {col.description && col.description !== col.type ? (
+                            <p className="text-xs text-muted-foreground">{col.description}</p>
+                          ) : null}
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {col.estimated_value != null && col.estimated_value > 0 ? (
+                            <span className="text-sm font-semibold tabular-nums">
+                              {formatCurrency(col.estimated_value)}
+                            </span>
+                          ) : null}
+                          {downloadUrl ? (
+                            <Button type="button" variant="ghost" size="sm" className="h-7 px-2" asChild>
+                              <a href={downloadUrl} download aria-label="Download collateral image">
+                                <Download className="h-3.5 w-3.5" />
+                              </a>
+                            </Button>
+                          ) : null}
+                        </div>
+                      </div>
+                      {col.image_preview_url ? (
+                        // preview_url works directly; if it expires, fall back to proxy
+                        <DocumentPreview
+                          src={col.image_preview_url}
+                          fallbackSrc={downloadUrl}
+                          alt={col.type}
+                        />
+                      ) : downloadUrl ? (
+                        <DocumentPreview src={downloadUrl} alt={col.type} />
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          </>
+        ) : null}
+
+        {/* Guarantors section */}
+        {application.guarantors && application.guarantors.length > 0 ? (
+          <>
+            <Separator className="my-5" />
+            <div className="space-y-3">
+              <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <User className="h-3.5 w-3.5" />
+                Guarantors
+              </h4>
+              <ul className="space-y-2 text-sm">
+                {application.guarantors.map((g: GuarantorRow, i: number) => {
+                  const frontDownloadUrl = g.id_front_url ? toProxyUrl(g.id_front_url) : null;
+                  const backDownloadUrl = g.id_back_url ? toProxyUrl(g.id_back_url) : null;
+                  const legacyProxyUrl = !g.id_front_preview_url && g.document_url ? toProxyUrl(g.document_url) : null;
+                  return (
+                    <li key={g.id ?? i} className="overflow-hidden rounded-lg border">
+                      <div className="px-3 py-2.5 space-y-1">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="font-medium">{g.full_name}</p>
+                          {g.relationship ? (
+                            <Badge variant="outline" className="text-xs capitalize">
+                              {g.relationship}
+                            </Badge>
+                          ) : null}
+                        </div>
+                        <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+                          {g.phone ? (
+                            <span className="flex items-center gap-1">
+                              <Phone className="h-3 w-3" />
+                              {g.phone}
+                            </span>
+                          ) : null}
+                          {g.national_id ? (
+                            <span>ID: {g.national_id}</span>
+                          ) : null}
+                          {g.address ? (
+                            <span>{g.address}</span>
+                          ) : null}
+                        </div>
+                      </div>
+                      {/* ID front */}
+                      {g.id_front_preview_url || frontDownloadUrl ? (
+                        <div className="border-t">
+                          <div className="flex items-center justify-between px-3 py-1.5 text-xs text-muted-foreground">
+                            <span>ID Front</span>
+                            {frontDownloadUrl ? (
+                              <Button type="button" variant="ghost" size="sm" className="h-6 px-2" asChild>
+                                <a href={frontDownloadUrl} download aria-label="Download ID front">
+                                  <Download className="h-3 w-3" />
+                                </a>
+                              </Button>
+                            ) : null}
+                          </div>
+                          {g.id_front_preview_url ? (
+                            <DocumentPreview
+                              src={g.id_front_preview_url}
+                              fallbackSrc={frontDownloadUrl}
+                              alt={`${g.full_name} ID front`}
+                            />
+                          ) : frontDownloadUrl ? (
+                            <DocumentPreview src={frontDownloadUrl} alt={`${g.full_name} ID front`} />
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {/* ID back */}
+                      {g.id_back_preview_url || backDownloadUrl ? (
+                        <div className="border-t">
+                          <div className="flex items-center justify-between px-3 py-1.5 text-xs text-muted-foreground">
+                            <span>ID Back</span>
+                            {backDownloadUrl ? (
+                              <Button type="button" variant="ghost" size="sm" className="h-6 px-2" asChild>
+                                <a href={backDownloadUrl} download aria-label="Download ID back">
+                                  <Download className="h-3 w-3" />
+                                </a>
+                              </Button>
+                            ) : null}
+                          </div>
+                          {g.id_back_preview_url ? (
+                            <DocumentPreview
+                              src={g.id_back_preview_url}
+                              fallbackSrc={backDownloadUrl}
+                              alt={`${g.full_name} ID back`}
+                            />
+                          ) : backDownloadUrl ? (
+                            <DocumentPreview src={backDownloadUrl} alt={`${g.full_name} ID back`} />
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {/* Legacy single-document fallback for older API responses */}
+                      {legacyProxyUrl ? (
+                        <DocumentPreview src={legacyProxyUrl} alt={`${g.full_name} document`} />
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          </>
+        ) : null}
+
+        {/* References section */}
+        {application.references && application.references.length > 0 ? (
+          <>
+            <Separator className="my-5" />
+            <div className="space-y-3">
+              <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <User className="h-3.5 w-3.5" />
+                References
+              </h4>
+              <ul className="space-y-2 text-sm">
+                {application.references.map((r: ReferenceRow, i: number) => (
+                  <li key={r.id ?? i} className="rounded-lg border px-3 py-2.5 space-y-1">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="font-medium">{r.full_name}</p>
+                      {r.relationship ? (
+                        <Badge variant="outline" className="text-xs capitalize">
+                          {r.relationship}
+                        </Badge>
+                      ) : null}
+                    </div>
+                    {r.phone ? (
+                      <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <Phone className="h-3 w-3" />
+                        {r.phone}
+                      </p>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </>
+        ) : null}
+
+        {/* Uploaded documents — shown last so collateral/guarantor images appear first */}
         <Separator className="my-5" />
         <div className="space-y-3">
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Uploaded documents
-          </h4>
           {detailLoading ? (
             <p className="text-sm text-muted-foreground">Loading documents…</p>
           ) : application.documents?.length ? (
             <ul className="space-y-3 text-sm">
-              {application.documents.map((doc) => {
+              {[...application.documents]
+                .sort((a, b) =>
+                  formatRequiredDocumentLabel(documentTypeFromRow(a)).localeCompare(
+                    formatRequiredDocumentLabel(documentTypeFromRow(b))
+                  )
+                )
+                .map((doc) => {
                 const hasUrl = Boolean(doc.url);
-                // Route every backend document URL through the proxy so the
-                // Bearer token is attached server-side (browsers cannot add
-                // custom headers to <img src> or <a href> automatically).
                 const proxyUrl = hasUrl ? toProxyUrl(doc.url) : null;
                 const label = formatRequiredDocumentLabel(documentTypeFromRow(doc));
                 return (
@@ -261,8 +470,6 @@ export function ApplicationDetailPanel({
                         ) : null}
                       </div>
                     </div>
-                    {/* Attempt an image preview for every document — DocumentPreview
-                        silently collapses if the backend returns a non-image (PDF, etc.) */}
                     {proxyUrl ? <DocumentPreview src={proxyUrl} alt={label} /> : null}
                   </li>
                 );
@@ -272,122 +479,6 @@ export function ApplicationDetailPanel({
             <p className="text-sm text-muted-foreground">No documents uploaded yet.</p>
           )}
         </div>
-
-        {/* Collateral section */}
-        {application.collaterals && application.collaterals.length > 0 ? (
-          <>
-            <Separator className="my-5" />
-            <div className="space-y-3">
-              <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                <Shield className="h-3.5 w-3.5" />
-                Collateral
-              </h4>
-              <ul className="space-y-2 text-sm">
-                {application.collaterals.map((col: CollateralRow, i: number) => {
-                  const colProxyUrl = col.image_url ? toProxyUrl(col.image_url) : null;
-                  return (
-                    <li key={col.id ?? i} className="overflow-hidden rounded-lg border">
-                      <div className="flex flex-wrap items-start justify-between gap-2 bg-muted/20 px-3 py-2.5">
-                        <div className="space-y-0.5 min-w-0">
-                          <p className="font-medium capitalize">{col.type}</p>
-                          {col.description && col.description !== col.type ? (
-                            <p className="text-xs text-muted-foreground">{col.description}</p>
-                          ) : null}
-                        </div>
-                        {col.estimated_value != null && col.estimated_value > 0 ? (
-                          <span className="shrink-0 text-sm font-semibold tabular-nums">
-                            {formatCurrency(col.estimated_value)}
-                          </span>
-                        ) : null}
-                      </div>
-                      {colProxyUrl ? <DocumentPreview src={colProxyUrl} alt={col.type} /> : null}
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          </>
-        ) : null}
-
-        {/* Guarantors section */}
-        {application.guarantors && application.guarantors.length > 0 ? (
-          <>
-            <Separator className="my-5" />
-            <div className="space-y-3">
-              <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                <User className="h-3.5 w-3.5" />
-                Guarantors
-              </h4>
-              <ul className="space-y-2 text-sm">
-                {application.guarantors.map((g: GuarantorRow, i: number) => {
-                  const gProxyUrl = g.document_url ? toProxyUrl(g.document_url) : null;
-                  return (
-                    <li key={g.id ?? i} className="overflow-hidden rounded-lg border">
-                      <div className="px-3 py-2.5 space-y-1">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <p className="font-medium">{g.full_name}</p>
-                          {g.relationship ? (
-                            <Badge variant="outline" className="text-xs capitalize">
-                              {g.relationship}
-                            </Badge>
-                          ) : null}
-                        </div>
-                        <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-                          {g.phone ? (
-                            <span className="flex items-center gap-1">
-                              <Phone className="h-3 w-3" />
-                              {g.phone}
-                            </span>
-                          ) : null}
-                          {g.national_id ? (
-                            <span>ID: {g.national_id}</span>
-                          ) : null}
-                          {g.address ? (
-                            <span>{g.address}</span>
-                          ) : null}
-                        </div>
-                      </div>
-                      {gProxyUrl ? <DocumentPreview src={gProxyUrl} alt={`${g.full_name} document`} /> : null}
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          </>
-        ) : null}
-
-        {/* References section */}
-        {application.references && application.references.length > 0 ? (
-          <>
-            <Separator className="my-5" />
-            <div className="space-y-3">
-              <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                <User className="h-3.5 w-3.5" />
-                References
-              </h4>
-              <ul className="space-y-2 text-sm">
-                {application.references.map((r: ReferenceRow, i: number) => (
-                  <li key={r.id ?? i} className="rounded-lg border px-3 py-2.5 space-y-1">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="font-medium">{r.full_name}</p>
-                      {r.relationship ? (
-                        <Badge variant="outline" className="text-xs capitalize">
-                          {r.relationship}
-                        </Badge>
-                      ) : null}
-                    </div>
-                    {r.phone ? (
-                      <p className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <Phone className="h-3 w-3" />
-                        {r.phone}
-                      </p>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </>
-        ) : null}
 
         {application.status === "draft" ? (
           <>
