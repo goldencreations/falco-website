@@ -118,12 +118,14 @@ function normalizeDocuments(raw: unknown[]): LoanDocument[] {
  const parsed = raw.map((item) => {
   const o = item as Record<string, unknown>;
   const type = normalizeDocTypeSlug(String(o.type ?? o.document_type ?? ""));
+  const nested = extractDocumentField(o, "document");
   return {
    id: String(o.id ?? ""),
-   name: String(o.name ?? ""),
+   name: String(o.name ?? o.file_name ?? ""),
    type,
-   url: String(o.url ?? ""),
-   uploaded_at: String(o.uploaded_at ?? ""),
+   url: String(o.url ?? nested.url ?? ""),
+   preview_url: readRawUrl(o, "preview_url", "signed_url", "thumbnail_url") ?? nested.preview_url,
+   uploaded_at: String(o.uploaded_at ?? o.created_at ?? ""),
    verified: Boolean(o.verified),
    verified_by: o.verified_by != null ? String(o.verified_by) : undefined,
   };

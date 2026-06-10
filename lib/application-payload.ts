@@ -9,7 +9,7 @@ export type ApplicationFormInput = {
  term_days: number;
  purpose: string;
  collaterals: Array<{ type: string; description: string; estimated_value: number }>;
- guarantors: Array<{ full_name: string; phone: string; relationship: string }>;
+ guarantors: Array<{ full_name: string; phone: string; relationship: string; national_id?: string }>;
  references: Array<{ full_name: string; relationship: string; phone: string }>;
  location?: { latitude: string; longitude: string; captured_at: string };
 };
@@ -39,11 +39,15 @@ export function mapApplicationFormToFalcoBody(input: ApplicationFormInput): Reco
 
  const guarantors = input.guarantors
  .filter((g) => g.full_name.trim() && g.phone.trim() && g.relationship.trim())
- .map((g) => ({
+ .map((g) => {
+ const row: Record<string, unknown> = {
  full_name: g.full_name.trim(),
  phone: g.phone.replace(/\s+/g, ""),
  relationship: g.relationship.trim(),
- }));
+ };
+ if (g.national_id?.trim()) row.national_id = g.national_id.trim();
+ return row;
+ });
 
  const references = input.references
  .filter((r) => r.full_name.trim())

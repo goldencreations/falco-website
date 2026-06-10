@@ -28,6 +28,26 @@ export function extractPassportPhotoUrl(row: Record<string, unknown> | null | un
   );
 }
 
+export function extractPassportPhotoPreviewUrl(
+  row: Record<string, unknown> | null | undefined
+): string | null {
+  if (!row) return null;
+  const md =
+    row.metadata && typeof row.metadata === "object" && row.metadata !== null
+      ? (row.metadata as Record<string, unknown>)
+      : {};
+  const attachments =
+    md.attachments && typeof md.attachments === "object" && md.attachments !== null
+      ? (md.attachments as Record<string, unknown>)
+      : {};
+
+  return (
+    readUrl(md.passport_photo_preview_url) ??
+    readUrl(md.profile_photo_preview_url) ??
+    readUrl(attachments.passport_photo_preview_url)
+  );
+}
+
 export type CustomerCollateralRow = {
   applicationNumber: string;
   type: string;

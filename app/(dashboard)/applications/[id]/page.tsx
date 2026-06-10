@@ -27,6 +27,7 @@ import {
 import {
   enrichApplicationRow,
   fetchApplicationEnrichmentContext,
+  type EnrichmentContext,
 } from "@/lib/application-enrichment";
 import {
   fetchApplicationDocumentStatus,
@@ -37,6 +38,17 @@ import {
   activateApplicationApi,
   runAdminActivateApplicationWorkflow,
 } from "@/lib/application-workflow";
+import {
+  getCachedApplicationDetail,
+  invalidateApplicationDetailCache,
+  setCachedApplicationDetail,
+} from "@/lib/application-detail-cache";
+import {
+  debugApplicationDetail,
+  summarizeApplicationDetailRow,
+} from "@/lib/application-debug";
+import { withCacheBypass } from "@/lib/client-fetch-cache";
+import { prefetchApplicationMedia } from "@/lib/document-prefetch";
 import { resolvePortalPath } from "@/lib/portal-paths";
 import { useSessionUser } from "@/lib/use-session-user";
 
@@ -54,6 +66,7 @@ export default function ApplicationDetailPage() {
 
   const [application, setApplication] = useState<ApplicationViewRow | null>(null);
   const [loading, setLoading] = useState(true);
+  const [revalidating, setRevalidating] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const enrichmentCtxRef = useRef<EnrichmentContext | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -70,11 +83,25 @@ export default function ApplicationDetailPage() {
   const [activateDocFiles, setActivateDocFiles] = useState<Record<string, File | null>>({});
   const [activateUploadedTypes, setActivateUploadedTypes] = useState<string[]>([]);
 
-  const loadApplication = useCallback(async () => {
-    setLoading(true);
+  const loadApplication = useCallback(async (options?: { background?: boolean }) => {
+    const cached = options?.background ? null : getCachedApplicationDetail(params.id);
+    if (cached) {
+      setApplication(cached);
+      setLoadError(null);
+      setLoading(false);
+      setRevalidating(true);
+      prefetchApplicationMedia(cached);
+    } else if (!options?.background) {
+      setLoading(true);
+    }
     setLoadError(null);
+    debugApplicationDetail("loadApplication — start", {
+      application_id: params.id,
+      role: effectiveRole,
+      branch_id: scopeBranchId,
+      from_cache: Boolean(cached),
+    });
 
-    // Fire enrichment and application fetches in parallel
     const ctxPromise = enrichmentCtxRef.current
       ? Promise.resolve(enrichmentCtxRef.current)
       : fetchApplicationEnrichmentContext(scopeBranchId, { role: effectiveRole }).then((ctx) => {
@@ -82,10 +109,17 @@ export default function ApplicationDetailPage() {
           return ctx;
         });
 
+    const fetchInit =
+      cached || options?.background
+        ? withCacheBypass({ credentials: "include" })
+        : { credentials: "include" };
+
     try {
-      const res = await fetch(`/api/applications/${encodeURIComponent(params.id)}`, {
-        credentials: "include",
-      });
+      const [res, ctx] = await Promise.all([
+        fetch(`/api/applications/${encodeURIComponent(params.id)}`, fetchInit),
+        ctxPromise,
+      ]);
+      enrichmentCtxRef.current = ctx;
 
       // Check status before parsing JSON — a non-OK response may have an HTML body
       // which would cause res.json() to throw and lose the real error information.
@@ -95,7 +129,13 @@ export default function ApplicationDetailPage() {
           const errJson = await res.json();
           if (typeof errJson.message === "string") message = errJson.message;
           else if (typeof errJson.error === "string") message = errJson.error;
+          debugApplicationDetail("loadApplication — API error body", errJson);
         } catch { /* body was not JSON */ }
+        debugApplicationDetail("loadApplication — fetch failed", {
+          application_id: params.id,
+          status: res.status,
+          message,
+        });
         setLoadError(message);
         setApplication(null);
         return;
@@ -104,28 +144,40 @@ export default function ApplicationDetailPage() {
       const json = await res.json();
       const detail = extractApplicationDetail(json);
       if (!detail) {
+        debugApplicationDetail("loadApplication — detail parse failed", {
+          application_id: params.id,
+          response_keys: json && typeof json === "object" ? Object.keys(json as object) : [],
+        });
         setLoadError("Application not found");
         setApplication(null);
         return;
       }
 
-      // Show application immediately with whatever enrichment is available (may still be loading)
+      debugApplicationDetail("loadApplication — raw detail", summarizeApplicationDetailRow(detail));
+
       const rawRow = adaptApiApplicationListRow({ application: detail });
-      const immediateCtx = enrichmentCtxRef.current;
-      if (immediateCtx) {
-        setApplication(enrichApplicationRow(rawRow, immediateCtx));
-      } else {
-        // Show raw data right away; enrich once context arrives
-        setApplication(enrichApplicationRow(rawRow, { productMap: {}, staffMap: {}, customerMap: {} }));
-        ctxPromise.then((ctx) => {
-          setApplication(enrichApplicationRow(rawRow, ctx));
-        }).catch(() => { /* enrichment failed; raw data remains */ });
+      debugApplicationDetail("loadApplication — adapted row", {
+        id: rawRow.id,
+        application_number: rawRow.application_number,
+        status: rawRow.status,
+        collaterals_count: rawRow.collaterals?.length ?? 0,
+        guarantors_count: rawRow.guarantors?.length ?? 0,
+        documents_count: rawRow.documents?.length ?? 0,
+        documents_with_url: rawRow.documents?.filter((d) => d.url?.trim()).length ?? 0,
+      });
+      const enriched = enrichApplicationRow(rawRow, ctx);
+      setCachedApplicationDetail(params.id, enriched);
+      setApplication(enriched);
+      prefetchApplicationMedia(enriched);
+    } catch (err) {
+      debugApplicationDetail("loadApplication — network error", err);
+      if (!cached) {
+        setLoadError("Network error loading application");
+        setApplication(null);
       }
-    } catch {
-      setLoadError("Network error loading application");
-      setApplication(null);
     } finally {
       setLoading(false);
+      setRevalidating(false);
     }
   }, [params.id, scopeBranchId, effectiveRole]);
 
@@ -145,7 +197,8 @@ export default function ApplicationDetailPage() {
       setActionBusyId(null);
       return false;
     }
-    await loadApplication();
+    invalidateApplicationDetailCache(appId);
+    await loadApplication({ background: true });
     setActionBusyId(null);
     return true;
   };
@@ -263,7 +316,7 @@ export default function ApplicationDetailPage() {
             </div>
           ) : null}
 
-          {loading ? (
+          {loading && !application ? (
             <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
               <Loader2 className="h-5 w-5 animate-spin" />
               Loading application…
@@ -281,26 +334,31 @@ export default function ApplicationDetailPage() {
               </div>
             </div>
           ) : (
-            <ApplicationDetailPanel
-              application={application}
-              assignedOfficer={application.officerName ?? "Unassigned"}
-              detailLoading={loading}
-              effectiveRole={effectiveRole}
-              userId={user?.id}
-              userFullName={user?.full_name ?? "User"}
-              actionBusyId={actionBusyId}
-              applicationsNewPath={applicationsNewPath}
-              onAdminActivate={handleAdminActivate}
-              onWorkflowAction={runWorkflowAction}
-              onDelete={(app) =>
-                setDeleteTarget({
-                  id: app.id,
-                  application_number: app.application_number,
-                  customerDisplayName: app.customerDisplayName,
-                })
-              }
-              onExportPdf={exportApplicationPdf}
-            />
+            <>
+              {revalidating ? (
+                <p className="text-xs text-muted-foreground">Refreshing latest data…</p>
+              ) : null}
+              <ApplicationDetailPanel
+                application={application}
+                assignedOfficer={application.officerName ?? "Unassigned"}
+                detailLoading={false}
+                effectiveRole={effectiveRole}
+                userId={user?.id}
+                userFullName={user?.full_name ?? "User"}
+                actionBusyId={actionBusyId}
+                applicationsNewPath={applicationsNewPath}
+                onAdminActivate={handleAdminActivate}
+                onWorkflowAction={runWorkflowAction}
+                onDelete={(app) =>
+                  setDeleteTarget({
+                    id: app.id,
+                    application_number: app.application_number,
+                    customerDisplayName: app.customerDisplayName,
+                  })
+                }
+                onExportPdf={exportApplicationPdf}
+              />
+            </>
           )}
         </div>
       </main>

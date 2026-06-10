@@ -1,5 +1,6 @@
 import type { LoanDocument } from "@/lib/types";
 import { extractApplicationDetail } from "@/lib/application-adapters";
+import { invalidateApplicationDetailCache } from "@/lib/application-detail-cache";
 import { extractProductsList } from "@/lib/product-adapters";
 import { formatValidationDetails, type FalcoApiErrorDetail } from "@/lib/falco-api";
 import { APPLICATION_DOCUMENTS_OPTIONAL } from "@/lib/application-workflow-config";
@@ -218,7 +219,12 @@ export async function uploadApplicationDocumentApi(
 
  const docs = documentsFromUploadResponse(data);
  const hasType = docs.some((d) => documentTypeFromRow(d) === docType);
- if (!hasType) {
+ if (hasType) {
+ invalidateApplicationDetailCache(applicationId);
+ return { ok: true, documents: docs };
+ }
+
+ // Upload succeeded but response shape is sparse — verify once before failing.
  const status = await fetchApplicationDocumentStatus(applicationId);
  const verified =
  status?.uploadedTypes.includes(docType) ||
@@ -229,8 +235,8 @@ export async function uploadApplicationDocumentApi(
  error: `${formatRequiredDocumentLabel(docType)} upload did not register. Try again or use PDF/JPG/PNG.`,
  };
  }
- }
 
+ invalidateApplicationDetailCache(applicationId);
  return { ok: true, documents: docs };
 }
 
@@ -240,19 +246,21 @@ export async function uploadRequiredDocumentsByType(
  filesByType: Record<string, File | null | undefined>,
  typesToUpload: string[]
 ): Promise<{ ok: true } | { ok: false; error: string }> {
- for (const rawType of typesToUpload) {
+ const jobs = typesToUpload.map(async (rawType) => {
  const type = normalizeDocumentType(rawType);
  const file = filesByType[type] ?? filesByType[rawType];
  if (!file) {
  return {
- ok: false,
+ ok: false as const,
  error: `Upload ${formatRequiredDocumentLabel(type)} before continuing.`,
  };
  }
- const up = await uploadApplicationDocumentApi(applicationId, file, type);
- if (!up.ok) return up;
- }
- return { ok: true };
+ return uploadApplicationDocumentApi(applicationId, file, type);
+ });
+
+ const results = await Promise.all(jobs);
+ const failed = results.find((r) => !r.ok);
+ return failed && !failed.ok ? failed : { ok: true };
 }
 
 /** Register document metadata without a file (LMS accepts JSON `url`, `type`, `name`). */

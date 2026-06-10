@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { extractApplicationDetail } from "@/lib/application-adapters";
 import { sanitizeApplicationBodyFromClient } from "@/lib/application-payload";
+import {
+  debugApplicationCreate,
+  debugApplicationDetail,
+  summarizeApplicationBody,
+  summarizeApplicationDetailRow,
+} from "@/lib/application-debug";
 import { requireApiUser, ensureResourceBranchAllowed } from "@/lib/authorization";
 import type { SessionUser } from "@/lib/auth";
 import { falcoServerFetch } from "@/lib/server-falco";
@@ -13,10 +19,22 @@ export async function GET(
  if ("response" in auth) return auth.response;
  const { id } = await context.params;
 
+ debugApplicationDetail("GET /api/applications/:id — request", {
+  application_id: id,
+  user_id: auth.user.id,
+  role: auth.user.role,
+ });
+
  const res = await falcoServerFetch<unknown>(`/applications/${encodeURIComponent(id)}`, {
  request,
  });
  if (!res.ok) {
+ debugApplicationDetail("GET /api/applications/:id — backend error", {
+  application_id: id,
+  status: res.error.status,
+  message: res.error.message,
+  details: res.error.details,
+ });
  return NextResponse.json(
  { message: res.error.message, details: res.error.details },
  { status: res.error.status }
@@ -24,9 +42,24 @@ export async function GET(
  }
  const row = extractApplicationDetail(res.data);
  if (row) {
+ debugApplicationDetail("GET /api/applications/:id — success", {
+  application_id: id,
+  summary: summarizeApplicationDetailRow(row),
+ });
  const rid = row.branch_id != null ? String(row.branch_id) : undefined;
  const denied = ensureResourceBranchAllowed(auth.user, rid);
- if (denied) return denied;
+ if (denied) {
+ debugApplicationDetail("GET /api/applications/:id — branch denied", {
+  application_id: id,
+  branch_id: rid,
+ });
+ return denied;
+ }
+ } else {
+ debugApplicationDetail("GET /api/applications/:id — no detail row parsed", {
+  application_id: id,
+  response_keys: res.data && typeof res.data === "object" ? Object.keys(res.data as object) : [],
+ });
  }
  return NextResponse.json(res.data);
 }
@@ -64,18 +97,35 @@ export async function PATCH(
  if (denied) return denied;
  }
 
+ const sanitized = sanitizeApplicationBodyFromClient(body);
+ debugApplicationCreate("PATCH /api/applications/:id — request", {
+  application_id: id,
+  user_id: auth.user.id,
+  role: auth.user.role,
+  body: summarizeApplicationBody(body),
+  sanitized: summarizeApplicationBody(sanitized),
+ });
+
  const res = await falcoServerFetch<unknown>(`/applications/${encodeURIComponent(id)}`, {
  request,
  method: "PATCH",
- body: sanitizeApplicationBodyFromClient(body),
+ body: sanitized,
  });
 
  if (!res.ok) {
+ debugApplicationCreate("PATCH /api/applications/:id — backend error", {
+  application_id: id,
+  status: res.error.status,
+  message: res.error.message,
+  details: res.error.details,
+ });
  return NextResponse.json(
  { message: res.error.message, details: res.error.details },
  { status: res.error.status }
  );
  }
+
+ debugApplicationCreate("PATCH /api/applications/:id — success", { application_id: id });
  return NextResponse.json(res.data);
 }
 

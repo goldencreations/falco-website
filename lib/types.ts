@@ -231,6 +231,8 @@ export interface LoanDocument {
  name: string;
  type: string;
  url: string;
+ /** Signed preview URL when provided by the API (faster than proxy for images). */
+ preview_url?: string;
  uploaded_at: string;
  verified: boolean;
  verified_by?: string;
