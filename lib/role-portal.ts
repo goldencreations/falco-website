@@ -24,7 +24,6 @@ const FORBIDDEN_PREFIXES: Partial<Record<UserRole, readonly string[]>> = {
     "/officer/payments",
     "/officer/reconciliation",
     "/officer/reports",
-    "/officer/groups/new",
   ],
  accountant: ["/dashboard", "/manager", "/officer", "/users"],
  super_admin: ["/manager", "/officer", "/accountant", "/staff/team"],

@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import Link from "next/link";
 import { CachedMediaPreview } from "@/components/media/cached-media-preview";
 import {
@@ -29,6 +30,12 @@ import {
   canDeleteApplication,
   getApplicationWorkflowActions,
 } from "@/lib/application-workflow";
+import {
+  dedupeCollateralRows,
+  dedupeGuarantorRows,
+  filterDocumentsForDetailPanel,
+  shouldShowGuarantorLegacyDocument,
+} from "@/lib/application-detail-display";
 import { toProxyUrl } from "@/lib/document-proxy";
 import { formatCurrency, formatDateTime } from "@/lib/formatters";
 import type { LoanApplicationStatus } from "@/lib/types";
@@ -45,7 +52,12 @@ function DocumentPreview({
   if (!previewUrl && !authUrl) return null;
   return (
     <div className="border-t bg-muted/20 px-3 pb-3 pt-2">
-      <CachedMediaPreview previewUrl={previewUrl} authUrl={authUrl} alt={alt} />
+      <CachedMediaPreview
+        previewUrl={previewUrl}
+        authUrl={authUrl}
+        alt={alt}
+        className="border-0 bg-transparent"
+      />
     </div>
   );
 }
@@ -97,6 +109,25 @@ export function ApplicationDetailPanel({
   onExportPdf,
 }: ApplicationDetailPanelProps) {
   const status = applicationStatusConfig[application.status];
+
+  const collaterals = useMemo(
+    () => dedupeCollateralRows(application.collaterals ?? []),
+    [application.collaterals]
+  );
+  const guarantors = useMemo(
+    () => dedupeGuarantorRows(application.guarantors ?? []),
+    [application.guarantors]
+  );
+  const standaloneDocuments = useMemo(
+    () =>
+      filterDocumentsForDetailPanel(application.documents ?? [], collaterals, guarantors).sort(
+        (a, b) =>
+          formatRequiredDocumentLabel(documentTypeFromRow(a)).localeCompare(
+            formatRequiredDocumentLabel(documentTypeFromRow(b))
+          )
+      ),
+    [application.documents, collaterals, guarantors]
+  );
 
   return (
     <div className="overflow-hidden rounded-xl border border-border/80 bg-card shadow-sm">
@@ -198,7 +229,7 @@ export function ApplicationDetailPanel({
         </div>
 
         {/* Collateral section */}
-        {application.collaterals && application.collaterals.length > 0 ? (
+        {collaterals.length > 0 ? (
           <>
             <Separator className="my-5" />
             <div className="space-y-3">
@@ -207,7 +238,7 @@ export function ApplicationDetailPanel({
                 Collateral
               </h4>
               <ul className="space-y-2 text-sm">
-                {application.collaterals.map((col: CollateralRow, i: number) => {
+                {collaterals.map((col: CollateralRow, i: number) => {
                   const downloadUrl = col.image_url ? toProxyUrl(col.image_url) : null;
                   return (
                     <li key={col.id ?? i} className="overflow-hidden rounded-lg border">
@@ -249,7 +280,7 @@ export function ApplicationDetailPanel({
         ) : null}
 
         {/* Guarantors section */}
-        {application.guarantors && application.guarantors.length > 0 ? (
+        {guarantors.length > 0 ? (
           <>
             <Separator className="my-5" />
             <div className="space-y-3">
@@ -258,7 +289,7 @@ export function ApplicationDetailPanel({
                 Guarantors
               </h4>
               <ul className="space-y-2 text-sm">
-                {application.guarantors.map((g: GuarantorRow, i: number) => {
+                {guarantors.map((g: GuarantorRow, i: number) => {
                   const frontDownloadUrl = g.id_front_url ? toProxyUrl(g.id_front_url) : null;
                   const backDownloadUrl = g.id_back_url ? toProxyUrl(g.id_back_url) : null;
                   return (
@@ -328,7 +359,7 @@ export function ApplicationDetailPanel({
                         </div>
                       ) : null}
                       {/* Legacy single-document fallback for older API responses */}
-                      {g.document_url ? (
+                      {shouldShowGuarantorLegacyDocument(g) ? (
                         <DocumentPreview authUrl={g.document_url} alt={`${g.full_name} document`} />
                       ) : null}
                     </li>
@@ -372,18 +403,16 @@ export function ApplicationDetailPanel({
           </>
         ) : null}
 
-        {/* Uploaded documents — shown last so collateral/guarantor images appear first */}
+        {/* Required application documents only — collateral/guarantor files shown above */}
         <Separator className="my-5" />
         <div className="space-y-3">
-          {application.documents?.length ? (
+          <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <FileText className="h-3.5 w-3.5" />
+            Application documents
+          </h4>
+          {standaloneDocuments.length > 0 ? (
             <ul className="space-y-3 text-sm">
-              {[...application.documents]
-                .sort((a, b) =>
-                  formatRequiredDocumentLabel(documentTypeFromRow(a)).localeCompare(
-                    formatRequiredDocumentLabel(documentTypeFromRow(b))
-                  )
-                )
-                .map((doc) => {
+              {standaloneDocuments.map((doc) => {
                 const hasUrl = Boolean(doc.url);
                 const proxyUrl = hasUrl ? toProxyUrl(doc.url) : null;
                 const viewUrl = doc.preview_url ?? proxyUrl;

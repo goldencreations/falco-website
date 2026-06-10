@@ -81,7 +81,6 @@ export default function GroupsPage() {
  />
  <main className="flex-1 overflow-auto p-4 lg:p-6">
  <div className="mx-auto max-w-7xl space-y-6">
- {!isOfficerView ? (
  <div className="flex justify-end">
  <Button asChild>
  <Link href={groupsNewHref}>
@@ -90,7 +89,6 @@ export default function GroupsPage() {
  </Link>
  </Button>
  </div>
- ) : null}
 
  {error ? (
  <Card className="border-destructive/40 bg-destructive/5">
@@ -159,7 +157,7 @@ export default function GroupsPage() {
  <TableRow>
  <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
  {isOfficerView
- ? "No vikundi assigned to you in this branch."
+ ? 'No vikundi assigned to you yet. Click "Add New Kikundi" to register a group.'
  : 'No vikundi found. Click "Add New Kikundi" to register a group.'}
  </TableCell>
  </TableRow>

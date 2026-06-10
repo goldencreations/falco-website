@@ -1,7 +1,9 @@
 "use client";
 
-import { use, useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import {
  ArrowLeft,
  Phone,
@@ -25,28 +27,11 @@ import {
  FileText,
  Activity,
   Download,
+  Loader2,
   Paperclip,
-  PieChart,
   BarChart3,
   Users,
 } from "lucide-react";
-import {
- LineChart,
- Line,
- AreaChart,
- Area,
- BarChart,
- Bar,
- PieChart as RechartsPie,
- Pie,
- Cell,
- XAxis,
- YAxis,
- CartesianGrid,
- Tooltip,
- Legend,
- ResponsiveContainer,
-} from "recharts";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -75,20 +60,25 @@ import {
  AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { CustomerAttachmentsDisplay } from "@/components/customers/customer-attachments-display";
 import { CustomerCollateralPanel } from "@/components/customers/customer-collateral-panel";
 import { CustomerEditDialog } from "@/components/customers/customer-edit-dialog";
 import { CustomerGuarantorPanel } from "@/components/customers/customer-guarantor-panel";
+import { enrichCustomerApplicationsForMedia } from "@/lib/enrich-customer-applications";
 import {
- extractCustomerAttachmentsFromRow,
- hasCustomerAttachmentData,
-} from "@/lib/customer-attachments";
+ buildCustomerProfileAttachments,
+ hasCustomerProfileAttachmentData,
+} from "@/lib/customer-profile-attachments";
+import type { ApplicationViewRow } from "@/lib/application-adapters";
 import {
  extractCollateralFromApplications,
  extractGuarantorsFromApplications,
  extractPassportPhotoPreviewUrl,
  extractPassportPhotoUrl,
 } from "@/lib/customer-profile-extras";
+import {
+ getCachedCustomerDetail,
+ setCachedCustomerDetail,
+} from "@/lib/customer-detail-cache";
 import {
  getCachedCustomerPortfolio,
  setCachedCustomerPortfolio,
@@ -100,7 +90,7 @@ import type { CustomerPortfolioData } from "@/lib/customer-portfolio-detail";
 import { customerToFormPayload } from "@/lib/customer-payload";
 import type { LoanListRow } from "@/lib/loan-adapters";
 import { useSessionUser } from "@/lib/use-session-user";
-import type { Customer, LoanApplication, Payment, RiskGrade, LoanStatus } from "@/lib/types";
+import type { Customer, Payment, RiskGrade, LoanStatus } from "@/lib/types";
 
 const riskGradeConfig: Record<RiskGrade, { label: string; color: string; bgColor: string }> = {
  A: { label: "Grade A - Low Risk", color: "text-emerald-700", bgColor: "bg-emerald-100" },
@@ -121,15 +111,30 @@ const loanStatusConfig: Record<LoanStatus, { label: string; variant: "default" |
  restructured: { label: "Restructured", variant: "secondary", color: "bg-purple-500" },
 };
 
-const CHART_COLORS = ["#0d9488", "#0891b2", "#6366f1", "#f59e0b", "#ef4444"];
-
-function ChartEmpty({ message }: { message: string }) {
+function TabPanelSkeleton() {
  return (
- <div className="flex h-[280px] items-center justify-center rounded-lg border border-dashed bg-muted/30 px-4 text-center text-sm text-muted-foreground">
- {message}
+ <div className="flex min-h-[200px] items-center justify-center text-sm text-muted-foreground">
+ <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+ Loading…
  </div>
  );
 }
+
+const CustomerAnalyticsTab = dynamic(
+ () =>
+ import("@/components/customers/customer-analytics-tab").then((m) => ({
+ default: m.CustomerAnalyticsTab,
+ })),
+ { loading: () => <TabPanelSkeleton /> }
+);
+
+const CustomerAttachmentsDisplay = dynamic(
+ () =>
+ import("@/components/customers/customer-attachments-display").then((m) => ({
+ default: m.CustomerAttachmentsDisplay,
+ })),
+ { loading: () => <TabPanelSkeleton /> }
+);
 
 type CustomerExportPayload = {
  generated_at: string;
@@ -184,12 +189,8 @@ type CustomerExportPayload = {
  }>;
 };
 
-export default function CustomerDetailPage({
- params,
-}: {
- params: Promise<{ id: string }>;
-}) {
- const resolvedParams = use(params);
+export default function CustomerDetailPage() {
+ const { id: customerId } = useParams<{ id: string }>();
  const { user } = useSessionUser();
  const customersListPath =
  user?.role === "branch_manager"
@@ -210,17 +211,36 @@ export default function CustomerDetailPage({
  const [creditHistory, setCreditHistory] = useState<CustomerPortfolioData["creditHistory"]>([]);
  const [balanceSnapshot, setBalanceSnapshot] = useState<CustomerPortfolioData["balanceSnapshot"]>([]);
  const [applicationCount, setApplicationCount] = useState(0);
- const [customerApplications, setCustomerApplications] = useState<LoanApplication[]>([]);
+ const [customerApplications, setCustomerApplications] = useState<ApplicationViewRow[]>([]);
+ const [mediaEnrichedApplications, setMediaEnrichedApplications] = useState<ApplicationViewRow[]>(
+  []
+ );
+ const [mediaEnriching, setMediaEnriching] = useState(false);
  const [sourceRow, setSourceRow] = useState<Record<string, unknown> | null>(null);
  const [editOpen, setEditOpen] = useState(false);
  const [blacklistOpen, setBlacklistOpen] = useState(false);
  const [blacklistReason, setBlacklistReason] = useState("");
  const [blacklistSaving, setBlacklistSaving] = useState(false);
  const [blacklistError, setBlacklistError] = useState("");
+ const [activeTab, setActiveTab] = useState("analytics");
+ const [mountedTabs, setMountedTabs] = useState<Set<string>>(() => new Set(["analytics"]));
+
+ const handleTabChange = useCallback((value: string) => {
+ setActiveTab(value);
+ setMountedTabs((prev) => {
+ if (prev.has(value)) return prev;
+ const next = new Set(prev);
+ next.add(value);
+ return next;
+ });
+ }, []);
+
+ const applicationsForFiles =
+ mediaEnrichedApplications.length > 0 ? mediaEnrichedApplications : customerApplications;
 
  const customerAttachments = useMemo(
- () => extractCustomerAttachmentsFromRow(sourceRow),
- [sourceRow]
+ () => buildCustomerProfileAttachments(sourceRow, applicationsForFiles),
+ [sourceRow, applicationsForFiles]
  );
  const passportPhotoUrl = useMemo(() => extractPassportPhotoUrl(sourceRow), [sourceRow]);
  const passportPhotoPreviewUrl = useMemo(
@@ -232,12 +252,12 @@ export default function CustomerDetailPage({
  [passportPhotoPreviewUrl, passportPhotoUrl]
  );
  const collateralRows = useMemo(
- () => extractCollateralFromApplications(customerApplications),
- [customerApplications]
+ () => extractCollateralFromApplications(applicationsForFiles),
+ [applicationsForFiles]
  );
  const guarantorRows = useMemo(
- () => extractGuarantorsFromApplications(customerApplications),
- [customerApplications]
+ () => extractGuarantorsFromApplications(applicationsForFiles),
+ [applicationsForFiles]
  );
 
  const applyPortfolio = (body: CustomerPortfolioData) => {
@@ -252,29 +272,34 @@ export default function CustomerDetailPage({
  };
 
  useEffect(() => {
+ if (!customerId) return;
  let cancelled = false;
- const id = resolvedParams.id;
+ const id = customerId;
 
+ const cachedCustomer = getCachedCustomerDetail(id);
  const cachedPortfolio = getCachedCustomerPortfolio(id);
+
+ if (cachedCustomer) {
+ setSourceRow(cachedCustomer.row);
+ setCustomer(cachedCustomer.customer);
+ setLoading(false);
+ }
  if (cachedPortfolio) {
  applyPortfolio(cachedPortfolio);
  setPortfolioLoading(false);
  }
 
- (async () => {
- setLoading(true);
- setPortfolioLoading(!cachedPortfolio);
+ if (!cachedCustomer) setLoading(true);
+ if (!cachedPortfolio) setPortfolioLoading(true);
  setLoadError("");
  setPortfolioError("");
+
+ const loadCustomer = async () => {
  try {
- const [customerRes, portfolioRes] = await Promise.all([
- fetch(`/api/customers/${encodeURIComponent(id)}`, { credentials: "include" }),
- fetch(`/api/customers/${encodeURIComponent(id)}/portfolio`, { credentials: "include" }),
- ]);
+ const customerRes = await fetch(`/api/customers/${encodeURIComponent(id)}`, {
+ credentials: "include",
+ });
  const customerBody = (await customerRes.json().catch(() => ({}))) as { message?: string };
- const portfolioBody = (await portfolioRes.json().catch(() => ({}))) as CustomerPortfolioData & {
- message?: string;
- };
  if (cancelled) return;
 
  if (!customerRes.ok) {
@@ -285,17 +310,37 @@ export default function CustomerDetailPage({
  );
  setCustomer(null);
  setSourceRow(null);
- } else {
+ return;
+ }
+
  const row = extractCustomerDetail(customerBody);
  if (!row) {
  setLoadError("Unexpected response from server.");
  setCustomer(null);
  setSourceRow(null);
- } else {
+ return;
+ }
+
+ const nextCustomer = adaptApiCustomerRowToCustomer(row);
  setSourceRow(row);
- setCustomer(adaptApiCustomerRowToCustomer(row));
+ setCustomer(nextCustomer);
+ setCachedCustomerDetail(id, row, nextCustomer);
+ } catch {
+ if (!cancelled && !cachedCustomer) setLoadError("Network error");
+ } finally {
+ if (!cancelled) setLoading(false);
  }
- }
+ };
+
+ const loadPortfolio = async () => {
+ try {
+ const portfolioRes = await fetch(`/api/customers/${encodeURIComponent(id)}/portfolio`, {
+ credentials: "include",
+ });
+ const portfolioBody = (await portfolioRes.json().catch(() => ({}))) as CustomerPortfolioData & {
+ message?: string;
+ };
+ if (cancelled) return;
 
  if (!portfolioRes.ok) {
  if (!cachedPortfolio) {
@@ -309,31 +354,49 @@ export default function CustomerDetailPage({
  setApplicationCount(0);
  setCustomerApplications([]);
  }
- } else {
+ return;
+ }
+
  setCachedCustomerPortfolio(id, portfolioBody);
  applyPortfolio(portfolioBody);
  setPortfolioError("");
- }
  } catch {
- if (!cancelled) {
- if (!customer) setLoadError("Network error");
- if (!cachedPortfolio) {
+ if (!cancelled && !cachedPortfolio) {
  setPortfolioError("Network error loading portfolio");
  setCustomerLoans([]);
  setCustomerPayments([]);
  }
- }
  } finally {
- if (!cancelled) {
- setLoading(false);
- setPortfolioLoading(false);
+ if (!cancelled) setPortfolioLoading(false);
  }
- }
- })();
+ };
+
+ void loadCustomer();
+ void loadPortfolio();
+
  return () => {
  cancelled = true;
  };
- }, [resolvedParams.id]);
+ }, [customerId]);
+
+ useEffect(() => {
+ if (customerApplications.length === 0) {
+ setMediaEnrichedApplications([]);
+ setMediaEnriching(false);
+ return;
+ }
+ let cancelled = false;
+ setMediaEnriching(true);
+ void enrichCustomerApplicationsForMedia(customerApplications).then((enriched) => {
+ if (!cancelled) {
+ setMediaEnrichedApplications(enriched);
+ setMediaEnriching(false);
+ }
+ });
+ return () => {
+ cancelled = true;
+ };
+ }, [customerApplications]);
 
  if (loading) {
  return (
@@ -374,7 +437,7 @@ export default function CustomerDetailPage({
  const handleExportPdf = async () => {
  try {
  setIsExporting(true);
- const response = await fetch(`/api/customers/${resolvedParams.id}/export`, {
+ const response = await fetch(`/api/customers/${customerId}/export`, {
  credentials: "include",
  });
  if (!response.ok) {
@@ -511,7 +574,7 @@ export default function CustomerDetailPage({
  is_blacklisted: true,
  blacklist_reason: blacklistReason.trim() || undefined,
  };
- const r = await fetch(`/api/customers/${encodeURIComponent(resolvedParams.id)}`, {
+ const r = await fetch(`/api/customers/${encodeURIComponent(customerId)}`, {
  method: "PATCH",
  credentials: "include",
  headers: { "Content-Type": "application/json" },
@@ -726,7 +789,7 @@ export default function CustomerDetailPage({
  </div>
 
  {/* Tabs */}
- <Tabs defaultValue="analytics" className="space-y-4">
+ <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
  <div className="-mx-4 overflow-x-auto px-4 [-webkit-overflow-scrolling:touch] [scrollbar-width:none] sm:mx-0 sm:overflow-visible sm:px-0 [&::-webkit-scrollbar]:hidden">
  <TabsList className="flex h-auto w-max min-w-full flex-nowrap justify-start gap-1 bg-muted/50 p-1 sm:w-full sm:flex-wrap">
  <TabsTrigger
@@ -787,299 +850,28 @@ export default function CustomerDetailPage({
 
  {/* Analytics Tab */}
  <TabsContent value="analytics" className="space-y-6">
- <div className="grid gap-6 lg:grid-cols-2">
- {/* Payment Trend Chart */}
- <Card>
- <CardHeader>
- <CardTitle className="flex items-center gap-2 text-base">
- <TrendingUp className="h-5 w-5 text-primary" />
- Payment Trend (Last 8 Months)
- </CardTitle>
- <CardDescription>Expected vs actual payments over time</CardDescription>
- </CardHeader>
- <CardContent>
- {paymentTrend.length === 0 || customerPayments.length === 0 ? (
- <ChartEmpty message="Payment trend appears when this customer has recorded payments." />
- ) : (
- <ResponsiveContainer width="100%" height={280}>
- <AreaChart data={paymentTrend}>
- <defs>
- <linearGradient id="colorExpected" x1="0" y1="0" x2="0" y2="1">
- <stop offset="5%" stopColor="#0d9488" stopOpacity={0.3} />
- <stop offset="95%" stopColor="#0d9488" stopOpacity={0} />
- </linearGradient>
- <linearGradient id="colorActual" x1="0" y1="0" x2="0" y2="1">
- <stop offset="5%" stopColor="#0891b2" stopOpacity={0.3} />
- <stop offset="95%" stopColor="#0891b2" stopOpacity={0} />
- </linearGradient>
- </defs>
- <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
- <XAxis dataKey="month" tick={{ fontSize: 12 }} stroke="#6b7280" />
- <YAxis tick={{ fontSize: 12 }} stroke="#6b7280" tickFormatter={(v) => `${(v / 1000000).toFixed(1)}M`} />
- <Tooltip
- formatter={(value: number) => formatCurrency(value)}
- contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb" }}
+ {mountedTabs.has("analytics") ? (
+ <CustomerAnalyticsTab
+ paymentTrend={paymentTrend}
+ creditHistory={creditHistory}
+ balanceSnapshot={balanceSnapshot}
+ loanDistribution={loanDistribution}
+ customerLoans={customerLoans}
+ customerPayments={customerPayments}
+ applicationCount={applicationCount}
+ activeLoans={activeLoans}
+ completedLoans={completedLoans}
+ onTimePayments={onTimePayments}
+ customer={customer}
+ risk={risk}
+ portfolioLoading={portfolioLoading}
  />
- <Legend />
- <Area
- type="monotone"
- dataKey="expected"
- name="Expected"
- stroke="#0d9488"
- strokeWidth={2}
- fill="url(#colorExpected)"
- />
- <Area
- type="monotone"
- dataKey="actual"
- name="Actual"
- stroke="#0891b2"
- strokeWidth={2}
- fill="url(#colorActual)"
- />
- </AreaChart>
- </ResponsiveContainer>
- )}
- </CardContent>
- </Card>
-
- {/* Credit Score History */}
- <Card>
- <CardHeader>
- <CardTitle className="flex items-center gap-2 text-base">
- <Activity className="h-5 w-5 text-violet-600" />
- Credit Score History
- </CardTitle>
- <CardDescription>Score progression over time</CardDescription>
- </CardHeader>
- <CardContent>
- {creditHistory.length === 0 ? (
- <ChartEmpty message="Credit score history is shown when a credit score is on file." />
- ) : (
- <>
- <ResponsiveContainer width="100%" height={280}>
- <LineChart data={creditHistory}>
- <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
- <XAxis dataKey="month" tick={{ fontSize: 12 }} stroke="#6b7280" />
- <YAxis domain={[300, 850]} tick={{ fontSize: 12 }} stroke="#6b7280" />
- <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb" }} />
- <Line
- type="monotone"
- dataKey="score"
- name="Credit Score"
- stroke="#8b5cf6"
- strokeWidth={3}
- dot={{ fill: "#8b5cf6", r: 4 }}
- activeDot={{ r: 6, fill: "#7c3aed" }}
- />
- </LineChart>
- </ResponsiveContainer>
- <div className="mt-4 flex items-center justify-between px-2">
- <div className="flex items-center gap-2">
- <div className="h-3 w-3 rounded-full bg-red-500" />
- <span className="text-xs text-muted-foreground">Poor (300-579)</span>
- </div>
- <div className="flex items-center gap-2">
- <div className="h-3 w-3 rounded-full bg-amber-500" />
- <span className="text-xs text-muted-foreground">Fair (580-669)</span>
- </div>
- <div className="flex items-center gap-2">
- <div className="h-3 w-3 rounded-full bg-emerald-500" />
- <span className="text-xs text-muted-foreground">Good (670-850)</span>
- </div>
- </div>
- </>
- )}
- </CardContent>
- </Card>
-
- {/* Paid vs Outstanding */}
- <Card>
- <CardHeader>
- <CardTitle className="flex items-center gap-2 text-base">
- <Wallet className="h-5 w-5 text-amber-600" />
- Repaid vs Outstanding
- </CardTitle>
- <CardDescription>Live balances from the customer&apos;s loan book</CardDescription>
- </CardHeader>
- <CardContent>
- {customerLoans.length === 0 ? (
- <ChartEmpty message="No loans on record for this customer yet." />
- ) : (
- <ResponsiveContainer width="100%" height={280}>
- <BarChart data={balanceSnapshot} layout="vertical" margin={{ left: 8, right: 16 }}>
- <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
- <XAxis type="number" tick={{ fontSize: 12 }} tickFormatter={(v) => `${(v / 1000000).toFixed(1)}M`} />
- <YAxis type="category" dataKey="name" width={72} tick={{ fontSize: 12 }} />
- <Tooltip formatter={(value: number) => formatCurrency(value)} />
- <Legend />
- <Bar dataKey="paid" name="Total repaid" fill="#10b981" radius={[0, 4, 4, 0]} />
- <Bar dataKey="outstanding" name="Outstanding" fill="#f59e0b" radius={[0, 4, 4, 0]} />
- </BarChart>
- </ResponsiveContainer>
- )}
- </CardContent>
- </Card>
-
- {/* Loan Distribution */}
- <Card>
- <CardHeader>
- <CardTitle className="flex items-center gap-2 text-base">
- <PieChart className="h-5 w-5 text-cyan-600" />
- Loan Distribution by Product
- </CardTitle>
- <CardDescription>Breakdown of loans by product type</CardDescription>
- </CardHeader>
- <CardContent>
- {loanDistribution.length === 0 ? (
- <ChartEmpty message="Loan mix by product appears when the customer has disbursed loans." />
- ) : (
- <ResponsiveContainer width="100%" height={280}>
- <RechartsPie>
- <Pie
- data={loanDistribution}
- cx="50%"
- cy="50%"
- innerRadius={60}
- outerRadius={100}
- paddingAngle={2}
- dataKey="value"
- label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
- labelLine={{ stroke: "#6b7280" }}
- >
- {loanDistribution.map((_, index) => (
- <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
- ))}
- </Pie>
- <Tooltip formatter={(value: number) => formatCurrency(value)} />
- </RechartsPie>
- </ResponsiveContainer>
- )}
- </CardContent>
- </Card>
-
- {/* On-Time Payment Rate */}
- <Card>
- <CardHeader>
- <CardTitle className="flex items-center gap-2 text-base">
- <CheckCircle2 className="h-5 w-5 text-emerald-600" />
- Payment Performance
- </CardTitle>
- <CardDescription>On-time payment rate by month</CardDescription>
- </CardHeader>
- <CardContent>
- {paymentTrend.length === 0 || customerPayments.length === 0 ? (
- <ChartEmpty message="Payment completion rate by month requires payment history." />
- ) : (
- <ResponsiveContainer width="100%" height={280}>
- <BarChart data={paymentTrend}>
- <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
- <XAxis dataKey="month" tick={{ fontSize: 12 }} stroke="#6b7280" />
- <YAxis domain={[0, 100]} tick={{ fontSize: 12 }} stroke="#6b7280" tickFormatter={(v) => `${v}%`} />
- <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb" }} />
- <Bar dataKey="onTime" name="Completed share" radius={[4, 4, 0, 0]}>
- {paymentTrend.map((entry, index) => (
- <Cell
- key={`cell-${index}`}
- fill={entry.onTime >= 90 ? "#10b981" : entry.onTime >= 70 ? "#f59e0b" : "#ef4444"}
- />
- ))}
- </Bar>
- </BarChart>
- </ResponsiveContainer>
- )}
- </CardContent>
- </Card>
- </div>
-
- {/* Customer Summary Report */}
- <Card>
- <CardHeader>
- <CardTitle className="flex items-center gap-2 text-base">
- <FileText className="h-5 w-5 text-primary" />
- Customer Summary Report
- </CardTitle>
- </CardHeader>
- <CardContent>
- <div className="grid gap-6 md:grid-cols-3">
- <div className="space-y-4">
- <h4 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Loan History</h4>
- <div className="space-y-2">
- <div className="flex justify-between">
- <span className="text-muted-foreground">Total Loans Taken</span>
- <span className="font-semibold">{customerLoans.length}</span>
- </div>
- <div className="flex justify-between">
- <span className="text-muted-foreground">Active Loans</span>
- <span className="font-semibold text-cyan-600">{activeLoans.length}</span>
- </div>
- <div className="flex justify-between">
- <span className="text-muted-foreground">Completed Loans</span>
- <span className="font-semibold text-emerald-600">{completedLoans.length}</span>
- </div>
- <div className="flex justify-between">
- <span className="text-muted-foreground">Defaulted Loans</span>
- <span className="font-semibold text-red-600">
- {customerLoans.filter((l) => l.status === "defaulted").length}
- </span>
- </div>
- </div>
- </div>
-
- <div className="space-y-4">
- <h4 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Payment Behavior</h4>
- <div className="space-y-2">
- <div className="flex justify-between">
- <span className="text-muted-foreground">Total Payments Made</span>
- <span className="font-semibold">{customerPayments.length}</span>
- </div>
- <div className="flex justify-between">
- <span className="text-muted-foreground">On-Time Payments</span>
- <span className="font-semibold text-emerald-600">{onTimePayments}</span>
- </div>
- <div className="flex justify-between">
- <span className="text-muted-foreground">Late Payments</span>
- <span className="font-semibold text-amber-600">{customerPayments.length - onTimePayments}</span>
- </div>
- <div className="flex justify-between">
- <span className="text-muted-foreground">Applications</span>
- <span className="font-semibold">{applicationCount}</span>
- </div>
- </div>
- </div>
-
- <div className="space-y-4">
- <h4 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Risk Assessment</h4>
- <div className="space-y-2">
- <div className="flex justify-between">
- <span className="text-muted-foreground">Risk Grade</span>
- <Badge className={`${risk.bgColor} ${risk.color} border-0`}>{customer.risk_grade}</Badge>
- </div>
- <div className="flex justify-between">
- <span className="text-muted-foreground">Credit Score</span>
- <span className="font-semibold">{customer.credit_score || "N/A"}</span>
- </div>
- <div className="flex justify-between">
- <span className="text-muted-foreground">Income Verified</span>
- <span className={customer.income_verified ? "text-emerald-600 font-semibold" : "text-amber-600 font-semibold"}>
- {customer.income_verified ? "Yes" : "No"}
- </span>
- </div>
- <div className="flex justify-between">
- <span className="text-muted-foreground">Relationship Age</span>
- <span className="font-semibold">
- {Math.floor((new Date().getTime() - new Date(customer.created_at).getTime()) / (1000 * 60 * 60 * 24 * 30))} months
- </span>
- </div>
- </div>
- </div>
- </div>
- </CardContent>
- </Card>
+ ) : null}
  </TabsContent>
 
  {/* Personal Details Tab */}
  <TabsContent value="details" className="space-y-6">
+ {mountedTabs.has("details") ? (
  <div className="grid gap-6 md:grid-cols-2">
  {/* Contact Information */}
  <Card>
@@ -1223,10 +1015,12 @@ export default function CustomerDetailPage({
  </CardContent>
  </Card>
  </div>
+ ) : null}
  </TabsContent>
 
  {/* Loans Tab */}
  <TabsContent value="loans">
+ {mountedTabs.has("loans") ? (
  <Card>
  <CardContent className="p-0">
  <Table>
@@ -1280,10 +1074,12 @@ export default function CustomerDetailPage({
  </Table>
  </CardContent>
  </Card>
+ ) : null}
  </TabsContent>
 
  {/* Payments Tab */}
  <TabsContent value="payments">
+ {mountedTabs.has("payments") ? (
  <Card>
  <CardContent className="p-0">
  <Table>
@@ -1349,10 +1145,22 @@ export default function CustomerDetailPage({
  </Table>
  </CardContent>
  </Card>
+ ) : null}
  </TabsContent>
 
  <TabsContent value="attachments">
- {hasCustomerAttachmentData(customerAttachments) ? (
+ {mountedTabs.has("attachments") ? (
+ mediaEnriching && !hasCustomerProfileAttachmentData(customerAttachments) ? (
+ <Card>
+ <CardHeader>
+ <CardTitle className="text-base">Attachment / Uploads</CardTitle>
+ <CardDescription>Loading files from loan applications…</CardDescription>
+ </CardHeader>
+ <CardContent>
+ <TabPanelSkeleton />
+ </CardContent>
+ </Card>
+ ) : hasCustomerProfileAttachmentData(customerAttachments) ? (
  <CustomerAttachmentsDisplay attachments={customerAttachments} />
  ) : (
  <Card>
@@ -1362,19 +1170,21 @@ export default function CustomerDetailPage({
  </CardHeader>
  <CardContent>
  <p className="text-sm text-muted-foreground">
- Upload home/business photos and supporting documents when creating or editing the customer.
+ Upload home/business photos and supporting documents when creating or editing the customer,
+ or add collateral and guarantor files on a loan application.
  </p>
  </CardContent>
  </Card>
- )}
+ )
+ ) : null}
  </TabsContent>
 
  <TabsContent value="collateral">
- <CustomerCollateralPanel rows={collateralRows} />
+ {mountedTabs.has("collateral") ? <CustomerCollateralPanel rows={collateralRows} /> : null}
  </TabsContent>
 
  <TabsContent value="guarantors">
- <CustomerGuarantorPanel rows={guarantorRows} />
+ {mountedTabs.has("guarantors") ? <CustomerGuarantorPanel rows={guarantorRows} /> : null}
  </TabsContent>
  </Tabs>
  </div>
@@ -1383,12 +1193,13 @@ export default function CustomerDetailPage({
  <CustomerEditDialog
  open={editOpen}
  onOpenChange={setEditOpen}
- customerId={resolvedParams.id}
+ customerId={customerId}
  customer={customer}
  sourceRow={sourceRow}
  onSaved={(next, row) => {
  setCustomer(next);
  setSourceRow(row);
+ if (customerId) setCachedCustomerDetail(customerId, row, next);
  }}
  />
 

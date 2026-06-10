@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toProxyUrl } from "@/lib/document-proxy";
 import { cn } from "@/lib/utils";
 
@@ -15,7 +15,7 @@ type CachedMediaPreviewProps = {
   maxHeight?: string;
 };
 
-/** Image preview: preview URL first, proxy fallback, lazy-loaded with placeholder. */
+/** Image preview: preview URL first, same-origin proxy fallback for authenticated files. */
 export function CachedMediaPreview({
   previewUrl,
   authUrl,
@@ -24,24 +24,47 @@ export function CachedMediaPreview({
   imageClassName,
   maxHeight = "max-h-48",
 }: CachedMediaPreviewProps) {
-  const [loaded, setLoaded] = useState(false);
-  const [failed, setFailed] = useState(false);
   const [useProxy, setUseProxy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [loaded, setLoaded] = useState(false);
 
-  const proxyUrl = authUrl ? toProxyUrl(authUrl) : null;
-  const primary = previewUrl?.trim() || null;
-  const activeSrc = useProxy ? proxyUrl : primary ?? proxyUrl;
+  const proxyUrl = authUrl?.trim() ? toProxyUrl(authUrl) : null;
+  const preview = previewUrl?.trim() || null;
+  const activeSrc = useProxy ? proxyUrl : preview ?? proxyUrl;
 
-  if (!activeSrc || failed) return null;
+  useEffect(() => {
+    setUseProxy(false);
+    setFailed(false);
+    setLoaded(false);
+  }, [preview, authUrl]);
+
+  if (!activeSrc) return null;
+
+  if (failed) {
+    return (
+      <div
+        className={cn(
+          "flex items-center justify-center rounded-md border bg-muted/20 px-3 text-center text-xs text-muted-foreground",
+          maxHeight === "max-h-48" ? "min-h-32" : "min-h-40",
+          className
+        )}
+      >
+        Preview unavailable — use View or Download
+      </div>
+    );
+  }
 
   return (
-    <div className={cn("overflow-hidden rounded-md border bg-muted/20", className)}>
+    <div
+      className={cn(
+        "relative overflow-hidden rounded-md border bg-muted/20",
+        maxHeight === "max-h-48" ? "min-h-32" : "min-h-40",
+        className
+      )}
+    >
       {!loaded ? (
         <div
-          className={cn(
-            "flex items-center justify-center bg-muted/30 text-xs text-muted-foreground",
-            maxHeight === "max-h-48" ? "h-32" : "h-40"
-          )}
+          className="absolute inset-0 z-10 flex items-center justify-center bg-muted/30 text-xs text-muted-foreground"
           aria-hidden
         >
           Loading…
@@ -49,19 +72,14 @@ export function CachedMediaPreview({
       ) : null}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
+        key={activeSrc}
         src={activeSrc}
         alt={alt}
-        loading="lazy"
         decoding="async"
-        className={cn(
-          "w-full object-contain",
-          maxHeight,
-          imageClassName,
-          loaded ? "block" : "sr-only"
-        )}
+        className={cn("w-full object-contain", maxHeight, imageClassName)}
         onLoad={() => setLoaded(true)}
         onError={() => {
-          if (!useProxy && proxyUrl && primary) {
+          if (!useProxy && proxyUrl && activeSrc !== proxyUrl) {
             setUseProxy(true);
             setLoaded(false);
           } else {

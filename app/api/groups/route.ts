@@ -44,6 +44,9 @@ export async function POST(request: Request) {
  if (isBranchDataScoped(auth.user)) {
  apiBody.branch_id = auth.user.branch_id;
  }
+ if (auth.user.role === "loan_officer") {
+ apiBody.loan_officer_id = auth.user.id;
+ }
 
  const res = await falcoServerFetch<unknown>("/groups", {
  method: "POST",
