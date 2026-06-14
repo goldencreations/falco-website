@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { StatusLoader } from "@/components/ui/status-loader";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
  Bar,
@@ -174,12 +175,49 @@ export default function ApplicationsPage() {
  }
  }, [scopeBranchId, effectiveRole, isOfficerView]);
 
- useEffect(() => {
- void reloadApplications();
- }, [reloadApplications]);
+  useEffect(() => {
+  void reloadApplications();
+  }, [reloadApplications]);
 
- useEffect(() => {
- setSelectedIds((prev) => {
+  // Re-load immediately when the Disbursement screen signals a change via localStorage.
+  // This fires both when the user returns to this SPA page (same-tab navigation) AND
+  // when the disbursement is completed in another browser tab.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === "falco.disbursement.updated") void reloadApplications();
+    };
+    // Same-tab SPA navigation: the disbursement page fires a custom event on window
+    const onDisbursed = () => void reloadApplications();
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("falco:disbursement:updated", onDisbursed);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("falco:disbursement:updated", onDisbursed);
+    };
+  }, [reloadApplications]);
+
+  // Reload immediately when the user returns to this tab (e.g. after completing
+  // disbursement in another screen) so the status update is instant.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void reloadApplications();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [reloadApplications]);
+
+  // While any row is in "pending_disbursement", poll every 3 s as a safety net.
+  const hasPendingDisbursement = applications.some(
+    (app) => app.status === "pending_disbursement"
+  );
+  useEffect(() => {
+    if (!hasPendingDisbursement) return;
+    const timer = setInterval(() => void reloadApplications(), 3000);
+    return () => clearInterval(timer);
+  }, [hasPendingDisbursement, reloadApplications]);
+
+  useEffect(() => {
+  setSelectedIds((prev) => {
  const valid = new Set(applications.map((app) => app.id));
  const next = new Set([...prev].filter((id) => valid.has(id)));
  return next.size === prev.size ? prev : next;
@@ -269,18 +307,17 @@ export default function ApplicationsPage() {
  setBulkDeleting(false);
  setSelectedIds(new Set());
  await reloadApplications();
- if (failures.length > 0) {
- setActionError(
- failures.length === targets.length
- ? failures[0] ?? "Bulk delete failed."
- : `Deleted ${deleted} of ${targets.length}. ${failures[0]}`
- );
- } else {
- setSuccessMessage(
- `Deleted ${deleted} application${deleted === 1 ? "" : "s"} from the database.`
- );
- }
- };
+  if (failures.length > 0) {
+    const summary =
+      deleted > 0 ? `Deleted ${deleted} of ${targets.length}. ` : "";
+    // Show all failure messages so the user knows exactly which ones were blocked and why.
+    setActionError(summary + failures.join(" · "));
+  } else {
+    setSuccessMessage(
+      `Deleted ${deleted} application${deleted === 1 ? "" : "s"} from the database.`
+    );
+  }
+};
 
  const statusCounts = visibleApplications.reduce(
  (acc, app) => {
@@ -733,14 +770,18 @@ export default function ApplicationsPage() {
  aria-label={`Select ${app.application_number}`}
  />
  ) : null}
- <p className="font-mono text-xs font-medium">{app.application_number}</p>
- </div>
- <Badge variant={status.variant} className="gap-1">
- <StatusIcon className="h-3 w-3" />
- {status.label}
- </Badge>
- </div>
- <p className="mt-2 font-medium">{app.customerDisplayName}</p>
+            <p className="font-mono text-xs font-medium">{app.application_number}</p>
+            </div>
+            {actionBusyId === app.id || app.status === "pending_disbursement" ? (
+              <StatusLoader />
+            ) : (
+              <Badge variant={status.variant} className="gap-1">
+                <StatusIcon className="h-3 w-3" />
+                {status.label}
+              </Badge>
+            )}
+            </div>
+            <p className="mt-2 font-medium">{app.customerDisplayName}</p>
  <p className="text-xs text-muted-foreground">{app.productName}</p>
  <p className="mt-1 text-xs text-muted-foreground">
  Officer: <span className="font-medium text-foreground">{app.officerName || "Unassigned"}</span>
@@ -847,13 +888,17 @@ export default function ApplicationsPage() {
  <TableCell className="hidden max-w-[200px] truncate xl:table-cell">
  {app.purpose}
  </TableCell>
- <TableCell>
- <Badge variant={status.variant} className="gap-1">
- <StatusIcon className="h-3 w-3" />
- {status.label}
- </Badge>
- </TableCell>
- <TableCell className="hidden text-sm text-muted-foreground lg:table-cell">
+            <TableCell>
+              {actionBusyId === app.id || app.status === "pending_disbursement" ? (
+                <StatusLoader />
+              ) : (
+                <Badge variant={status.variant} className="gap-1">
+                  <StatusIcon className="h-3 w-3" />
+                  {status.label}
+                </Badge>
+              )}
+            </TableCell>
+            <TableCell className="hidden text-sm text-muted-foreground lg:table-cell">
  {formatDateTime(app.created_at)}
  </TableCell>
  <TableCell className="text-right">

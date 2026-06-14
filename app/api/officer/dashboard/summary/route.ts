@@ -15,6 +15,16 @@ import {
  portfolioMetricsFromOfficerLoans,
 } from "@/lib/officer-dashboard-summary";
 import { falcoServerFetch } from "@/lib/server-falco";
+import { extractUsersListPayload } from "@/lib/user-adapters";
+
+function usableBranchName(name: string | undefined, branchId: string): string {
+ const value = name?.trim() ?? "";
+ if (!value) return "";
+ const normalized = value.toLowerCase();
+ const id = branchId.trim().toLowerCase();
+ if (normalized === id || normalized === `branch ${id}`) return "";
+ return value;
+}
 
 /** Officer dashboard: enriched customer portfolio + officer-scoped application counts. */
 export async function GET(request: Request) {
@@ -34,7 +44,7 @@ export async function GET(request: Request) {
 
  const officerId = auth.user.id;
 
- const [metricsRes, customers, applicationsRes, loansRes] = await Promise.all([
+ const [metricsRes, customers, applicationsRes, loansRes, usersRes] = await Promise.all([
  falcoServerFetch<unknown>("/dashboard/metrics", { request, query: { branch_id } }),
  loadBranchCustomersEnriched(request, branch_id, { pageSize: "200" }),
  falcoServerFetch<unknown>("/applications", {
@@ -44,6 +54,10 @@ export async function GET(request: Request) {
  falcoServerFetch<unknown>("/loans", {
  request,
  query: { branch_id, page: "1", page_size: "100" },
+ }),
+ falcoServerFetch<unknown>("/users", {
+ request,
+ query: { page: "1", page_size: "200" },
  }),
  ]);
 
@@ -69,10 +83,22 @@ export async function GET(request: Request) {
  : { pending: 0, approved: 0, total: 0 };
 
  const loans = loansRes.ok ? extractLoansList(loansRes.data) : [];
+ const users = usersRes.ok ? extractUsersListPayload(usersRes.data).users : [];
+ const currentUserBranchName = users.find((user) => user.id === officerId)?.branch_name;
+ const branchName =
+ usableBranchName(currentUserBranchName, branch_id) ||
+ (
+ allApplications
+ .map((app) => usableBranchName(app.branchName, branch_id))
+ .find(Boolean) ??
+ loans.map((loan) => usableBranchName(loan.branchName, branch_id)).find(Boolean) ??
+ ""
+ );
  const loanPortfolio = portfolioMetricsFromOfficerLoans(loans, assignedCustomers, officerId);
  const metrics = mergeOfficerDashboardMetrics(branchMetrics, loanPortfolio);
 
  return NextResponse.json({
+ branchName,
  metrics,
  customerCount,
  appCounts,

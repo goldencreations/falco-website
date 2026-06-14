@@ -196,7 +196,7 @@ export default function SettingsPage() {
  const saved = json.preferences ?? preferences;
  setPreferences(saved);
  setLanguage(saved.language);
- await refreshFromServer();
+        await refreshFromServer({ forceApply: true });
  setPrefsMessage(copy.prefsSaved);
  } catch (e) {
  setPrefsError(e instanceof Error ? e.message : "Save failed");

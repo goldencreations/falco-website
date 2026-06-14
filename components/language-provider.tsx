@@ -20,10 +20,10 @@ import { withCacheBypass } from "@/lib/client-fetch-cache";
 export const LANGUAGE_CHANGE_EVENT = "falco-language-change";
 
 type LanguageContextValue = {
- language: AppLanguage;
- setLanguage: (language: AppLanguage) => void;
- ready: boolean;
- refreshFromServer: () => Promise<void>;
+  language: AppLanguage;
+  setLanguage: (language: AppLanguage) => void;
+  ready: boolean;
+  refreshFromServer: (opts?: { forceApply?: boolean }) => Promise<void>;
 };
 
 const LanguageContext = createContext<LanguageContextValue | null>(null);
@@ -44,19 +44,26 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
  applyLanguageToDom(next);
  }, []);
 
- const refreshFromServer = useCallback(async () => {
- try {
- const sessionRes = await fetch("/api/session", withCacheBypass({ credentials: "include" }));
- if (!sessionRes.ok) return;
- const res = await fetch("/api/settings/profile", withCacheBypass({ credentials: "include" }));
- if (!res.ok) return;
- const json = (await res.json().catch(() => ({}))) as unknown;
- const { preferences } = parseProfileResponse(json);
- setLanguage(preferences.language);
- } catch {
- /* keep current */
- }
- }, [setLanguage]);
+  const refreshFromServer = useCallback(async ({ forceApply = false }: { forceApply?: boolean } = {}) => {
+    try {
+      const sessionRes = await fetch("/api/session", withCacheBypass({ credentials: "include" }));
+      if (!sessionRes.ok) return;
+      const res = await fetch("/api/settings/profile", withCacheBypass({ credentials: "include" }));
+      if (!res.ok) return;
+      const json = (await res.json().catch(() => ({}))) as unknown;
+      const { preferences } = parseProfileResponse(json);
+      // Only apply the server language when the caller explicitly asked for it (e.g. after
+      // the user saves settings) OR when there is genuinely no locally-saved preference yet.
+      // Without this guard, a backend account whose language is "sw" would override "en" on
+      // every page load — even when the user never intentionally chose Kiswahili.
+      const saved = localStorage.getItem(LANGUAGE_STORAGE_KEY);
+      if (forceApply || !isAppLanguage(saved)) {
+        setLanguage(preferences.language);
+      }
+    } catch {
+      /* keep current */
+    }
+  }, [setLanguage]);
 
  useEffect(() => {
  const saved = localStorage.getItem(LANGUAGE_STORAGE_KEY);

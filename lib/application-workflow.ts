@@ -191,17 +191,24 @@ export function canDeleteApplication(
 }
 
 export async function deleteApplicationApi(
- id: string
-): Promise<{ ok: true } | { ok: false; error: string }> {
- const res = await fetch(`/api/applications/${encodeURIComponent(id)}`, {
- method: "DELETE",
- credentials: "include",
- });
- const data = await res.json().catch(() => ({}));
- if (!res.ok) {
- return { ok: false, error: await parseApiError(res, data) };
- }
- return { ok: true };
+  id: string
+): Promise<{ ok: true } | { ok: false; error: string; status?: number }> {
+  const res = await fetch(`/api/applications/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const baseError = await parseApiError(res, data);
+    // 409 = backend refused because a linked loan/disbursement exists.
+    // Give the user a clear actionable message instead of the raw backend text.
+    const error =
+      res.status === 409
+        ? "Cannot delete — this application has a linked loan. Cancel or delete the loan from the Loans page first, then retry."
+        : baseError;
+    return { ok: false, error, status: res.status };
+  }
+  return { ok: true };
 }
 
 export async function submitApplicationApi(

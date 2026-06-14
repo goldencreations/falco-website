@@ -8,7 +8,7 @@ export async function GET(request: Request) {
  const auth = await requireApiUser(request);
  if ("response" in auth) return auth.response;
 
- const branches = await fetchBranchesForSessionUser(auth.user);
+ const branches = await fetchBranchesForSessionUser(auth.user, request);
  if (!branches.length) {
  return NextResponse.json(
  { message: "No branches available for your account", branches: [] },

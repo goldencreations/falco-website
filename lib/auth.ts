@@ -15,6 +15,7 @@ export type SessionUser = {
  email: string;
  role: UserRole;
  branch_id: string;
+ branch_name?: string;
  full_name: string;
  permissions: string[];
 };
@@ -25,6 +26,7 @@ export type ApiMeUser = {
  full_name: string;
  role: string;
  branch_id: string | null;
+ branch_name?: string | null;
  permissions?: string[];
 };
 
@@ -41,6 +43,7 @@ export function sessionUserFromApiMe(user: ApiMeUser, permissions: string[]): Se
  email: user.email,
  role,
  branch_id: normalizeBranchId(user.branch_id),
+ branch_name: user.branch_name ? String(user.branch_name) : undefined,
  full_name: user.full_name,
  permissions,
  };

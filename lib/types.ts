@@ -21,6 +21,7 @@ export interface User {
  full_name: string;
  role: UserRole;
  branch_id: string;
+ branch_name?: string;
  phone: string;
  employee_id: string;
  is_active: boolean;

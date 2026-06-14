@@ -1,6 +1,7 @@
 import type { ManagerMetricsPayload } from "@/lib/manager-branch-load";
 
 export type OfficerDashboardSnapshot = {
+ branchName?: string;
  metrics: ManagerMetricsPayload | null;
  customerCount: number;
  /** Branch-wide (matches `/officer/applications` list). */

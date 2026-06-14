@@ -1,7 +1,7 @@
 import { adaptApiBranchToBranch, extractBranchesList } from "@/lib/branch-adapters";
 import { mapApiRoleToAppRole, mapAppRoleToApiRole } from "@/lib/api-roles";
 import type { SessionUser } from "@/lib/auth";
-import { isBranchDataScoped, syntheticBranchFromSession } from "@/lib/branch-scope";
+import { isBranchDataScoped, knownBranchNameFromCode, syntheticBranchFromSession } from "@/lib/branch-scope";
 import { falcoServerFetch } from "@/lib/server-falco";
 import type { Branch, User, UserRole } from "@/lib/types";
 import { adaptApiUserToUser, extractUsersListPayload } from "@/lib/user-adapters";
@@ -27,6 +27,16 @@ function branchIdFromSummaryRow(row: Record<string, unknown>): string {
  return String(row.branch_id ?? row.id ?? "").trim();
 }
 
+function branchMatchesScope(branch: Branch, scopedId: string): boolean {
+ const normalizeBranchKey = (value: string) =>
+ value.trim().toLowerCase().replace(/^branch[-_\s]*/, "").replace(/[^a-z0-9]/g, "");
+ const scope = normalizeBranchKey(scopedId);
+ return (
+ normalizeBranchKey(String(branch.id)) === scope ||
+ normalizeBranchKey(String(branch.code)) === scope
+ );
+}
+
 function branchFromSummaryRow(row: Record<string, unknown>): Branch | null {
  const nested = row.branch;
  if (nested && typeof nested === "object") {
@@ -35,9 +45,12 @@ function branchFromSummaryRow(row: Record<string, unknown>): Branch | null {
  }
  const id = branchIdFromSummaryRow(row);
  if (!id) return null;
+ const name = String(row.branch_name ?? row.name ?? "Branch");
+ const normalizedName = name.trim().toLowerCase();
+ const normalizedId = id.trim().toLowerCase();
  return adaptApiBranchToBranch({
  id,
- name: row.branch_name ?? row.name ?? `Branch ${id}`,
+ name: normalizedName === normalizedId || normalizedName === `branch ${normalizedId}` ? "Branch" : name,
  code: row.branch_code ?? row.code ?? id,
  region: row.region ?? "",
  address: row.address ?? "",
@@ -108,15 +121,16 @@ export { syntheticBranchFromSession } from "@/lib/branch-scope";
 export function canListStaffViaUsersApi(user: SessionUser): boolean {
  return (
  user.role === "super_admin" ||
+ user.role === "loan_officer" ||
  user.permissions.includes("users.view") ||
  user.permissions.includes("users.manage")
  );
 }
 
 /** Branches visible to the actor, with fallbacks for branch-scoped roles. */
-export async function fetchBranchesForSessionUser(user: SessionUser): Promise<Branch[]> {
+export async function fetchBranchesForSessionUser(user: SessionUser, request?: Request): Promise<Branch[]> {
  try {
- return await fetchBranchesForSessionUserInner(user);
+ return await fetchBranchesForSessionUserInner(user, request);
  } catch {
  const scopedId = user.branch_id?.trim();
  if (scopedId) return [syntheticBranchFromSession(user)];
@@ -124,25 +138,43 @@ export async function fetchBranchesForSessionUser(user: SessionUser): Promise<Br
  }
 }
 
-async function fetchBranchesForSessionUserInner(user: SessionUser): Promise<Branch[]> {
+async function fetchBranchesForSessionUserInner(user: SessionUser, request?: Request): Promise<Branch[]> {
  const scopedId = user.branch_id?.trim();
 
- if (!isBranchDataScoped(user)) {
- const listRes = await falcoServerFetch<unknown>("/branches");
- if (listRes.ok) return extractBranchesList(listRes.data);
+ const listRes = await falcoServerFetch<unknown>("/branches", { request });
+ if (listRes.ok) {
+ const branches = extractBranchesList(listRes.data);
+ if (scopedId) {
+ const scoped = branches.filter((b) => branchMatchesScope(b, scopedId));
+ if (scoped.length) return scoped;
+ }
+ if (branches.length) return branches;
+ }
 
- const settingsRes = await falcoServerFetch<unknown>("/settings/branches");
+ if (scopedId) {
+ for (const query of [{ code: scopedId }, { id: scopedId }, { branch_id: scopedId }]) {
+ const scopedRes = await falcoServerFetch<unknown>("/branches", { request, query });
+ if (!scopedRes.ok) continue;
+ const branches = extractBranchesList(scopedRes.data);
+ const scoped = branches.filter((b) => branchMatchesScope(b, scopedId));
+ if (scoped.length) return scoped;
+ if (branches.length === 1) return branches;
+ }
+ }
+
+ if (!isBranchDataScoped(user)) {
+ const settingsRes = await falcoServerFetch<unknown>("/settings/branches", { request });
  if (settingsRes.ok) return extractBranchesList(settingsRes.data);
  }
 
- const summaryRes = await falcoServerFetch<unknown>("/branches/summary");
+ const summaryRes = await falcoServerFetch<unknown>("/branches/summary", { request });
  if (summaryRes.ok) {
  const rows = collectSummaryRows(summaryRes.data);
  const branches = rows
  .map(branchFromSummaryRow)
  .filter((branch): branch is Branch => Boolean(branch?.id));
  if (scopedId) {
- const scoped = branches.filter((b) => String(b.id).trim() === scopedId);
+ const scoped = branches.filter((b) => branchMatchesScope(b, scopedId));
  if (scoped.length) return scoped;
  }
  if (branches.length) return branches;
@@ -156,6 +188,7 @@ export type StaffListOptions = {
  branchId?: string;
  requestedRole?: string;
  isActive?: string;
+ request?: Request;
 };
 
 /** Staff list with summary fallback when `/users` is forbidden. */
@@ -188,8 +221,9 @@ export async function fetchStaffUsersForSessionUser(
 
  if (canListStaffViaUsersApi(user)) {
  const res = await falcoServerFetch<unknown>("/users", {
+ request: options.request,
  query: {
- branch_id: branchId || undefined,
+ branch_id: user.role === "loan_officer" ? undefined : branchId || undefined,
  role: apiRole,
  is_active: options.isActive,
  page: "1",
@@ -234,6 +268,7 @@ export async function fetchStaffUsersForSessionUser(
  full_name: user.full_name,
  role: "loan_officer",
  branch_id: user.branch_id,
+ branch_name: knownBranchNameFromCode(user.branch_id) ?? undefined,
  phone: "",
  employee_id: "",
  is_active: true,

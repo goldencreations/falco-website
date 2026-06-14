@@ -10,6 +10,7 @@ export function adaptApiUserToUser(row: Record<string, unknown>): User {
  full_name: String(row.full_name ?? row.name ?? ""),
  role,
  branch_id: row.branch_id == null || row.branch_id === "" ? "" : String(row.branch_id),
+ branch_name: row.branch_name == null || row.branch_name === "" ? undefined : String(row.branch_name),
  phone: String(row.phone ?? ""),
  employee_id: String(row.employee_id ?? ""),
  is_active: Boolean(row.is_active ?? true),
