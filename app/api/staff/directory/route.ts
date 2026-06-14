@@ -35,6 +35,7 @@ export async function GET(request: Request) {
  branchId: branch_id,
  requestedRole: requestedRole ?? undefined,
  isActive: is_active ?? undefined,
+ request,
  });
 
  return NextResponse.json({ users });

@@ -12,6 +12,7 @@ export type SessionUserClient = {
  email: string;
  role: UserRole;
  branch_id: string;
+ branch_name?: string;
  full_name: string;
  employee_id?: string;
  phone?: string;

@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { FileText, Home, Store, Trash2, Upload } from "lucide-react";
+import { ExternalLink, FileText, Home, Store, Trash2, Upload } from "lucide-react";
+import {
+  CachedMediaPreview,
+  resolveMediaViewUrl,
+} from "@/components/media/cached-media-preview";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -19,7 +23,7 @@ type CustomerAttachmentsFieldsProps = {
   onChange: (next: CustomerAttachmentFormState) => void;
   existingHomeUrl?: string | null;
   existingBusinessUrl?: string | null;
-  existingDocuments?: Array<{ name: string; url: string }>;
+  existingDocuments?: Array<{ name: string; url: string; previewUrl?: string | null }>;
   className?: string;
 };
 
@@ -34,6 +38,11 @@ type ImageFieldProps = {
   error?: string | null;
   onSelect: (file: File | null) => void;
 };
+
+function isImageDocument(doc: { name: string; url: string; previewUrl?: string | null }) {
+  if (doc.previewUrl?.trim()) return true;
+  return /\.(jpe?g|png|webp)(?:[?#].*)?$/i.test(doc.name) || /\.(jpe?g|png|webp)(?:[?#].*)?$/i.test(doc.url);
+}
 
 function ImageUploadField({
   id,
@@ -302,12 +311,40 @@ export function CustomerAttachmentsFields({
         {existingDocuments.length > 0 ? (
           <div className="space-y-1">
             <p className="text-[11px] font-medium text-muted-foreground">On file</p>
-            <ul className="space-y-1">
-              {existingDocuments.map((doc) => (
-                <li key={doc.url} className="truncate text-xs text-muted-foreground">
-                  {doc.name}
-                </li>
-              ))}
+            <ul className="space-y-2">
+              {existingDocuments.map((doc) => {
+                const viewUrl = resolveMediaViewUrl(doc.previewUrl, doc.url);
+                const showPreview = isImageDocument(doc);
+
+                return (
+                  <li key={doc.url} className="overflow-hidden rounded-md border bg-background text-xs">
+                    <div className="flex items-center justify-between gap-2 px-3 py-2">
+                      <span className="flex min-w-0 items-center gap-2">
+                        <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                        <span className="truncate">{doc.name}</span>
+                      </span>
+                      {viewUrl ? (
+                        <Button type="button" variant="ghost" size="sm" asChild>
+                          <a href={viewUrl} target="_blank" rel="noopener noreferrer">
+                            <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                            View
+                          </a>
+                        </Button>
+                      ) : null}
+                    </div>
+                    {showPreview ? (
+                      <div className="border-t px-3 pb-3 pt-2">
+                        <CachedMediaPreview
+                          previewUrl={doc.previewUrl}
+                          authUrl={doc.url}
+                          alt={doc.name}
+                          maxHeight="max-h-44"
+                        />
+                      </div>
+                    ) : null}
+                  </li>
+                );
+              })}
             </ul>
           </div>
         ) : null}

@@ -224,6 +224,7 @@ type CustomerEditDialogProps = {
  customer: Customer;
  sourceRow: Record<string, unknown> | null;
  onSaved: (next: Customer, row: Record<string, unknown> | null) => void;
+ mode?: "dialog" | "page";
 };
 
 export function CustomerEditDialog({
@@ -233,6 +234,7 @@ export function CustomerEditDialog({
  customer,
  sourceRow,
  onSaved,
+ mode = "dialog",
 }: CustomerEditDialogProps) {
  const { user } = useSessionUser();
  const isManagerView = user?.role === "branch_manager";
@@ -438,9 +440,16 @@ export function CustomerEditDialog({
  }
  };
 
- return (
- <Dialog open={open} onOpenChange={onOpenChange}>
- <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+ const header =
+ mode === "page" ? (
+ <div className="space-y-2">
+ <h2 className="text-xl font-semibold tracking-tight">Edit customer</h2>
+ <p className="text-sm text-muted-foreground">
+ Update KYC and assignment details. Changes are saved to the LMS via{" "}
+ <span className="font-mono text-xs">PATCH /customers/{"{id}"}</span>.
+ </p>
+ </div>
+ ) : (
  <DialogHeader>
  <DialogTitle>Edit customer</DialogTitle>
  <DialogDescription>
@@ -448,6 +457,11 @@ export function CustomerEditDialog({
  <span className="font-mono text-xs">PATCH /customers/{"{id}"}</span>.
  </DialogDescription>
  </DialogHeader>
+ );
+
+ const content = (
+ <>
+ {header}
 
  {!form ? (
  <p className="text-sm text-muted-foreground">Loading form…</p>
@@ -848,6 +862,17 @@ export function CustomerEditDialog({
  </DialogFooter>
  </form>
  )}
+ </>
+ );
+
+ if (mode === "page") {
+ return <div className="space-y-6">{content}</div>;
+ }
+
+ return (
+ <Dialog open={open} onOpenChange={onOpenChange}>
+ <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+ {content}
  </DialogContent>
  </Dialog>
  );

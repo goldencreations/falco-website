@@ -61,7 +61,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { CustomerCollateralPanel } from "@/components/customers/customer-collateral-panel";
-import { CustomerEditDialog } from "@/components/customers/customer-edit-dialog";
 import { CustomerGuarantorPanel } from "@/components/customers/customer-guarantor-panel";
 import { enrichCustomerApplicationsForMedia } from "@/lib/enrich-customer-applications";
 import {
@@ -198,6 +197,12 @@ export default function CustomerDetailPage() {
  : user?.role === "loan_officer"
  ? "/officer/customers"
  : "/customers";
+ const customerEditPath =
+ user?.role === "branch_manager"
+ ? `/manager/customers/${customerId}/edit`
+ : user?.role === "loan_officer"
+ ? `/officer/customers/${customerId}/edit`
+ : `/customers/${customerId}/edit`;
  const [isExporting, setIsExporting] = useState(false);
  const [customer, setCustomer] = useState<Customer | null>(null);
  const [loading, setLoading] = useState(true);
@@ -217,7 +222,6 @@ export default function CustomerDetailPage() {
  );
  const [mediaEnriching, setMediaEnriching] = useState(false);
  const [sourceRow, setSourceRow] = useState<Record<string, unknown> | null>(null);
- const [editOpen, setEditOpen] = useState(false);
  const [blacklistOpen, setBlacklistOpen] = useState(false);
  const [blacklistReason, setBlacklistReason] = useState("");
  const [blacklistSaving, setBlacklistSaving] = useState(false);
@@ -619,9 +623,11 @@ export default function CustomerDetailPage() {
  <Download className="mr-2 h-4 w-4" />
  {isExporting ? "Exporting..." : "Export Report"}
  </Button>
- <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
+ <Button variant="outline" size="sm" asChild>
+ <Link href={customerEditPath}>
  <Edit className="mr-2 h-4 w-4" />
  Edit
+ </Link>
  </Button>
  {!customer.is_blacklisted && (
  <Button
@@ -1189,19 +1195,6 @@ export default function CustomerDetailPage() {
  </Tabs>
  </div>
  </main>
-
- <CustomerEditDialog
- open={editOpen}
- onOpenChange={setEditOpen}
- customerId={customerId}
- customer={customer}
- sourceRow={sourceRow}
- onSaved={(next, row) => {
- setCustomer(next);
- setSourceRow(row);
- if (customerId) setCachedCustomerDetail(customerId, row, next);
- }}
- />
 
  <AlertDialog
  open={blacklistOpen}

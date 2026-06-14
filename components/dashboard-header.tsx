@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import type { Branch } from "@/lib/types";
+import { knownBranchNameFromCode } from "@/lib/branch-scope";
 import { useSessionUser } from "@/lib/use-session-user";
 import { cn } from "@/lib/utils";
 
@@ -83,6 +84,8 @@ export function DashboardHeader({ title, description }: DashboardHeaderProps) {
  const currentBranch = branches.find((b) => b.id === user?.branch_id);
  const branchBadgeLabel =
  currentBranch?.name ??
+ (user?.branch_name?.trim() ? user.branch_name.trim() : undefined) ??
+ (user?.branch_id?.trim() ? knownBranchNameFromCode(user.branch_id.trim()) ?? undefined : undefined) ??
  (user?.branch_id?.trim() ? `Branch ${user.branch_id.trim()}` : undefined);
  const [notifications, setNotifications] = useState<Notification[]>(INITIAL_NOTIFICATIONS);
  const unreadCount = notifications.filter((n) => !n.read).length;

@@ -34,6 +34,7 @@ import {
   officerDashboardFallback,
   type OfficerDashboardMetrics,
 } from "@/lib/officer-dashboard-metrics";
+import { knownBranchNameFromCode } from "@/lib/branch-scope";
 import { formatCurrency } from "@/lib/formatters";
 
 const tipStyle = {
@@ -49,6 +50,28 @@ type Props = {
   officerId: string;
 };
 
+function usableBranchName(name: string | undefined, branchId: string): string {
+  const value = name?.trim() ?? "";
+  if (!value) return "";
+  const id = branchId.trim().toLowerCase();
+  const normalized = value.toLowerCase();
+  if (normalized === id || normalized === `branch ${id}`) return "";
+  return value;
+}
+
+function branchMatchesSession(
+  branch: { id: string; code?: string },
+  branchId: string
+): boolean {
+  const normalizeBranchKey = (value: string) =>
+    value.trim().toLowerCase().replace(/^branch[-_\s]*/, "").replace(/[^a-z0-9]/g, "");
+  const sessionBranch = normalizeBranchKey(branchId);
+  return (
+    normalizeBranchKey(branch.id) === sessionBranch ||
+    normalizeBranchKey(branch.code ?? "") === sessionBranch
+  );
+}
+
 export function OfficerBranchProgressSection({ branchId, officerId }: Props) {
   const [metrics, setMetrics] = useState<OfficerDashboardMetrics | null>(null);
   const [loading, setLoading] = useState(true);
@@ -62,7 +85,7 @@ export function OfficerBranchProgressSection({ branchId, officerId }: Props) {
       const { from, to } = lastSixMonthRange();
       const params = new URLSearchParams({ branch_id: branchId });
 
-      let branchName = branchId;
+      let branchName = knownBranchNameFromCode(branchId) ?? "Branch";
       let zoneName = "—";
       let portfolioSummary: Record<string, unknown> | null = null;
       let disbursementSeries = mapTimeseriesPoints([]);
@@ -98,10 +121,14 @@ export function OfficerBranchProgressSection({ branchId, officerId }: Props) {
         ]);
 
         if (branchRes.ok) {
-          const bJson = (await branchRes.json()) as { branches?: Array<{ id: string; name: string; region?: string }> };
-          const match = (bJson.branches ?? []).find((b) => b.id === branchId);
+          const bJson = (await branchRes.json()) as {
+            branches?: Array<{ id: string; name: string; code?: string; region?: string }>;
+          };
+          const branches = bJson.branches ?? [];
+          const match = branches.find((b) => branchMatchesSession(b, branchId)) ?? (branches.length === 1 ? branches[0] : undefined);
           if (match) {
-            branchName = match.name;
+            const resolvedName = usableBranchName(match.name, branchId);
+            if (resolvedName && resolvedName !== "Branch") branchName = resolvedName;
             zoneName = match.region ?? "—";
           }
         }

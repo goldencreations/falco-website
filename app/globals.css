@@ -150,3 +150,88 @@
 .animate-shake {
   animation: tz-input-shake 0.45s ease-in-out;
 }
+
+/* ── Status-change bouncing-balls loader ─────────────────────────────── */
+.status-loader {
+  width: 54px;
+  height: 20px;
+  position: relative;
+}
+
+.status-loader__circle {
+  width: 12px;
+  height: 12px;
+  position: absolute;
+  border-radius: 50%;
+  background-color: var(--primary);
+  left: 5%;
+  transform-origin: 50%;
+  animation: status-loader-bounce 0.5s alternate infinite ease;
+}
+
+.status-loader__circle:nth-child(2) {
+  left: 38%;
+  animation-delay: 0.15s;
+}
+
+.status-loader__circle:nth-child(3) {
+  left: auto;
+  right: 5%;
+  animation-delay: 0.3s;
+}
+
+.status-loader__shadow {
+  width: 12px;
+  height: 3px;
+  border-radius: 50%;
+  background-color: color-mix(in oklch, var(--primary) 25%, transparent);
+  position: absolute;
+  top: 18px;
+  transform-origin: 50%;
+  z-index: -1;
+  left: 5%;
+  filter: blur(1px);
+  animation: status-loader-shadow 0.5s alternate infinite ease;
+}
+
+.status-loader__shadow:nth-child(4) {
+  left: 38%;
+  animation-delay: 0.15s;
+}
+
+.status-loader__shadow:nth-child(5) {
+  left: auto;
+  right: 5%;
+  animation-delay: 0.3s;
+}
+
+@keyframes status-loader-bounce {
+  0% {
+    top: 14px;
+    height: 5px;
+    border-radius: 50px 50px 25px 25px;
+    transform: scaleX(1.5);
+  }
+  40% {
+    height: 12px;
+    border-radius: 50%;
+    transform: scaleX(1);
+  }
+  100% {
+    top: 0%;
+  }
+}
+
+@keyframes status-loader-shadow {
+  0% {
+    transform: scaleX(1.5);
+  }
+  40% {
+    transform: scaleX(1);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scaleX(0.2);
+    opacity: 0.4;
+  }
+}

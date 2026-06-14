@@ -704,15 +704,21 @@ export default function DisbursementsPage() {
  setError(formatApiResponseError(data, "Update failed"));
  return;
  }
- setCompleteRow(null);
- setRejectRow(null);
- setCompleteRef("");
- setRejectReason("");
- await load();
- } finally {
- setActionLoading(null);
- }
- };
+    setCompleteRow(null);
+    setRejectRow(null);
+    setCompleteRef("");
+    setRejectReason("");
+    await load();
+    // Signal the Applications page to reload immediately so the status badge
+    // flips to "Disbursed" the moment the user navigates back.
+    try {
+      localStorage.setItem("falco.disbursement.updated", String(Date.now()));
+    } catch { /* storage unavailable */ }
+    window.dispatchEvent(new CustomEvent("falco:disbursement:updated"));
+  } finally {
+    setActionLoading(null);
+  }
+};
 
  const canApprove = user ? userCanApproveDisbursement(user) : false;
 
