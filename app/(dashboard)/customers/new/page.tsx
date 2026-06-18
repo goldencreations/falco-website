@@ -4,8 +4,22 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Building2, Home, Paperclip, Save, Store, UserPlus, Users } from "lucide-react";
+import {
+  ArrowLeft,
+  Building2,
+  Home,
+  Loader2,
+  MapPin,
+  Paperclip,
+  Save,
+  Search,
+  Store,
+  UserPlus,
+  Users,
+} from "lucide-react";
 import { CustomerAttachmentsFields } from "@/components/customers/customer-attachments-fields";
+import { CustomerGuarantorsFields } from "@/components/customers/customer-guarantors-fields";
+import { CustomerReferencesFields } from "@/components/customers/customer-references-fields";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -41,6 +55,22 @@ import type { SessionUser } from "@/lib/auth";
 import { syntheticBranchFromSession } from "@/lib/branch-scope";
 import { formatValidationDetails } from "@/lib/falco-api";
 import { parseLeadPrefillFromSearchParams } from "@/lib/lead-to-customer-prefill";
+import {
+  customerGuarantorFormToRecords,
+  defaultCustomerGuarantorForm,
+  validateCustomerGuarantors,
+  type CustomerGuarantorFormRow,
+} from "@/lib/customer-guarantors";
+import {
+  customerReferenceFormToRecords,
+  defaultCustomerReferenceForm,
+  validateCustomerReferences,
+  type CustomerReferenceFormRow,
+} from "@/lib/customer-references";
+import { setCustomerGuarantorPendingFiles } from "@/lib/customer-guarantor-pending-files";
+import { extractCustomerDetail } from "@/lib/customer-adapters";
+import { parseNominatimAddress, reverseGeocodeNominatim } from "@/lib/nominatim";
+import { searchPlacesInTanzania, type PlaceSuggestion } from "@/lib/nominatim-search";
 import { useSessionUser } from "@/lib/use-session-user";
 
 const CustomerLocationMapPicker = dynamic(
@@ -102,22 +132,6 @@ type CustomerCreateForm = {
  branch_id: string;
  loan_officer_id: string;
  created_by: string;
-};
-
-type PlaceSuggestion = {
- display_name: string;
- address?: {
- road?: string;
- suburb?: string;
- neighbourhood?: string;
- city_district?: string;
- city?: string;
- town?: string;
- village?: string;
- county?: string;
- state?: string;
- municipality?: string;
- };
 };
 
 const STATUS_OPTIONS: Array<{ value: CustomerStatus; label: string }> = [
@@ -229,6 +243,10 @@ function NewCustomerPageInner() {
  const [loadingStreetSuggestions, setLoadingStreetSuggestions] = useState(false);
  const [activePlaceSuggestionIndex, setActivePlaceSuggestionIndex] = useState(-1);
  const [activeStreetSuggestionIndex, setActiveStreetSuggestionIndex] = useState(-1);
+ const [browseLocationQuery, setBrowseLocationQuery] = useState("");
+ const [browseSuggestions, setBrowseSuggestions] = useState<PlaceSuggestion[]>([]);
+ const [loadingBrowseSuggestions, setLoadingBrowseSuggestions] = useState(false);
+ const [resolvingHomeLocation, setResolvingHomeLocation] = useState(false);
  const [branchRecords, setBranchRecords] = useState<Branch[]>(() =>
  portalOfficer?.branch_id?.trim() ? [syntheticBranchFromSession(portalOfficer)] : []
  );
@@ -240,10 +258,12 @@ function NewCustomerPageInner() {
  const [officersLoading, setOfficersLoading] = useState(false);
  const [officersError, setOfficersError] = useState("");
  const [attachments, setAttachments] = useState<CustomerAttachmentFormState>(emptyCustomerAttachments);
+ const [guarantors, setGuarantors] = useState<CustomerGuarantorFormRow[]>(defaultCustomerGuarantorForm);
+ const [references, setReferences] = useState<CustomerReferenceFormRow[]>(defaultCustomerReferenceForm);
 
  const attachmentCount =
- (attachments.home_location_photo ? 1 : 0) +
- (attachments.business_location_photo ? 1 : 0) +
+ attachments.home_location_photos.length +
+ attachments.business_location_photos.length +
  attachments.supporting_documents.length;
 
  const [leadPrefillId, setLeadPrefillId] = useState<string | null>(null);
@@ -403,20 +423,70 @@ function NewCustomerPageInner() {
  });
  };
 
- const searchLocation = async (query: string) => {
- const params = new URLSearchParams({
- q: query,
- format: "jsonv2",
- addressdetails: "1",
- countrycodes: "tz",
- limit: "5",
- });
- const response = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`);
- if (!response.ok) {
- return [];
- }
- return (await response.json()) as PlaceSuggestion[];
+ const applyAddressPartsToForm = (
+ suggestion: PlaceSuggestion | { address?: PlaceSuggestion["address"]; display_name: string; lat?: string; lon?: string },
+ options?: { includeCoordinates?: boolean }
+ ) => {
+ const place = parseNominatimAddress(suggestion.address, suggestion.display_name);
+ const lat = suggestion.lat != null ? Number(suggestion.lat) : NaN;
+ const lng = suggestion.lon != null ? Number(suggestion.lon) : NaN;
+ const hasCoords = Number.isFinite(lat) && Number.isFinite(lng);
+
+ setForm((prev) => ({
+ ...prev,
+ physical_address: place.displayName || suggestion.display_name || prev.physical_address,
+ street: place.locationName || prev.street,
+ ward: place.ward || prev.ward,
+ district: place.district || prev.district,
+ region: place.region || prev.region,
+ ...(options?.includeCoordinates !== false && hasCoords
+ ? { home_latitude: lat, home_longitude: lng }
+ : {}),
+ }));
  };
+
+ const handleHomeLocationPick = async (lat: number, lng: number) => {
+ setForm((prev) => ({ ...prev, home_latitude: lat, home_longitude: lng }));
+ setResolvingHomeLocation(true);
+ try {
+ const place = await reverseGeocodeNominatim(lat, lng);
+ setForm((prev) => ({
+ ...prev,
+ home_latitude: lat,
+ home_longitude: lng,
+ physical_address: place.displayName || prev.physical_address,
+ street: place.locationName || prev.street,
+ ward: place.ward || prev.ward,
+ district: place.district || prev.district,
+ region: place.region || prev.region,
+ }));
+ } catch {
+ /* keep coordinates even if reverse geocode fails */
+ } finally {
+ setResolvingHomeLocation(false);
+ }
+ };
+
+ useEffect(() => {
+ const value = browseLocationQuery.trim();
+ if (value.length < 3) {
+ setBrowseSuggestions([]);
+ setLoadingBrowseSuggestions(false);
+ return;
+ }
+ const timeout = setTimeout(async () => {
+ setLoadingBrowseSuggestions(true);
+ try {
+ const results = await searchPlacesInTanzania(value, { limit: 6 });
+ setBrowseSuggestions(results);
+ } catch {
+ setBrowseSuggestions([]);
+ } finally {
+ setLoadingBrowseSuggestions(false);
+ }
+ }, 350);
+ return () => clearTimeout(timeout);
+ }, [browseLocationQuery]);
 
  useEffect(() => {
  const value = form.physical_address.trim();
@@ -429,7 +499,7 @@ function NewCustomerPageInner() {
  const timeout = setTimeout(async () => {
  setLoadingPlaceSuggestions(true);
  try {
- const results = await searchLocation(value);
+ const results = await searchPlacesInTanzania(value, { limit: 5 });
  setPlaceSuggestions(results);
  setActivePlaceSuggestionIndex(results.length > 0 ? 0 : -1);
  } catch {
@@ -454,7 +524,7 @@ function NewCustomerPageInner() {
  setLoadingStreetSuggestions(true);
  const context = [form.district, form.region, "Tanzania"].filter(Boolean).join(", ");
  try {
- const results = await searchLocation(`${value}, ${context}`);
+ const results = await searchPlacesInTanzania(value, { context, limit: 5 });
  setStreetSuggestions(results);
  setActiveStreetSuggestionIndex(results.length > 0 ? 0 : -1);
  } catch {
@@ -467,21 +537,8 @@ function NewCustomerPageInner() {
  return () => clearTimeout(timeout);
  }, [form.street, form.district, form.region]);
 
- const applySuggestionToForm = (suggestion: PlaceSuggestion, options?: { physicalOnly?: boolean }) => {
- const address = suggestion.address;
- const road = address?.road ?? "";
- const ward = address?.suburb ?? address?.neighbourhood ?? "";
- const district = address?.city_district ?? address?.county ?? "";
- const region = address?.state ?? address?.city ?? address?.town ?? address?.municipality ?? address?.village ?? "";
-
- setForm((prev) => ({
- ...prev,
- physical_address: suggestion.display_name || prev.physical_address,
- street: options?.physicalOnly ? prev.street : road || prev.street,
- ward: ward || prev.ward,
- district: district || prev.district,
- region: region || prev.region,
- }));
+ const applySuggestionToForm = (suggestion: PlaceSuggestion) => {
+ applyAddressPartsToForm(suggestion);
  };
 
  const handlePhysicalAddressKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -498,7 +555,7 @@ function NewCustomerPageInner() {
  }
  if (event.key === "Enter" && activePlaceSuggestionIndex >= 0) {
  event.preventDefault();
- applySuggestionToForm(placeSuggestions[activePlaceSuggestionIndex], { physicalOnly: true });
+ applySuggestionToForm(placeSuggestions[activePlaceSuggestionIndex]);
  setPlaceSuggestions([]);
  setActivePlaceSuggestionIndex(-1);
  return;
@@ -590,6 +647,8 @@ function NewCustomerPageInner() {
  loan_officer_id: effectiveOfficerId || form.loan_officer_id,
  branch_id: effectiveBranchId || form.branch_id,
  created_by: form.created_by,
+ guarantors: customerGuarantorFormToRecords(guarantors),
+ references: customerReferenceFormToRecords(references),
  });
 
  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -607,6 +666,18 @@ function NewCustomerPageInner() {
  return;
  }
 
+ const guarantorValidation = validateCustomerGuarantors(guarantors);
+ if (!guarantorValidation.ok) {
+ setError(guarantorValidation.error);
+ return;
+ }
+
+ const referenceValidation = validateCustomerReferences(references);
+ if (!referenceValidation.ok) {
+ setError(referenceValidation.error);
+ return;
+ }
+
  const payload = buildPayload();
  const customerEndpoint = process.env.NEXT_PUBLIC_CUSTOMERS_API_URL || "/api/customers";
 
@@ -619,27 +690,34 @@ function NewCustomerPageInner() {
  body: JSON.stringify(payload),
  });
 
- const errBody = (await response.json().catch(() => ({}))) as {
+ const responseBody = (await response.json().catch(() => ({}))) as {
  message?: string;
  error?: string | { message?: string; details?: { field?: string; message?: string }[] };
  details?: { field?: string; message?: string }[];
  code?: string;
+ customer?: unknown;
  };
  if (!response.ok) {
  const nested =
- typeof errBody.error === "object" && errBody.error !== null
- ? (errBody.error as { message?: string; details?: { field?: string; message?: string }[] })
+ typeof responseBody.error === "object" && responseBody.error !== null
+ ? (responseBody.error as { message?: string; details?: { field?: string; message?: string }[] })
  : null;
  const baseMsg =
- typeof errBody.message === "string"
- ? errBody.message
- : typeof errBody.error === "string"
- ? errBody.error
+ typeof responseBody.message === "string"
+ ? responseBody.message
+ : typeof responseBody.error === "string"
+ ? responseBody.error
  : nested?.message ?? `Customer create failed (${response.status})`;
- const rawDetails = errBody.details ?? nested?.details;
+ const rawDetails = responseBody.details ?? nested?.details;
  const detailStr = formatValidationDetails(rawDetails);
  setError(detailStr ? `${baseMsg} ${detailStr}` : baseMsg);
  return;
+ }
+
+ const createdRow = extractCustomerDetail(responseBody);
+ const createdId = createdRow?.id != null ? String(createdRow.id) : "";
+ if (createdId && customerGuarantorFormToRecords(guarantors).length > 0) {
+ setCustomerGuarantorPendingFiles(createdId, guarantors);
  }
 
  router.replace(customersBasePath);
@@ -900,6 +978,48 @@ function NewCustomerPageInner() {
  </CardHeader>
  <CardContent className="space-y-4">
  <div className="space-y-2">
+ <Label htmlFor="browse-location">Browse location</Label>
+ <p className="text-xs text-muted-foreground">
+ Search a place in Tanzania to fill street, ward, district, and region automatically.
+ </p>
+ <div className="relative">
+ <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+ <Input
+ id="browse-location"
+ value={browseLocationQuery}
+ onChange={(event) => setBrowseLocationQuery(event.target.value)}
+ placeholder="Search ward, street, landmark, or area…"
+ className="pl-9"
+ />
+ </div>
+ {loadingBrowseSuggestions ? (
+ <p className="flex items-center gap-2 text-xs text-muted-foreground">
+ <Loader2 className="h-3.5 w-3.5 animate-spin" />
+ Searching locations…
+ </p>
+ ) : null}
+ {browseSuggestions.length > 0 ? (
+ <ul className="max-h-44 overflow-y-auto rounded-md border bg-background text-sm shadow-sm">
+ {browseSuggestions.map((suggestion) => (
+ <li key={`${suggestion.lat}-${suggestion.lon}-${suggestion.display_name}`}>
+ <button
+ type="button"
+ className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-muted/60"
+ onClick={() => {
+ applyAddressPartsToForm(suggestion);
+ setBrowseLocationQuery("");
+ setBrowseSuggestions([]);
+ }}
+ >
+ <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-700" />
+ <span className="text-xs sm:text-sm">{suggestion.display_name}</span>
+ </button>
+ </li>
+ ))}
+ </ul>
+ ) : null}
+ </div>
+ <div className="space-y-2">
  <Label htmlFor="physical-address">Physical Address</Label>
  <div className="relative">
  <Textarea
@@ -920,7 +1040,7 @@ function NewCustomerPageInner() {
  key={suggestion.display_name}
  type="button"
  onClick={() => {
- applySuggestionToForm(suggestion, { physicalOnly: true });
+ applySuggestionToForm(suggestion);
  setPlaceSuggestions([]);
  setActivePlaceSuggestionIndex(-1);
  }}
@@ -983,7 +1103,12 @@ function NewCustomerPageInner() {
  </div>
  <div className="space-y-2">
  <Label htmlFor="ward">Ward</Label>
- <Input id="ward" value={form.ward} onChange={(event) => updateField("ward", event.target.value)} />
+ <Input
+ id="ward"
+ value={form.ward}
+ onChange={(event) => updateField("ward", event.target.value)}
+ placeholder={form.district ? `Ward in ${form.district}` : "Ward"}
+ />
  </div>
  <div className="space-y-2">
  <Label htmlFor="district">District</Label>
@@ -991,24 +1116,30 @@ function NewCustomerPageInner() {
  id="district"
  value={form.district}
  onChange={(event) => updateField("district", event.target.value)}
+ placeholder={form.region ? `District in ${form.region}` : "District"}
  />
  </div>
  <div className="space-y-2">
  <Label htmlFor="region">Region</Label>
- <Input id="region" value={form.region} onChange={(event) => updateField("region", event.target.value)} />
+ <Input
+ id="region"
+ value={form.region}
+ onChange={(event) => updateField("region", event.target.value)}
+ placeholder="Region e.g. Dar es Salaam"
+ />
  </div>
  <div className="space-y-2 md:col-span-2">
+ {resolvingHomeLocation ? (
+ <p className="flex items-center gap-2 text-xs text-muted-foreground">
+ <Loader2 className="h-3.5 w-3.5 animate-spin" />
+ Filling address from map location…
+ </p>
+ ) : null}
  <CustomerLocationMapPicker
  purpose="home"
  latitude={form.home_latitude}
  longitude={form.home_longitude}
- onPick={(lat, lng) =>
- setForm((prev) => ({
- ...prev,
- home_latitude: lat,
- home_longitude: lng,
- }))
- }
+ onPick={(lat, lng) => void handleHomeLocationPick(lat, lng)}
  onClear={() =>
  setForm((prev) => ({
  ...prev,
@@ -1171,10 +1302,37 @@ function NewCustomerPageInner() {
 
  <Card>
  <CardHeader>
+ <CardTitle>Guarantors</CardTitle>
+ <CardDescription>
+ Register up to two guarantors for this customer. They are copied automatically when you create a
+ loan application for this borrower (per Falco `POST /applications` guarantors).
+ </CardDescription>
+ </CardHeader>
+ <CardContent>
+ <CustomerGuarantorsFields value={guarantors} onChange={setGuarantors} />
+ </CardContent>
+ </Card>
+
+ <Card>
+ <CardHeader>
+ <CardTitle>References</CardTitle>
+ <CardDescription>
+ Add friends or family contacts reachable if the customer is unavailable. Up to three references
+ are saved on the customer profile and sent automatically with loan applications per Falco{" "}
+ <code className="text-xs">POST /applications</code>.
+ </CardDescription>
+ </CardHeader>
+ <CardContent>
+ <CustomerReferencesFields value={references} onChange={setReferences} />
+ </CardContent>
+ </Card>
+
+ <Card>
+ <CardHeader>
  <CardTitle>Attachments</CardTitle>
  <CardDescription>
- Optional photos and documents for field verification. Files are held on this form until customer
- upload is enabled on the API.
+ Optional photos and documents for field verification. Add multiple home or business photos and
+ supporting files as needed.
  </CardDescription>
  </CardHeader>
  <CardContent>

@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bell, Search, MapPin, Check, X, CheckCheck } from "lucide-react";
+import { Bell, MapPin, Check, X, CheckCheck } from "lucide-react";
+import { GlobalSearch } from "@/components/global-search";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
  DropdownMenu,
@@ -115,13 +115,7 @@ export function DashboardHeader({ title, description }: DashboardHeaderProps) {
  </div>
 
  <div className="flex items-center gap-3">
- <div className="relative hidden md:block">
- <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
- <Input
- placeholder="Search customers, loans..."
- className="w-64 pl-9 bg-muted/50 border-0 focus-visible:bg-background focus-visible:ring-primary"
- />
- </div>
+ <GlobalSearch className="hidden md:block" />
 
  {branchBadgeLabel ? (
  <Badge variant="outline" className="hidden text-xs lg:inline-flex gap-1.5 bg-primary/5 text-primary border-primary/20">

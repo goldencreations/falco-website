@@ -1,4 +1,9 @@
+import {
+  customerRegistrationDisplayName,
+  customerRegistrationDisplayNameFromRow,
+} from "@/lib/customer-adapters";
 import type { LoanGroup } from "@/lib/types";
+import { parseMeetingGeoFromNotes, stripMeetingGeoFromNotes } from "@/lib/group-meeting-location";
 
 export type GroupMemberRow = {
  customerId: string;
@@ -38,6 +43,14 @@ export function adaptApiGroupRowToLoanGroup(row: Record<string, unknown>): LoanG
  const statusRaw = str(row.status, "active");
  const status =
  statusRaw === "inactive" || statusRaw === "suspended" ? statusRaw : "active";
+ const notes = row.notes ? str(row.notes) : undefined;
+ const geo =
+ row.meeting_latitude != null && row.meeting_longitude != null
+ ? {
+ latitude: Number(row.meeting_latitude),
+ longitude: Number(row.meeting_longitude),
+ }
+ : parseMeetingGeoFromNotes(notes);
 
  return {
  id: str(row.id),
@@ -54,7 +67,9 @@ export function adaptApiGroupRowToLoanGroup(row: Record<string, unknown>): LoanG
  meeting_location: str(row.meeting_location),
  village_or_street: str(row.village_or_street),
  status,
- notes: row.notes ? str(row.notes) : undefined,
+ notes: notes ? stripMeetingGeoFromNotes(notes) : undefined,
+ meeting_latitude: geo?.latitude ?? null,
+ meeting_longitude: geo?.longitude ?? null,
  created_at: str(row.created_at ?? new Date().toISOString()),
  updated_at: str(row.updated_at ?? row.created_at ?? new Date().toISOString()),
  };
@@ -74,22 +89,32 @@ export function extractGroupsList(json: unknown): LoanGroup[] {
 }
 
 function adaptMemberRow(row: Record<string, unknown>): GroupMemberRow {
- const first = str(row.first_name);
- const last = str(row.last_name);
- const full = str(row.full_name ?? row.customer_name);
+ const nested =
+ row.customer && typeof row.customer === "object"
+ ? (row.customer as Record<string, unknown>)
+ : null;
+ const source = nested ?? row;
  const customerName =
- full || [first, last].filter(Boolean).join(" ") || "Member";
+ customerRegistrationDisplayNameFromRow(source) ||
+ customerRegistrationDisplayNameFromRow(row);
 
  return {
- customerId: str(row.customer_id ?? row.id),
- customerNumber: str(row.customer_number),
+ customerId: str(row.customer_id ?? nested?.id ?? row.id),
+ customerNumber: str(row.customer_number ?? nested?.customer_number),
  customerName,
  role: row.role ? str(row.role) : undefined,
  leftAt: row.left_at ? str(row.left_at) : null,
  riskGrade: row.risk_grade ? str(row.risk_grade) : undefined,
- monthlyIncome: row.monthly_income != null ? Number(row.monthly_income) : undefined,
- phone: str(row.phone_number ?? row.phone_primary ?? row.phone) || undefined,
- nationalId: str(row.national_id) || undefined,
+ monthlyIncome:
+ row.monthly_income != null
+ ? Number(row.monthly_income)
+ : nested?.monthly_income != null
+ ? Number(nested.monthly_income)
+ : undefined,
+ phone:
+ str(row.phone_number ?? row.phone_primary ?? row.phone ?? nested?.phone_primary ?? nested?.phone) ||
+ undefined,
+ nationalId: str(row.national_id ?? nested?.national_id) || undefined,
  };
 }
 
@@ -111,7 +136,7 @@ export function extractGroupDetail(json: unknown): GroupDetailView | null {
  members: group.member_customer_ids.map((id) => ({
  customerId: id,
  customerNumber: "",
- customerName: id,
+ customerName: "",
  })),
  };
  }

@@ -28,11 +28,13 @@ import {
  mergeBranchesList,
  settingsRowsToBranches,
 } from "@/lib/branch-adapters";
+import { branchIdsMatch, syntheticBranchFromSession } from "@/lib/branch-scope";
 import { parseSettingsBranches } from "@/lib/settings-adapters";
 import { forceCachedReload } from "@/lib/client-fetch-cache";
 import { extractCustomersList } from "@/lib/customer-adapters";
 import { extractGroupDetail } from "@/lib/group-adapters";
 import { extractUsersListPayload } from "@/lib/user-adapters";
+import { GroupMeetingLocationSection } from "@/components/groups/group-meeting-location-section";
 import type { GroupCreateForm } from "@/lib/group-payload";
 import { formatValidationDetails } from "@/lib/falco-api";
 import type { Branch, Customer, User } from "@/lib/types";
@@ -62,13 +64,15 @@ const defaultForm: GroupCreateForm = {
  meeting_day: "Monday",
  meeting_location: "",
  village_or_street: "",
+ meeting_latitude: null,
+ meeting_longitude: null,
  status: "active",
  notes: "",
 };
 
 export default function NewGroupPage() {
  const router = useRouter();
- const { user } = useSessionUser();
+ const { user, loaded: sessionLoaded } = useSessionUser();
  const isOfficerView = user?.role === "loan_officer";
  const isScopedRole = user?.role === "branch_manager" || isOfficerView;
  const lockedBranchId = isScopedRole ? user?.branch_id ?? "" : "";
@@ -95,16 +99,35 @@ export default function NewGroupPage() {
 
  const patch = (updates: Partial<GroupCreateForm>) => setForm((prev) => ({ ...prev, ...updates }));
 
- const loadBranches = useCallback(async () => {
+ const loadBranches = useCallback(async (opts?: { silent?: boolean }) => {
+ if (!sessionLoaded) return;
+
+ if (!opts?.silent) {
  setBranchesLoading(true);
+ }
  setBranchesError("");
+
  try {
+ if (lockedBranchId && user) {
+ const fromContext = contextBranches.find(
+ (branch) =>
+ branchIdsMatch(branch.id, lockedBranchId) || branchIdsMatch(branch.code, lockedBranchId)
+ );
+ const synthetic = syntheticBranchFromSession({
+ role: user.role,
+ branch_id: lockedBranchId,
+ });
+ setBranchRecords([
+ fromContext ?? {
+ ...synthetic,
+ name: user.branch_name?.trim() || fromContext?.name || synthetic.name,
+ },
+ ]);
+ return;
+ }
+
  if (lockedBranchId) {
- const fromContext = contextBranches.find((b) => String(b.id).trim() === lockedBranchId);
- setBranchRecords(
- fromContext
- ? [fromContext]
- : [
+ setBranchRecords([
  {
  id: lockedBranchId,
  name: `Branch ${lockedBranchId}`,
@@ -115,41 +138,45 @@ export default function NewGroupPage() {
  manager_id: "",
  is_active: true,
  },
- ]
- );
+ ]);
  return;
  }
 
  const [falcoRes, settingsRes] = await Promise.all([
- fetch("/api/falco/branches", { credentials: "include" }),
- fetch("/api/settings/branches", { credentials: "include" }),
+ fetch("/api/falco/branches", { credentials: "include", cache: "no-store" }),
+ fetch("/api/settings/branches", { credentials: "include", cache: "no-store" }),
  ]);
 
- const falcoJson = falcoRes.ok ? ((await falcoRes.json()) as unknown) : null;
+ const falcoJson = falcoRes.ok
+ ? ((await falcoRes.json()) as { branches?: Branch[]; message?: string })
+ : null;
  const settingsJson = settingsRes.ok ? ((await settingsRes.json()) as unknown) : null;
 
- const fromFalco = falcoJson ? extractBranchesList(falcoJson) : [];
+ const fromFalco = falcoJson?.branches?.length
+ ? falcoJson.branches
+ : falcoJson
+ ? extractBranchesList(falcoJson)
+ : [];
  const fromSettings = settingsJson
  ? settingsRowsToBranches(parseSettingsBranches(settingsJson))
  : [];
- const fromContext = extractBranchesList(contextBranches);
 
- const loaded = mergeBranchesList(fromFalco, fromSettings, fromContext);
+ const loaded = mergeBranchesList(fromFalco, fromSettings, contextBranches);
 
  setBranchRecords(loaded);
  if (!loaded.length) {
  const hint = !falcoRes.ok
- ? "Could not load branches from the server."
+ ? falcoJson?.message ?? "Could not load branches from the server."
  : "No registered branches found. Add branches under Branches in the menu first.";
  setBranchesError(hint);
  }
  } catch {
  setBranchesError("Could not load branches");
- setBranchRecords(mergeBranchesList(extractBranchesList(contextBranches)));
+ setBranchRecords(mergeBranchesList(contextBranches));
  } finally {
  setBranchesLoading(false);
  }
- }, [lockedBranchId, contextBranches]);
+ }, [lockedBranchId, contextBranches, sessionLoaded, user]);
 
  const loadOfficersForBranch = useCallback(
  async (branchId?: string) => {
@@ -234,8 +261,9 @@ export default function NewGroupPage() {
  }, []);
 
  useEffect(() => {
+ if (!sessionLoaded) return;
  void loadBranches();
- }, [loadBranches]);
+ }, [loadBranches, sessionLoaded]);
 
  useEffect(() => {
  if (!contextBranches.length || lockedBranchId) return;
@@ -244,12 +272,19 @@ export default function NewGroupPage() {
 
  useEffect(() => {
  if (lockedBranchId) {
- setForm((prev) => ({ ...prev, branch_id: lockedBranchId }));
+ const matched = branchRecords.find(
+ (branch) =>
+ branchIdsMatch(branch.id, lockedBranchId) || branchIdsMatch(branch.code, lockedBranchId)
+ );
+ setForm((prev) => ({
+ ...prev,
+ branch_id: matched?.id ?? lockedBranchId,
+ }));
  }
  if (lockedOfficerId) {
  setForm((prev) => ({ ...prev, loan_officer_id: lockedOfficerId }));
  }
- }, [lockedBranchId, lockedOfficerId]);
+ }, [lockedBranchId, lockedOfficerId, branchRecords]);
 
  useEffect(() => {
  void loadOfficersForBranch();
@@ -274,6 +309,7 @@ export default function NewGroupPage() {
  );
 
  const handleBranchChange = (branchId: string) => {
+ if (!branchId) return;
  setForm((prev) => ({
  ...prev,
  branch_id: branchId,
@@ -402,25 +438,29 @@ export default function NewGroupPage() {
  <p className="text-xs text-muted-foreground">
  Select which registered branch this new vikundi belongs to.
  </p>
- <select
- id="branch"
- className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
- value={form.branch_id}
- onChange={(e) => handleBranchChange(e.target.value)}
- onFocus={() => void loadBranches()}
- disabled={Boolean(lockedBranchId) || branchesLoading}
- required
+ <Select
+ value={form.branch_id || undefined}
+ onValueChange={handleBranchChange}
+ disabled={Boolean(lockedBranchId) || !sessionLoaded || (branchesLoading && branchOptions.length === 0)}
  >
- <option value="" disabled>
- {branchesLoading ? "Loading branches…" : "— Select branch —"}
- </option>
+ <SelectTrigger id="branch" className="w-full">
+ <SelectValue
+ placeholder={
+ !sessionLoaded || (branchesLoading && branchOptions.length === 0)
+ ? "Loading branches…"
+ : "Select branch"
+ }
+ />
+ </SelectTrigger>
+ <SelectContent>
  {branchOptions.map((branch) => (
- <option key={branch.id} value={String(branch.id)}>
+ <SelectItem key={branch.id} value={String(branch.id)}>
  {branch.name || branch.code || branch.id}
  {branch.code ? ` (${branch.code})` : ""}
- </option>
+ </SelectItem>
  ))}
- </select>
+ </SelectContent>
+ </Select>
  {branchesLoading ? (
  <p className="text-xs text-muted-foreground">Loading registered branches…</p>
  ) : null}
@@ -430,7 +470,13 @@ export default function NewGroupPage() {
  </p>
  ) : null}
  {branchesError ? <p className="text-xs text-destructive">{branchesError}</p> : null}
- <Button type="button" variant="outline" size="sm" onClick={() => forceCachedReload(loadBranches)} disabled={branchesLoading}>
+ <Button
+ type="button"
+ variant="outline"
+ size="sm"
+ onClick={() => forceCachedReload(() => loadBranches({ silent: branchOptions.length > 0 }))}
+ disabled={branchesLoading}
+ >
  {branchesLoading ? "Refreshing…" : "Refresh branch list"}
  </Button>
  </div>
@@ -439,28 +485,31 @@ export default function NewGroupPage() {
  <p className="text-xs text-muted-foreground">
  Choose a loan officer assigned to the selected branch.
  </p>
- <select
- id="loan-officer"
- className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
- value={form.loan_officer_id}
- onChange={(e) => patch({ loan_officer_id: e.target.value })}
- disabled={!form.branch_id || Boolean(lockedOfficerId) || officersLoading}
- required
+ <Select
+ value={form.loan_officer_id || undefined}
+ onValueChange={(v) => patch({ loan_officer_id: v })}
+ disabled={!form.branch_id || Boolean(lockedOfficerId) || (officersLoading && loanOfficerOptions.length === 0)}
  >
- <option value="" disabled>
- {!form.branch_id
+ <SelectTrigger id="loan-officer" className="w-full">
+ <SelectValue
+ placeholder={
+ !form.branch_id
  ? "Select branch first"
- : officersLoading
+ : officersLoading && loanOfficerOptions.length === 0
  ? "Loading officers…"
- : "— Select loan officer —"}
- </option>
+ : "Select loan officer"
+ }
+ />
+ </SelectTrigger>
+ <SelectContent>
  {loanOfficerOptions.map((officer) => (
- <option key={officer.id} value={String(officer.id)}>
+ <SelectItem key={officer.id} value={String(officer.id)}>
  {officer.full_name || officer.email}
  {officer.employee_id ? ` (${officer.employee_id})` : ""}
- </option>
+ </SelectItem>
  ))}
- </select>
+ </SelectContent>
+ </Select>
  {officersLoading ? (
  <p className="text-xs text-muted-foreground">Loading loan officers…</p>
  ) : null}
@@ -490,23 +539,15 @@ export default function NewGroupPage() {
  </SelectContent>
  </Select>
  </div>
- <div className="sm:col-span-2 space-y-2">
- <Label>Meeting location *</Label>
- <Input
- value={form.meeting_location}
- onChange={(e) => patch({ meeting_location: e.target.value })}
- placeholder="Community hall, ward office, etc."
- required
+ <GroupMeetingLocationSection
+ value={{
+ meeting_location: form.meeting_location,
+ village_or_street: form.village_or_street,
+ meeting_latitude: form.meeting_latitude,
+ meeting_longitude: form.meeting_longitude,
+ }}
+ onChange={(updates) => patch(updates)}
  />
- </div>
- <div className="sm:col-span-2 space-y-2">
- <Label>Village / street *</Label>
- <Input
- value={form.village_or_street}
- onChange={(e) => patch({ village_or_street: e.target.value })}
- required
- />
- </div>
  <div className="sm:col-span-2 space-y-2">
  <Label>Notes</Label>
  <Textarea

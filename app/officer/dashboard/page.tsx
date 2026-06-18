@@ -18,6 +18,7 @@ import {
  Wallet,
 } from "lucide-react";
 import { OfficerBranchProgressSection } from "@/components/officer/officer-branch-progress-section";
+import { OfficerPeerPerformanceWidget } from "@/components/officer/officer-peer-performance-widget";
 import { OfficerPageHeader } from "@/components/officer-page-header";
 import { useOfficerSession } from "@/components/officer-session-context";
 import { Badge } from "@/components/ui/badge";
@@ -349,7 +350,14 @@ export default function OfficerDashboardPage() {
  </section>
 
  {branchId ? (
+ <>
+ <OfficerPeerPerformanceWidget
+ branchId={branchId}
+ currentUserId={user.id}
+ currentUserFullName={user.full_name}
+ />
  <OfficerBranchProgressSection branchId={branchId} officerId={user.id} />
+ </>
  ) : null}
 
  <section>

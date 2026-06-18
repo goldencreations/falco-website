@@ -3,6 +3,9 @@
 // Internal Loan Management System
 // =============================================================================
 
+import type { CustomerGuarantorRecord } from "@/lib/customer-guarantors";
+import type { CustomerReferenceRecord } from "@/lib/customer-references";
+
 // -----------------------------------------------------------------------------
 // USER & ROLE TYPES
 // -----------------------------------------------------------------------------
@@ -72,6 +75,16 @@ export interface Customer {
  region: string;
  district: string;
  ward: string;
+ /** Map pin captured at registration (home / residence). */
+ home_latitude?: number | null;
+ home_longitude?: number | null;
+ /** Map pin for the customer's business premises. */
+ business_latitude?: number | null;
+ business_longitude?: number | null;
+ /** Up to two guarantors registered at customer onboarding (stored in API metadata). */
+ guarantors?: CustomerGuarantorRecord[];
+ /** Personal references registered at customer onboarding (stored in API metadata). */
+ references?: CustomerReferenceRecord[];
  
  // Employment & Income
  employment_type: EmploymentType;
@@ -428,6 +441,8 @@ export interface LoanGroup {
  village_or_street: string;
  status: 'active' | 'inactive' | 'suspended';
  notes?: string;
+ meeting_latitude?: number | null;
+ meeting_longitude?: number | null;
  created_at: string;
  updated_at: string;
 }

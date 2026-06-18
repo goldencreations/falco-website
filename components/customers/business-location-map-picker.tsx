@@ -58,11 +58,18 @@ const LOCATION_COPY = {
     empty: "No business location recorded yet.",
     recorded: "Business location recorded",
   },
+  meeting: {
+    title: "Meeting point on the map",
+    hint: "Tap the map to place the kikundi meeting pin. Drag the marker to adjust. Field officers can open this in Google Maps for follow-up.",
+    empty: "No meeting pin recorded yet.",
+    recorded: "Meeting pin recorded",
+  },
 } as const;
 
 const MARKER_COLOR = {
   home: "#059669",
   business: "#d97706",
+  meeting: "#047857",
 } as const;
 
 function markerIcon(purpose: keyof typeof LOCATION_COPY) {

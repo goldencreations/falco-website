@@ -5,7 +5,7 @@ import type { User, UserRole } from "@/lib/types";
 export function adaptApiUserToUser(row: Record<string, unknown>): User {
  const role = mapApiRoleToAppRole(typeof row.role === "string" ? row.role : "") ?? ("loan_officer" as UserRole);
  return {
- id: String(row.id ?? ""),
+ id: String(row.id ?? row.user_id ?? row.officer_id ?? ""),
  email: String(row.email ?? ""),
  full_name: String(row.full_name ?? row.name ?? ""),
  role,

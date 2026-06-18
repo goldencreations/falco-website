@@ -25,6 +25,8 @@ export type CalculatorResultView = {
  repaymentCount: number;
  repaymentFrequency: RepaymentFrequency;
  firstRepaymentDate?: string;
+ /** Late-payment penalty from preview when returned by API (usually applied on overdue installments). */
+ penaltyAmount?: number;
  schedulePreview: CalculatorScheduleRow[];
 };
 
@@ -83,6 +85,12 @@ export function adaptCalculatorResult(raw: Record<string, unknown>): CalculatorR
  repaymentCount: num(raw.repayment_count),
  repaymentFrequency: asRepaymentFrequency(str(raw.repayment_frequency, "monthly")),
  firstRepaymentDate: raw.first_repayment_date ? str(raw.first_repayment_date) : undefined,
+ penaltyAmount:
+  raw.penalty_amount != null
+   ? num(raw.penalty_amount)
+   : raw.penalty_fee != null
+   ? num(raw.penalty_fee)
+   : undefined,
  schedulePreview: scheduleRaw.map((row, index) => {
  const r = row as Record<string, unknown>;
  return {
@@ -126,7 +134,7 @@ export function extractCalculatorProductDefaults(json: unknown): CalculatorProdu
  interest_type: asInterestType(str(p.interest_type)),
  processing_fee_percent: num(p.processing_fee_percent),
  insurance_fee_percent: num(p.insurance_fee_percent),
- late_payment_fee_percent: 0,
+ late_payment_fee_percent: num(p.late_payment_fee_percent ?? p.penalty_percent ?? p.late_penalty_percent),
  required_documents: Array.isArray(p.required_documents) ? (p.required_documents as string[]) : [],
  allowed_risk_grades: Array.isArray(p.allowed_risk_grades)
  ? (p.allowed_risk_grades as string[]).map((g) => String(g).toUpperCase() as "A" | "B" | "C" | "D" | "E")
@@ -140,43 +148,99 @@ export function extractCalculatorProductDefaults(json: unknown): CalculatorProdu
 }
 
 export type CalculatorPreviewForm = {
- mode: "product" | "manual";
- productId: string;
- principal: string;
- loanPeriodMonths: string;
- repaymentFrequency: RepaymentFrequency;
- interestType: string;
- interestRatePerMonth: string;
- processingFeePercent: string;
- insuranceFeePercent: string;
- startDate: string;
+  mode: "product" | "manual";
+  productId: string;
+  principal: string;
+  /** Product-backed preview — term in days (must be within product min/max). */
+  termDays: string;
+  loanPeriodMonths: string;
+  repaymentFrequency: RepaymentFrequency;
+  interestType: string;
+  interestRatePerMonth: string;
+  processingFeePercent: string;
+  insuranceFeePercent: string;
+  startDate: string;
 };
 
+/** API convention: loan_period_months × 30 when term_days is derived from months. */
+export function termDaysFromLoanPeriodMonths(months: number): number {
+  return Math.max(1, Math.round(months)) * 30;
+}
+
+/** Month range that stays within product term day bounds (30-day month convention). */
+export function productTermMonthsRange(product: LoanProduct): {
+  minMonths: number;
+  maxMonths: number;
+  monthsFitBounds: boolean;
+} {
+  const minMonths = Math.max(1, Math.ceil(product.min_term_days / 30));
+  const maxMonths = Math.max(1, Math.floor(product.max_term_days / 30));
+  return {
+    minMonths,
+    maxMonths,
+    monthsFitBounds: minMonths <= maxMonths,
+  };
+}
+
+export function validateProductCalculatorPreview(
+  principal: number,
+  termDays: number,
+  product: LoanProduct
+): string | null {
+  if (principal < product.min_amount || principal > product.max_amount) {
+    return `Loan amount must be between ${product.min_amount.toLocaleString()} and ${product.max_amount.toLocaleString()} TZS for this product.`;
+  }
+  if (termDays < product.min_term_days || termDays > product.max_term_days) {
+    return `Term must be between ${product.min_term_days} and ${product.max_term_days} days for this product.`;
+  }
+  return null;
+}
+
 /** Map UI form → `POST /calculator/preview` body. */
-export function mapUiCalculatorPreviewToApi(form: CalculatorPreviewForm): Record<string, unknown> | null {
- const principal = num(parseMoneyInput(form.principal));
- if (principal < 1) return null;
+export function mapUiCalculatorPreviewToApi(
+  form: CalculatorPreviewForm,
+  product?: LoanProduct | null
+): Record<string, unknown> | null {
+  const principal = num(parseMoneyInput(form.principal));
+  if (principal < 1) return null;
 
- const loanPeriodMonths = num(form.loanPeriodMonths);
- const payload: Record<string, unknown> = { principal };
+  const payload: Record<string, unknown> = { principal };
 
- if (form.startDate.trim()) payload.start_date = form.startDate.trim();
+  if (form.startDate.trim()) payload.start_date = form.startDate.trim();
 
- if (form.mode === "product" && form.productId.trim()) {
- payload.product_id = Number(form.productId);
- if (loanPeriodMonths >= 1) payload.loan_period_months = Math.round(loanPeriodMonths);
- else return null;
- return payload;
- }
+  if (form.mode === "product" && form.productId.trim()) {
+    const termDays = Math.round(num(form.termDays));
+    if (termDays < 1) return null;
+    if (product) {
+      const validationError = validateProductCalculatorPreview(principal, termDays, product);
+      if (validationError) return null;
+    }
+    payload.product_id = Number(form.productId);
+    payload.term_days = termDays;
+    return payload;
+  }
 
- if (loanPeriodMonths < 1) return null;
+  const loanPeriodMonths = num(form.loanPeriodMonths);
+  if (loanPeriodMonths < 1) return null;
 
- payload.loan_period_months = Math.round(loanPeriodMonths);
- payload.repayment_frequency = form.repaymentFrequency;
- payload.interest_type = uiInterestTypeToApi(form.interestType);
- payload.interest_rate_per_month = num(form.interestRatePerMonth);
- payload.processing_fee_percent = num(form.processingFeePercent);
- payload.insurance_fee_percent = num(form.insuranceFeePercent);
+  payload.loan_period_months = Math.round(loanPeriodMonths);
+  payload.repayment_frequency = form.repaymentFrequency;
+  payload.interest_type = uiInterestTypeToApi(form.interestType);
+  payload.interest_rate_per_month = num(form.interestRatePerMonth);
+  payload.processing_fee_percent = num(form.processingFeePercent);
+  payload.insurance_fee_percent = num(form.insuranceFeePercent);
 
- return payload;
+  return payload;
+}
+
+export function getProductCalculatorValidationError(
+  form: CalculatorPreviewForm,
+  product: LoanProduct | null | undefined
+): string | null {
+  if (form.mode !== "product" || !product) return null;
+  const principal = num(parseMoneyInput(form.principal));
+  if (principal < 1) return "Enter a loan amount to calculate.";
+  const termDays = Math.round(num(form.termDays));
+  if (termDays < 1) return "Enter a loan term in days.";
+  return validateProductCalculatorPreview(principal, termDays, product);
 }

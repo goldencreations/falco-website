@@ -19,7 +19,9 @@ export function CustomerGuarantorPanel({ rows }: { rows: CustomerGuarantorRow[] 
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Guarantor details & attachment</CardTitle>
-          <CardDescription>No guarantor records linked to this customer&apos;s applications yet.</CardDescription>
+          <CardDescription>
+            Guarantors registered at customer onboarding and from loan applications.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">

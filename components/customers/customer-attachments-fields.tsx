@@ -27,48 +27,50 @@ type CustomerAttachmentsFieldsProps = {
   className?: string;
 };
 
-type ImageFieldProps = {
-  id: string;
-  title: string;
-  hint: string;
-  icon: React.ReactNode;
-  accept: string;
-  file: File | null;
-  existingUrl?: string | null;
-  error?: string | null;
-  onSelect: (file: File | null) => void;
-};
-
 function isImageDocument(doc: { name: string; url: string; previewUrl?: string | null }) {
   if (doc.previewUrl?.trim()) return true;
   return /\.(jpe?g|png|webp)(?:[?#].*)?$/i.test(doc.name) || /\.(jpe?g|png|webp)(?:[?#].*)?$/i.test(doc.url);
 }
 
-function ImageUploadField({
+function fileKey(file: File, index: number) {
+  return `${file.name}-${file.size}-${file.lastModified}-${index}`;
+}
+
+type MultiImageUploadFieldProps = {
+  id: string;
+  title: string;
+  hint: string;
+  icon: React.ReactNode;
+  accept: string;
+  files: File[];
+  existingUrl?: string | null;
+  error?: string | null;
+  onAdd: (files: FileList | null) => void;
+  onRemove: (index: number) => void;
+  onClearAll: () => void;
+};
+
+function MultiImageUploadField({
   id,
   title,
   hint,
   icon,
   accept,
-  file,
+  files,
   existingUrl,
   error,
-  onSelect,
-}: ImageFieldProps) {
+  onAdd,
+  onRemove,
+  onClearAll,
+}: MultiImageUploadFieldProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewUrls, setPreviewUrls] = useState<string[]>([]);
 
   useEffect(() => {
-    if (!file) {
-      setPreviewUrl(null);
-      return;
-    }
-    const url = URL.createObjectURL(file);
-    setPreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [file]);
-
-  const displayUrl = previewUrl ?? existingUrl ?? null;
+    const urls = files.map((file) => URL.createObjectURL(file));
+    setPreviewUrls(urls);
+    return () => urls.forEach((url) => URL.revokeObjectURL(url));
+  }, [files]);
 
   return (
     <div className="space-y-2 rounded-lg border border-border p-3">
@@ -97,8 +99,10 @@ function ImageUploadField({
             <Upload className="h-4 w-4 text-muted-foreground" aria-hidden />
           </div>
           <div className="space-y-0.5">
-            <p className="text-xs font-medium text-foreground">Upload an image</p>
-            <p className="text-[11px] text-muted-foreground">JPG, JPEG, PNG, WEBP — max 5MB</p>
+            <p className="text-xs font-medium text-foreground">Upload photos</p>
+            <p className="text-[11px] text-muted-foreground">
+              Select one or more images — JPG, JPEG, PNG, WEBP — max 5MB each
+            </p>
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-center gap-2">
@@ -107,30 +111,61 @@ function ImageUploadField({
             id={id}
             type="file"
             accept={accept}
+            multiple
             className="sr-only"
-            onChange={(e) => onSelect(e.target.files?.[0] ?? null)}
+            onChange={(e) => {
+              onAdd(e.target.files);
+              e.target.value = "";
+            }}
           />
           <Button type="button" variant="secondary" size="sm" onClick={() => inputRef.current?.click()}>
-            Browse
+            Add photos
           </Button>
-          {(file || existingUrl) && (
-            <Button type="button" variant="outline" size="sm" onClick={() => onSelect(null)}>
-              Remove
+          {files.length > 0 ? (
+            <Button type="button" variant="outline" size="sm" onClick={onClearAll}>
+              Clear all
             </Button>
-          )}
+          ) : null}
         </div>
       </div>
 
-      {file ? <p className="text-xs text-muted-foreground">Selected: {file.name}</p> : null}
-      {!file && existingUrl ? (
-        <p className="text-xs text-muted-foreground">Current file on record (select a new image to replace).</p>
+      {!files.length && existingUrl ? (
+        <p className="text-xs text-muted-foreground">
+          Current file on record (add photos below to supplement or replace on next save).
+        </p>
       ) : null}
 
-      {displayUrl ? (
-        <div className="overflow-hidden rounded-md border bg-background">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={displayUrl} alt={`${title} preview`} className="max-h-48 w-full object-cover" />
-        </div>
+      {files.length > 0 ? (
+        <ul className="space-y-3">
+          {files.map((file, index) => (
+            <li
+              key={fileKey(file, index)}
+              className="overflow-hidden rounded-md border bg-background"
+            >
+              <div className="flex items-center justify-between gap-2 border-b px-3 py-2 text-xs">
+                <span className="truncate text-muted-foreground">{file.name}</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 shrink-0"
+                  onClick={() => onRemove(index)}
+                  aria-label={`Remove ${file.name}`}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+              {previewUrls[index] ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={previewUrls[index]}
+                  alt={`${title} preview ${index + 1}`}
+                  className="max-h-48 w-full object-cover"
+                />
+              ) : null}
+            </li>
+          ))}
+        </ul>
       ) : null}
 
       {error ? (
@@ -156,34 +191,38 @@ export function CustomerAttachmentsFields({
   const [businessError, setBusinessError] = useState<string | null>(null);
   const [docsError, setDocsError] = useState<string | null>(null);
 
-  const setHome = (file: File | null) => {
-    if (!file) {
-      setHomeError(null);
-      onChange({ ...value, home_location_photo: null });
-      return;
-    }
-    const v = validateLocationPhoto(file);
-    if (!v.ok) {
-      setHomeError(v.error);
-      return;
+  const addHomePhotos = (files: FileList | null) => {
+    if (!files?.length) return;
+    const next = [...value.home_location_photos];
+    for (const file of Array.from(files)) {
+      const v = validateLocationPhoto(file);
+      if (!v.ok) {
+        setHomeError(v.error);
+        return;
+      }
+      if (!next.some((f) => f.name === file.name && f.size === file.size && f.lastModified === file.lastModified)) {
+        next.push(file);
+      }
     }
     setHomeError(null);
-    onChange({ ...value, home_location_photo: file });
+    onChange({ ...value, home_location_photos: next });
   };
 
-  const setBusiness = (file: File | null) => {
-    if (!file) {
-      setBusinessError(null);
-      onChange({ ...value, business_location_photo: null });
-      return;
-    }
-    const v = validateLocationPhoto(file);
-    if (!v.ok) {
-      setBusinessError(v.error);
-      return;
+  const addBusinessPhotos = (files: FileList | null) => {
+    if (!files?.length) return;
+    const next = [...value.business_location_photos];
+    for (const file of Array.from(files)) {
+      const v = validateLocationPhoto(file);
+      if (!v.ok) {
+        setBusinessError(v.error);
+        return;
+      }
+      if (!next.some((f) => f.name === file.name && f.size === file.size && f.lastModified === file.lastModified)) {
+        next.push(file);
+      }
     }
     setBusinessError(null);
-    onChange({ ...value, business_location_photo: file });
+    onChange({ ...value, business_location_photos: next });
   };
 
   const addDocuments = (files: FileList | null) => {
@@ -212,28 +251,48 @@ export function CustomerAttachmentsFields({
 
   return (
     <div className={cn("space-y-4", className)}>
-      <ImageUploadField
-        id="customer-home-photo"
-        title="Home location photo"
-        hint="Photo of where the customer lives — for field verification alongside the home map pin."
+      <MultiImageUploadField
+        id="customer-home-photos"
+        title="Home location photos"
+        hint="Upload one or more photos of where the customer lives — for field verification alongside the home map pin."
         icon={<Home className="h-3.5 w-3.5 text-emerald-700" aria-hidden />}
         accept={PHOTO_ACCEPT}
-        file={value.home_location_photo}
+        files={value.home_location_photos}
         existingUrl={existingHomeUrl}
         error={homeError}
-        onSelect={setHome}
+        onAdd={addHomePhotos}
+        onRemove={(index) =>
+          onChange({
+            ...value,
+            home_location_photos: value.home_location_photos.filter((_, i) => i !== index),
+          })
+        }
+        onClearAll={() => {
+          setHomeError(null);
+          onChange({ ...value, home_location_photos: [] });
+        }}
       />
 
-      <ImageUploadField
-        id="customer-business-photo"
-        title="Business location photo"
-        hint="Photo of the customer's shop, office, or outlet — separate from the home photo."
+      <MultiImageUploadField
+        id="customer-business-photos"
+        title="Business location photos"
+        hint="Upload one or more photos of the customer's shop, office, or outlet."
         icon={<Store className="h-3.5 w-3.5 text-amber-700" aria-hidden />}
         accept={PHOTO_ACCEPT}
-        file={value.business_location_photo}
+        files={value.business_location_photos}
         existingUrl={existingBusinessUrl}
         error={businessError}
-        onSelect={setBusiness}
+        onAdd={addBusinessPhotos}
+        onRemove={(index) =>
+          onChange({
+            ...value,
+            business_location_photos: value.business_location_photos.filter((_, i) => i !== index),
+          })
+        }
+        onClearAll={() => {
+          setBusinessError(null);
+          onChange({ ...value, business_location_photos: [] });
+        }}
       />
 
       <div className="space-y-2 rounded-lg border border-border p-3">
@@ -251,6 +310,7 @@ export function CustomerAttachmentsFields({
         </div>
         <p className="text-xs text-muted-foreground">
           Upload ID copies, business permits, or other supporting files. PDF, JPG, JPEG, PNG — max 10MB each.
+          You can add multiple files in one go.
         </p>
 
         <div className="flex flex-col items-center justify-center gap-3 rounded-md border border-dashed border-border bg-muted/20 px-4 py-5 text-center sm:flex-row sm:justify-between sm:text-left">
