@@ -1,5 +1,7 @@
 /** Build `POST /groups` body per `backend-documentation/groups-controller.md`. */
 
+import { encodeMeetingGeoInNotes } from "@/lib/group-meeting-location";
+
 export type GroupCreateForm = {
  group_name: string;
  group_code: string;
@@ -13,6 +15,8 @@ export type GroupCreateForm = {
  meeting_day: string;
  meeting_location: string;
  village_or_street: string;
+ meeting_latitude: number | null;
+ meeting_longitude: number | null;
  status: "active" | "inactive" | "suspended";
  notes: string;
 };
@@ -34,6 +38,18 @@ function coerceForm(input: GroupCreateForm | Record<string, unknown>): GroupCrea
  meeting_day: String(row.meeting_day ?? ""),
  meeting_location: String(row.meeting_location ?? ""),
  village_or_street: String(row.village_or_street ?? ""),
+ meeting_latitude: (() => {
+ const value = row.meeting_latitude;
+ if (value == null || value === "") return null;
+ const n = Number(value);
+ return Number.isFinite(n) ? n : null;
+ })(),
+ meeting_longitude: (() => {
+ const value = row.meeting_longitude;
+ if (value == null || value === "") return null;
+ const n = Number(value);
+ return Number.isFinite(n) ? n : null;
+ })(),
  status:
  row.status === "inactive" || row.status === "suspended" ? row.status : "active",
  notes: String(row.notes ?? ""),
@@ -75,7 +91,12 @@ export function mapFormToGroupApi(input: GroupCreateForm | Record<string, unknow
  if (form.treasurer_customer_id.trim()) {
  body.treasurer_customer_id = form.treasurer_customer_id.trim();
  }
- if (form.notes.trim()) body.notes = form.notes.trim();
+ const notesWithGeo = encodeMeetingGeoInNotes(
+ form.notes,
+ form.meeting_latitude,
+ form.meeting_longitude
+ );
+ if (notesWithGeo.trim()) body.notes = notesWithGeo.trim();
 
  return body;
 }

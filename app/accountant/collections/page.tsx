@@ -1,1 +1,5 @@
-export { default } from "@/app/(dashboard)/collections/page";
+import { redirect } from "next/navigation";
+
+export default function AccountantCollectionsIndexPage() {
+  redirect("/accountant/collections/activities");
+}

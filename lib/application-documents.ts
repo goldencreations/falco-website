@@ -8,6 +8,27 @@ import { APPLICATION_DOCUMENTS_OPTIONAL } from "@/lib/application-workflow-confi
 export const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
 export const ALLOWED_DOCUMENT_EXTENSIONS = [".pdf", ".jpg", ".jpeg", ".png", ".webp"];
 
+export type DocumentFilesByType = Record<string, File[]>;
+
+/** Normalize legacy single-file values and arrays into a file list. */
+export function filesForDocumentType(
+  filesByType: Record<string, File[] | File | null | undefined> | undefined,
+  type: string
+): File[] {
+  if (!filesByType) return [];
+  const normalized = normalizeDocumentType(type);
+  const raw = filesByType[normalized] ?? filesByType[type];
+  if (!raw) return [];
+  return Array.isArray(raw) ? raw : [raw];
+}
+
+export function hasDocumentFilesForType(
+  filesByType: Record<string, File[] | File | null | undefined> | undefined,
+  type: string
+): boolean {
+  return filesForDocumentType(filesByType, type).length > 0;
+}
+
 function formatUploadError(json: unknown, fallback: string): string {
  if (!json || typeof json !== "object") return fallback;
  const o = json as Record<string, unknown>;
@@ -240,23 +261,27 @@ export async function uploadApplicationDocumentApi(
  return { ok: true, documents: docs };
 }
 
-/** Upload one file per required type slug; keys must match backend `type` values. */
+/** Upload all selected files per required type slug; keys must match backend `type` values. */
 export async function uploadRequiredDocumentsByType(
  applicationId: string,
- filesByType: Record<string, File | null | undefined>,
+ filesByType: Record<string, File[] | File | null | undefined>,
  typesToUpload: string[]
 ): Promise<{ ok: true } | { ok: false; error: string }> {
- const jobs = typesToUpload.map(async (rawType) => {
- const type = normalizeDocumentType(rawType);
- const file = filesByType[type] ?? filesByType[rawType];
- if (!file) {
- return {
- ok: false as const,
- error: `Upload ${formatRequiredDocumentLabel(type)} before continuing.`,
- };
+ const jobs: Promise<{ ok: true; documents: LoanDocument[] } | { ok: false; error: string }>[] = [];
+
+ for (const rawType of typesToUpload) {
+  const type = normalizeDocumentType(rawType);
+  const files = filesForDocumentType(filesByType, type);
+  if (files.length === 0) {
+   return {
+    ok: false,
+    error: `Upload ${formatRequiredDocumentLabel(type)} before continuing.`,
+   };
+  }
+  for (const file of files) {
+   jobs.push(uploadApplicationDocumentApi(applicationId, file, type));
+  }
  }
- return uploadApplicationDocumentApi(applicationId, file, type);
- });
 
  const results = await Promise.all(jobs);
  const failed = results.find((r) => !r.ok);
@@ -289,20 +314,25 @@ export async function registerApplicationDocumentPlaceholder(
 /** Upload selected files; register placeholders for remaining required types when optional. */
 export async function satisfyRequiredDocumentsForSubmit(
  applicationId: string,
- filesByType: Record<string, File | null | undefined>,
+ filesByType: Record<string, File[] | File | null | undefined>,
  requiredTypes: string[]
 ): Promise<{ ok: true } | { ok: false; error: string }> {
  const normalizedRequired = requiredTypes.map(normalizeDocumentType).filter(Boolean);
  if (!normalizedRequired.length) return { ok: true };
 
  for (const type of normalizedRequired) {
- const file =
- filesByType[type] ??
- filesByType[requiredTypes.find((r) => normalizeDocumentType(r) === type) ?? ""];
- if (file) {
- const up = await uploadApplicationDocumentApi(applicationId, file, type);
- if (up.ok) continue;
- if (!APPLICATION_DOCUMENTS_OPTIONAL) return up;
+ const files = filesForDocumentType(filesByType, type);
+ if (files.length > 0) {
+  let uploadedAny = false;
+  for (const file of files) {
+   const up = await uploadApplicationDocumentApi(applicationId, file, type);
+   if (up.ok) {
+    uploadedAny = true;
+    continue;
+   }
+   if (!APPLICATION_DOCUMENTS_OPTIONAL) return up;
+  }
+  if (uploadedAny) continue;
  }
  const placeholder = await registerApplicationDocumentPlaceholder(applicationId, type);
  if (!placeholder.ok && !APPLICATION_DOCUMENTS_OPTIONAL) return placeholder;
@@ -325,7 +355,7 @@ export async function satisfyRequiredDocumentsForSubmit(
 
 export async function ensureApplicationHasRequiredDocuments(
  applicationId: string,
- filesByType?: Record<string, File | null | undefined>,
+ filesByType?: Record<string, File[] | File | null | undefined>,
  requiredFromProduct?: string[]
 ): Promise<{ ok: true } | { ok: false; error: string; missing: string[] }> {
  const status = await fetchApplicationDocumentStatus(

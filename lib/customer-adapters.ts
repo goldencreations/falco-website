@@ -1,5 +1,51 @@
 import { parseMoneyInput } from "@/lib/money-input";
+import { parseCustomerMetadata, readCustomerLocationPins } from "@/lib/customer-location";
+import { parseCustomerGuarantorsFromRow } from "@/lib/customer-guarantors";
+import { parseCustomerReferencesFromRow } from "@/lib/customer-references";
 import type { Customer, CustomerType, EmploymentType, RiskGrade } from "@/lib/types";
+
+function isPlaceholderCustomerNamePart(value: string | undefined): boolean {
+  const v = value?.trim() ?? "";
+  if (!v) return true;
+  if (v === "—" || v === "-" || v === "Unassigned") return true;
+  if (/^member$/i.test(v)) return true;
+  return false;
+}
+
+/** Display name from customer registration (rejects placeholders like "Member"). */
+export function customerRegistrationDisplayName(
+  customer: Pick<Customer, "first_name" | "middle_name" | "last_name" | "customer_number"> & {
+    full_name?: string;
+  }
+): string {
+  const full = customer.full_name?.trim();
+  if (full && !isPlaceholderCustomerNamePart(full)) return full;
+
+  const parts = [customer.first_name, customer.middle_name, customer.last_name].filter(
+    (part) => !isPlaceholderCustomerNamePart(part)
+  );
+  const combined = parts.join(" ").replace(/\s+/g, " ").trim();
+  if (combined) return combined;
+
+  const number = customer.customer_number?.trim();
+  if (number) return number;
+  return "";
+}
+
+export function customerRegistrationDisplayNameFromRow(row: Record<string, unknown>): string {
+  const full = String(row.full_name ?? row.name ?? "").trim();
+  if (full && !isPlaceholderCustomerNamePart(full)) return full;
+
+  const parts = [row.first_name, row.middle_name, row.last_name]
+    .map((part) => String(part ?? "").trim())
+    .filter((part) => !isPlaceholderCustomerNamePart(part));
+  const combined = parts.join(" ").replace(/\s+/g, " ").trim();
+  if (combined) return combined;
+
+  const number = String(row.customer_number ?? "").trim();
+  if (number) return number;
+  return "";
+}
 
 /** Resolve monthly income from API list/detail shapes (top-level or metadata). */
 export function resolveMonthlyIncome(row: Record<string, unknown>): number {
@@ -74,15 +120,26 @@ function resolveCustomerCreatedBy(row: Record<string, unknown>): string {
 
 /** Maps API list/detail customer row into the richer `Customer` UI model (defaults for unknown fields). */
 export function adaptApiCustomerRowToCustomer(row: Record<string, unknown>): Customer {
- const md =
- row.metadata && typeof row.metadata === "object" && row.metadata !== null
- ? (row.metadata as Record<string, unknown>)
- : {};
+ const md = parseCustomerMetadata(row);
 
- const full = String(row.full_name ?? "");
+ const full = String(row.full_name ?? row.name ?? "").trim();
  const parts = full.split(/\s+/).filter(Boolean);
- const first = String(row.first_name ?? parts[0] ?? "—");
- const last = String(row.last_name ?? (parts.length > 1 ? parts.slice(1).join(" ") : "—"));
+ const rawFirst = String(row.first_name ?? "").trim();
+ const rawLast = String(row.last_name ?? "").trim();
+ const first =
+ !isPlaceholderCustomerNamePart(rawFirst)
+ ? rawFirst
+ : parts[0] && !isPlaceholderCustomerNamePart(parts[0])
+ ? parts[0]
+ : "—";
+ const last =
+ !isPlaceholderCustomerNamePart(rawLast)
+ ? rawLast
+ : parts.length > 1
+ ? parts.slice(1).join(" ")
+ : "—";
+
+ const { home, business } = readCustomerLocationPins(row);
 
  return {
  id: String(row.id ?? ""),
@@ -102,6 +159,12 @@ export function adaptApiCustomerRowToCustomer(row: Record<string, unknown>): Cus
  region: String(row.region ?? ""),
  district: String(row.district ?? ""),
  ward: String(row.ward ?? ""),
+ home_latitude: home?.latitude ?? null,
+ home_longitude: home?.longitude ?? null,
+ business_latitude: business?.latitude ?? null,
+ business_longitude: business?.longitude ?? null,
+ guarantors: parseCustomerGuarantorsFromRow(row),
+ references: parseCustomerReferencesFromRow(row),
  employment_type: (String(row.employment_type ?? "employed") as EmploymentType) || "employed",
  employer_name: row.employer_name ? String(row.employer_name) : undefined,
  employer_address: row.employer_address ? String(row.employer_address) : undefined,

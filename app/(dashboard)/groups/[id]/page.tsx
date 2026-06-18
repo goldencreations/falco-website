@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import { ArrowLeft, UserCheck, Users, Loader2 } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { GroupMembersPanel } from "@/components/group-members-panel";
+import { GroupMeetingLocationCard } from "@/components/groups/group-meeting-location-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -17,12 +18,15 @@ import type { GroupMemberRow } from "@/lib/group-adapters";
 import { resolvePortalHref } from "@/lib/portal-paths";
 import { useSessionUser } from "@/lib/use-session-user";
 
-export default function GroupDetailPage({
- params,
-}: {
- params: Promise<{ id: string }>;
-}) {
- const resolved = use(params);
+export default function GroupDetailPage() {
+ const params = useParams<{ id: string }>();
+ const groupIdParam = params?.id;
+ const groupId =
+ typeof groupIdParam === "string"
+ ? groupIdParam
+ : Array.isArray(groupIdParam)
+ ? groupIdParam[0]
+ : "";
  const { user } = useSessionUser();
  const groupsListHref = resolvePortalHref(user?.role, "/groups");
  const { users, branches } = useBranchAssignment();
@@ -30,7 +34,14 @@ export default function GroupDetailPage({
  const [loading, setLoading] = useState(true);
  const [error, setError] = useState<string | null>(null);
 
- const loadGroup = useCallback(async (options?: { silent?: boolean }) => {
+ const loadGroup = useCallback(
+ async (options?: { silent?: boolean }) => {
+ if (!groupId) {
+ setError("Group not found");
+ setGroup(null);
+ setLoading(false);
+ return;
+ }
  if (!options?.silent) {
  setLoading(true);
  }
@@ -97,7 +108,9 @@ export default function GroupDetailPage({
  setLoading(false);
  }
  }
- }, [groupId]);
+ },
+ [groupId]
+ );
 
  useEffect(() => {
  void loadGroup();
@@ -174,6 +187,8 @@ export default function GroupDetailPage({
  </div>
  </CardContent>
  </Card>
+
+ <GroupMeetingLocationCard group={group} />
 
  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
  <Card>

@@ -4,14 +4,11 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
  ArrowLeft,
- ExternalLink,
  Search,
  Upload,
  Send,
  Plus,
  Trash2,
- MapPin,
- LocateFixed,
 } from "lucide-react";
 import Link from "next/link";
 import { DashboardHeader } from "@/components/dashboard-header";
@@ -41,6 +38,20 @@ import {
 import { extractGroupsList } from "@/lib/group-adapters";
 import { formatCurrency } from "@/lib/formatters";
 import { extractProductsList } from "@/lib/product-adapters";
+import {
+  customerGuarantorsToApplicationPayload,
+  parseCustomerGuarantorsFromRow,
+  type CustomerGuarantorRecord,
+} from "@/lib/customer-guarantors";
+import {
+  customerReferencesToApplicationPayload,
+  parseCustomerReferencesFromRow,
+  type CustomerReferenceRecord,
+} from "@/lib/customer-references";
+import {
+  clearCustomerGuarantorPendingFiles,
+  getCustomerGuarantorPendingFiles,
+} from "@/lib/customer-guarantor-pending-files";
 import type { Customer, LoanGroup, LoanMode, LoanProduct } from "@/lib/types";
 import { extractApplicationDetail } from "@/lib/application-adapters";
 import {
@@ -48,6 +59,7 @@ import {
  validateApplicationAgainstProduct,
 } from "@/lib/application-payload";
 import { RequiredDocumentsFields } from "@/components/applications/required-documents-fields";
+import { ApplicationCustomerLocationSection } from "@/components/applications/application-customer-location-section";
 import {
  formatRequiredDocumentLabel,
  normalizeDocumentType,
@@ -215,24 +227,15 @@ function NewApplicationPageContent() {
  { type: "", description: "", value: "", image: null as File | null },
  ]);
 
- const [guarantors, setGuarantors] = useState([
- {
- name: "",
- phone: "",
- nationalId: "",
- relationship: "",
- otherRelationship: "",
- idFront: null as File | null,
- idBack: null as File | null,
- },
- ]);
+ const [customerGuarantorRecords, setCustomerGuarantorRecords] = useState<CustomerGuarantorRecord[]>(
+  []
+ );
+ const [customerReferenceRecords, setCustomerReferenceRecords] = useState<CustomerReferenceRecord[]>(
+  []
+ );
+ const [guarantorFileRows, setGuarantorFileRows] = useState<GuarantorFileRow[]>([]);
 
- const [references, setReferences] = useState([
- { name: "", relationship: "", phone: "", address: "" },
- ]);
-
- const [documentFiles, setDocumentFiles] = useState<Record<string, File | null>>({});
- const [isLocating, setIsLocating] = useState(false);
+ const [documentFiles, setDocumentFiles] = useState<Record<string, File[]>>({});
  const [isSaving, setIsSaving] = useState(false);
 
  const [formData, setFormData] = useState({
@@ -241,9 +244,59 @@ function NewApplicationPageContent() {
  purpose: "",
  latitude: "",
  longitude: "",
+ locationLabel: "",
  });
 
  const [editAppDetail, setEditAppDetail] = useState<Record<string, unknown> | null>(null);
+
+ const loadCustomerGuarantors = useCallback(async (customerId: string) => {
+  try {
+   const res = await fetch(`/api/customers/${encodeURIComponent(customerId)}`, {
+    credentials: "include",
+    cache: "no-store",
+   });
+   const json = (await res.json()) as unknown;
+   const row = extractCustomerDetail(json);
+   const records = parseCustomerGuarantorsFromRow(row);
+   const referenceRecords = parseCustomerReferencesFromRow(row);
+   const pending = getCustomerGuarantorPendingFiles(customerId);
+   const fileRows = records.map((record, index) => ({
+    name: record.full_name,
+    phone: record.phone,
+    idFront: pending?.[index]?.idFront ?? null,
+    idBack: pending?.[index]?.idBack ?? null,
+   }));
+   setCustomerGuarantorRecords(records);
+   setCustomerReferenceRecords(referenceRecords);
+   setGuarantorFileRows(fileRows);
+  } catch {
+   setCustomerGuarantorRecords([]);
+   setCustomerReferenceRecords([]);
+   setGuarantorFileRows([]);
+  }
+ }, []);
+
+ useEffect(() => {
+  if (!selectedCustomer?.id || editingApplicationId) {
+   if (!selectedCustomer) {
+    setCustomerGuarantorRecords([]);
+    setCustomerReferenceRecords([]);
+    setGuarantorFileRows([]);
+   }
+   return;
+  }
+  void loadCustomerGuarantors(selectedCustomer.id);
+ }, [selectedCustomer?.id, editingApplicationId, loadCustomerGuarantors, selectedCustomer]);
+
+ useEffect(() => {
+  if (editingApplicationId) return;
+  setFormData((prev) => ({
+   ...prev,
+   latitude: "",
+   longitude: "",
+   locationLabel: "",
+  }));
+ }, [selectedCustomer?.id, editingApplicationId]);
 
  useEffect(() => {
  if (!editId) {
@@ -285,6 +338,12 @@ function NewApplicationPageContent() {
  const grp = groups.find((g) => g.id === String(app.group_id));
  if (grp) setSelectedGroup(grp);
  }
+ const loc =
+  app.location && typeof app.location === "object"
+   ? (app.location as Record<string, unknown>)
+   : null;
+ const editLatitude = loc?.latitude != null ? String(loc.latitude) : "";
+ const editLongitude = loc?.longitude != null ? String(loc.longitude) : "";
  setFormData((prev) => ({
  ...prev,
  amount: app.requested_amount
@@ -292,6 +351,10 @@ function NewApplicationPageContent() {
  : "",
  term: String(app.term_days ?? ""),
  purpose: String(app.purpose ?? ""),
+ latitude: editLatitude,
+ longitude: editLongitude,
+ locationLabel:
+  editLatitude && editLongitude ? "Saved on this application" : "",
  }));
  }, [editAppDetail, customers, loanProducts, groups]);
 
@@ -418,10 +481,10 @@ function NewApplicationPageContent() {
  return;
  }
  setDocumentFiles((prev) => {
- const next: Record<string, File | null> = {};
+ const next: Record<string, File[]> = {};
  for (const raw of selectedProduct.required_documents) {
  const type = normalizeDocumentType(raw);
- next[type] = prev[type] ?? null;
+ next[type] = prev[type] ?? [];
  }
  return next;
  });
@@ -569,52 +632,6 @@ function NewApplicationPageContent() {
  );
  };
 
- const updateGuarantor = (
- index: number,
- key:
- | "name"
- | "phone"
- | "nationalId"
- | "relationship"
- | "otherRelationship"
- | "idFront"
- | "idBack",
- value: string | File | null
- ) => {
- setGuarantors((prev) =>
- prev.map((guarantor, i) => (i === index ? { ...guarantor, [key]: value } : guarantor))
- );
- };
-
- const updateReference = (
- index: number,
- key: "name" | "relationship" | "phone" | "address",
- value: string
- ) => {
- setReferences((prev) =>
- prev.map((reference, i) => (i === index ? { ...reference, [key]: value } : reference))
- );
- };
-
- const setBrowserLocation = () => {
- if (!navigator.geolocation) return;
- setIsLocating(true);
- navigator.geolocation.getCurrentPosition(
- (position) => {
- setFormData((prev) => ({
- ...prev,
- latitude: position.coords.latitude.toFixed(6),
- longitude: position.coords.longitude.toFixed(6),
- }));
- setIsLocating(false);
- },
- () => {
- setIsLocating(false);
- },
- { enableHighAccuracy: true, timeout: 10000 }
- );
- };
-
  const handleSubmit = async (isDraft: boolean) => {
  debugApplicationCreate("handleSubmit — start", {
   isDraft,
@@ -655,22 +672,9 @@ function NewApplicationPageContent() {
  estimated_value: c.value ? parseMoneyInput(c.value) : 0,
  }));
 
- const guarantorsPayload = guarantors
- .filter((g) => g.name.trim() && g.phone.trim())
- .map((g) => ({
- full_name: g.name.trim(),
- phone: g.phone.replace(/\D/g, "") || g.phone.trim(),
- national_id: g.nationalId.trim() || undefined,
- relationship: g.relationship === "other" ? g.otherRelationship || "other" : g.relationship,
- }));
+ const guarantorsPayload = customerGuarantorsToApplicationPayload(customerGuarantorRecords);
 
- const referencesPayload = references
- .filter((r) => r.name.trim())
- .map((r) => ({
- full_name: r.name.trim(),
- relationship: r.relationship.trim() || "reference",
- phone: r.phone.replace(/\D/g, "") || r.phone.trim(),
- }));
+ const referencesPayload = customerReferencesToApplicationPayload(customerReferenceRecords);
 
  const location =
  formData.latitude && formData.longitude
@@ -754,10 +758,10 @@ function NewApplicationPageContent() {
 
  const hasLinkedFiles =
   collaterals.some((c) => c.image) ||
-  guarantors.some((g) => g.idFront || g.idBack);
+  guarantorFileRows.some((g) => g.idFront || g.idBack);
 
  let linkedIds = extractLinkedApplicationIds(data);
- if (!linkedIds || (hasLinkedFiles && linkedIdsNeedRefresh(linkedIds, collaterals, guarantors))) {
+ if (!linkedIds || (hasLinkedFiles && linkedIdsNeedRefresh(linkedIds, collaterals, guarantorFileRows))) {
   linkedIds = (await fetchLinkedApplicationIds(applicationId)) ?? linkedIds;
  }
  debugApplicationCreate("handleSubmit — linked IDs", linkedIds);
@@ -775,7 +779,7 @@ function NewApplicationPageContent() {
 
  const linkedUploadPromise =
   linkedIds && hasLinkedFiles
-   ? uploadCollateralAndGuarantorFiles(applicationId, linkedIds, collaterals, guarantors)
+   ? uploadCollateralAndGuarantorFiles(applicationId, linkedIds, collaterals, guarantorFileRows)
    : Promise.resolve({ ok: true as const });
 
  const [assign, linkedUpload] = await Promise.all([assignPromise, linkedUploadPromise]);
@@ -792,12 +796,16 @@ function NewApplicationPageContent() {
   return;
  }
 
+ if (selectedCustomer?.id) {
+  clearCustomerGuarantorPendingFiles(selectedCustomer.id);
+ }
+
  if (!isDraft) {
  const required = selectedProduct.required_documents ?? [];
  debugApplicationCreate("handleSubmit — uploading documents", {
   applicationId,
   required_count: required.length,
-  file_types: Object.keys(documentFiles).filter((k) => documentFiles[k]),
+  file_types: Object.keys(documentFiles).filter((k) => documentFiles[k]?.length),
  });
 
  const docUpload = await uploadApplicationDocumentsFromForm(
@@ -1313,333 +1321,29 @@ onValueChange={(value) => {
  </CardContent>
  </Card>
 
- {/* Guarantor */}
- <Card>
- <CardHeader>
- <CardTitle>Guarantor Information</CardTitle>
- <CardDescription>Add one or more guarantors and ID attachments</CardDescription>
- </CardHeader>
- <CardContent className="space-y-4">
- {guarantors.map((guarantor, index) => (
- <div key={index} className="rounded-lg border border-border p-4">
- <div className="mb-3 flex items-center justify-between">
- <p className="text-sm font-semibold">Guarantor {index + 1}</p>
- {guarantors.length > 1 && (
- <Button
- variant="ghost"
- size="icon"
- onClick={() =>
- setGuarantors((prev) => prev.filter((_, i) => i !== index))
- }
- >
- <Trash2 className="h-4 w-4" />
- </Button>
- )}
- </div>
- <FieldGroup>
- <div className="grid gap-4 sm:grid-cols-2">
- <Field>
- <FieldLabel>Full Name</FieldLabel>
- <Input
- placeholder="Guarantor's full name"
- value={guarantor.name}
- onChange={(e) => updateGuarantor(index, "name", e.target.value)}
- />
- </Field>
- <Field>
- <FieldLabel>National ID</FieldLabel>
- <TzValidatedInput
- kind="nida"
- value={guarantor.nationalId}
- onValueChange={(value) => updateGuarantor(index, "nationalId", value)}
- />
- </Field>
- <Field>
- <FieldLabel>Phone Number</FieldLabel>
- <TzValidatedInput
- kind="phone"
- value={guarantor.phone}
- onValueChange={(value) => updateGuarantor(index, "phone", value)}
- />
- </Field>
- <Field>
- <FieldLabel>Relationship</FieldLabel>
- <Select
- value={guarantor.relationship}
- onValueChange={(value) =>
- updateGuarantor(index, "relationship", value)
- }
- >
- <SelectTrigger>
- <SelectValue placeholder="Select relationship" />
- </SelectTrigger>
- <SelectContent>
- <SelectItem value="spouse">Spouse</SelectItem>
- <SelectItem value="parent">Parent</SelectItem>
- <SelectItem value="sibling">Sibling</SelectItem>
- <SelectItem value="relative">Other Relative</SelectItem>
- <SelectItem value="friend">Friend</SelectItem>
- <SelectItem value="colleague">Colleague</SelectItem>
- <SelectItem value="business_partner">Business Partner</SelectItem>
- <SelectItem value="other">Other (Specify)</SelectItem>
- </SelectContent>
- </Select>
- </Field>
- </div>
- {guarantor.relationship === "other" && (
- <Field>
- <FieldLabel>Specify Relationship</FieldLabel>
- <Input
- placeholder="Enter custom relationship"
- value={guarantor.otherRelationship}
- onChange={(e) =>
- updateGuarantor(index, "otherRelationship", e.target.value)
- }
- />
- </Field>
- )}
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field>
-                  <FieldLabel>Guarantor ID Front</FieldLabel>
-                  <Input
-                    type="file"
-                    accept="image/*,.pdf"
-                    onChange={(e) =>
-                      updateGuarantor(index, "idFront", e.target.files?.[0] ?? null)
-                    }
-                  />
-                  {guarantor.idFront && (
-                    guarantor.idFront.type.startsWith("image/") ? (
-                      <div className="mt-2 overflow-hidden rounded-md border border-border">
-                        <img
-                          src={URL.createObjectURL(guarantor.idFront)}
-                          alt="ID front preview"
-                          className="max-h-40 w-full object-contain"
-                        />
-                        <p className="border-t border-border bg-muted px-2 py-1 text-xs text-muted-foreground truncate">
-                          {guarantor.idFront.name}
-                        </p>
-                      </div>
-                    ) : (
-                      <p className="mt-1 text-xs text-muted-foreground truncate">
-                        📄 {guarantor.idFront.name}
-                      </p>
-                    )
-                  )}
-                </Field>
-                <Field>
-                  <FieldLabel>Guarantor ID Back</FieldLabel>
-                  <Input
-                    type="file"
-                    accept="image/*,.pdf"
-                    onChange={(e) =>
-                      updateGuarantor(index, "idBack", e.target.files?.[0] ?? null)
-                    }
-                  />
-                  {guarantor.idBack && (
-                    guarantor.idBack.type.startsWith("image/") ? (
-                      <div className="mt-2 overflow-hidden rounded-md border border-border">
-                        <img
-                          src={URL.createObjectURL(guarantor.idBack)}
-                          alt="ID back preview"
-                          className="max-h-40 w-full object-contain"
-                        />
-                        <p className="border-t border-border bg-muted px-2 py-1 text-xs text-muted-foreground truncate">
-                          {guarantor.idBack.name}
-                        </p>
-                      </div>
-                    ) : (
-                      <p className="mt-1 text-xs text-muted-foreground truncate">
-                        📄 {guarantor.idBack.name}
-                      </p>
-                    )
-                  )}
-                </Field>
-              </div>
- </FieldGroup>
- </div>
- ))}
- <Button
- type="button"
- variant="outline"
- onClick={() =>
- setGuarantors((prev) => [
+ <ApplicationCustomerLocationSection
+ customer={selectedCustomer}
+ value={{
+ latitude: formData.latitude,
+ longitude: formData.longitude,
+ locationLabel: formData.locationLabel,
+ }}
+ onChange={(next) =>
+ setFormData((prev) => ({
  ...prev,
- {
- name: "",
- phone: "",
- nationalId: "",
- relationship: "",
- otherRelationship: "",
- idFront: null,
- idBack: null,
- },
- ])
- }
- >
- <Plus className="mr-2 h-4 w-4" />
- Add Guarantor
- </Button>
- </CardContent>
- </Card>
-
- <Card>
- <CardHeader>
- <CardTitle>Reference Information</CardTitle>
- <CardDescription>
- Add friends or family contacts reachable if customer is unavailable
- </CardDescription>
- </CardHeader>
- <CardContent className="space-y-4">
- {references.map((reference, index) => (
- <div key={index} className="rounded-lg border border-border p-4">
- <div className="mb-3 flex items-center justify-between">
- <p className="text-sm font-semibold">Reference {index + 1}</p>
- {references.length > 1 && (
- <Button
- variant="ghost"
- size="icon"
- onClick={() =>
- setReferences((prev) => prev.filter((_, i) => i !== index))
- }
- >
- <Trash2 className="h-4 w-4" />
- </Button>
- )}
- </div>
- <div className="grid gap-4 sm:grid-cols-2">
- <Field>
- <FieldLabel>Full Name</FieldLabel>
- <Input
- placeholder="Reference full name"
- value={reference.name}
- onChange={(e) => updateReference(index, "name", e.target.value)}
- />
- </Field>
- <Field>
- <FieldLabel>Relationship</FieldLabel>
- <Input
- placeholder="e.g., Friend, Cousin, Neighbor"
- value={reference.relationship}
- onChange={(e) =>
- updateReference(index, "relationship", e.target.value)
+ latitude: next.latitude,
+ longitude: next.longitude,
+ locationLabel: next.locationLabel,
+ }))
  }
  />
- </Field>
- <Field>
- <FieldLabel>Phone Number</FieldLabel>
- <TzValidatedInput
- kind="phone"
- value={reference.phone}
- onValueChange={(value) => updateReference(index, "phone", value)}
- />
- </Field>
- <Field>
- <FieldLabel>Address / Location</FieldLabel>
- <Input
- placeholder="Where this reference can be found"
- value={reference.address}
- onChange={(e) => updateReference(index, "address", e.target.value)}
- />
- </Field>
- </div>
- </div>
- ))}
- <Button
- type="button"
- variant="outline"
- onClick={() =>
- setReferences((prev) => [
- ...prev,
- { name: "", relationship: "", phone: "", address: "" },
- ])
- }
- >
- <Plus className="mr-2 h-4 w-4" />
- Add Reference
- </Button>
- </CardContent>
- </Card>
-
- <Card>
- <CardHeader>
- <CardTitle>Customer Location</CardTitle>
- <CardDescription>
- Capture latitude and longitude and preview customer location on map
- </CardDescription>
- </CardHeader>
- <CardContent className="space-y-4">
- <div className="grid gap-4 sm:grid-cols-2">
- <Field>
- <FieldLabel>Latitude</FieldLabel>
- <Input
- type="number"
- step="any"
- placeholder="-6.7924"
- value={formData.latitude}
- onChange={(e) =>
- setFormData({ ...formData, latitude: e.target.value })
- }
- />
- </Field>
- <Field>
- <FieldLabel>Longitude</FieldLabel>
- <Input
- type="number"
- step="any"
- placeholder="39.2083"
- value={formData.longitude}
- onChange={(e) =>
- setFormData({ ...formData, longitude: e.target.value })
- }
- />
- </Field>
- </div>
- <Button
- type="button"
- variant="outline"
- onClick={setBrowserLocation}
- disabled={isLocating}
- >
- <LocateFixed className="mr-2 h-4 w-4" />
- {isLocating ? "Getting browser location..." : "Use Browser Location"}
- </Button>
-    {formData.latitude && formData.longitude && (
-              <div className="overflow-hidden rounded-lg border border-border">
-                <div className="flex items-center justify-between gap-2 border-b border-border bg-muted px-3 py-2 text-sm">
-                  <div className="flex items-center gap-2">
-                    <MapPin className="h-4 w-4 text-primary" />
-                    <span className="font-mono text-xs">
-                      {formData.latitude}, {formData.longitude}
-                    </span>
-                  </div>
-                  <a
-                    href={`https://www.google.com/maps/dir/?api=1&destination=${formData.latitude},${formData.longitude}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-                  >
-                    <ExternalLink className="h-3.5 w-3.5" />
-                    Get Directions
-                  </a>
-                </div>
-                <iframe
-                  title="Customer location map"
-                  src={`https://maps.google.com/maps?q=${formData.latitude},${formData.longitude}&z=15&output=embed`}
-                  className="h-64 w-full"
-                  loading="lazy"
-                />
-              </div>
-            )}
- </CardContent>
- </Card>
 
  {/* Documents */}
  <Card>
  <CardHeader>
  <CardTitle>Supporting Documents</CardTitle>
  <CardDescription>
- Optional for now — attach files if you have them. Submit will still activate the loan for disbursement.
+ Optional for now — attach one or more files per document type if you have them. Submit will still activate the loan for disbursement.
  </CardDescription>
  </CardHeader>
  <CardContent>
@@ -1649,8 +1353,8 @@ onValueChange={(value) => {
  filesByType={documentFiles}
  applicationId={editingApplicationId ?? undefined}
  uploadOnSelect={Boolean(editingApplicationId)}
- onChange={(type, file) =>
- setDocumentFiles((prev) => ({ ...prev, [normalizeDocumentType(type)]: file }))
+ onChange={(type, files) =>
+ setDocumentFiles((prev) => ({ ...prev, [normalizeDocumentType(type)]: files }))
  }
  />
  ) : (

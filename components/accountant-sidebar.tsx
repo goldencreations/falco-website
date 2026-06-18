@@ -34,7 +34,7 @@ const accountantNav = [
  { title: "Dashboard", href: "/accountant/dashboard", icon: LayoutDashboard },
  { title: "Payments", href: "/accountant/payments", icon: CreditCard },
  { title: "Reconciliation", href: "/accountant/reconciliation", icon: Scale },
- { title: "Collections", href: "/accountant/collections", icon: ShieldCheck },
+ { title: "Collections", href: "/accountant/collections/activities", icon: ShieldCheck },
  { title: "Disbursements", href: "/accountant/disbursements", icon: WalletCards },
  { title: "Active Loans", href: "/accountant/loans", icon: Wallet },
  { title: "Reports", href: "/accountant/reports", icon: BarChart3 },

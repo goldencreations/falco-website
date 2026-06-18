@@ -80,7 +80,7 @@ export default function ApplicationDetailPage() {
     missing: string[];
     uploadedTypes: string[];
   } | null>(null);
-  const [activateDocFiles, setActivateDocFiles] = useState<Record<string, File | null>>({});
+  const [activateDocFiles, setActivateDocFiles] = useState<Record<string, File[]>>({});
   const [activateUploadedTypes, setActivateUploadedTypes] = useState<string[]>([]);
 
   const loadApplication = useCallback(async (options?: { background?: boolean }) => {
@@ -204,8 +204,8 @@ export default function ApplicationDetailPage() {
   };
 
   const openActivateDocsDialog = (app: ApplicationViewRow, missing: string[]) => {
-    const files: Record<string, File | null> = {};
-    for (const t of missing) files[t] = null;
+    const files: Record<string, File[]> = {};
+    for (const t of missing) files[t] = [];
     setActivateDocFiles(files);
     setActivateUploadedTypes([]);
     setActivateDocsDialog({
@@ -255,7 +255,9 @@ export default function ApplicationDetailPage() {
   const confirmActivateWithDocuments = async () => {
     if (!activateDocsDialog) return;
     const { appId, amount, missing } = activateDocsDialog;
-    const stillMissing = missing.filter((t) => !activateDocFiles[t] && !activateUploadedTypes.includes(t));
+    const stillMissing = missing.filter(
+      (t) => !(activateDocFiles[t]?.length ?? 0) && !activateUploadedTypes.includes(t)
+    );
     if (stillMissing.length > 0) {
       setActionError(
         `Select files for: ${stillMissing.map(formatRequiredDocumentLabel).join(", ")}`
@@ -294,11 +296,11 @@ export default function ApplicationDetailPage() {
     <>
       <DashboardHeader
         title="Application Details"
-        description="Full loan application record with documents, workflow actions, and export."
+        description="Review loan request, documents, security, and workflow actions."
       />
       <main className="flex min-h-0 flex-1 overflow-y-auto p-4 pb-10 lg:p-6 lg:pb-8">
-        <div className="mx-auto max-w-4xl space-y-4">
-          <Button variant="ghost" size="sm" className="-ml-2 w-fit" asChild>
+        <div className="mx-auto w-full max-w-6xl space-y-5">
+          <Button variant="ghost" size="sm" className="-ml-2 w-fit text-muted-foreground hover:text-foreground" asChild>
             <Link href={applicationsListPath}>
               <ArrowLeft className="mr-2 h-4 w-4" />
               Back to applications
@@ -401,8 +403,8 @@ export default function ApplicationDetailPage() {
                   prev.includes(type) ? prev : [...prev, type]
                 )
               }
-              onChange={(type, file) =>
-                setActivateDocFiles((prev) => ({ ...prev, [type]: file }))
+              onChange={(type, files) =>
+                setActivateDocFiles((prev) => ({ ...prev, [type]: files }))
               }
             />
           ) : null}

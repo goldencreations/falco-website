@@ -62,6 +62,8 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { CustomerCollateralPanel } from "@/components/customers/customer-collateral-panel";
 import { CustomerGuarantorPanel } from "@/components/customers/customer-guarantor-panel";
+import { CustomerLocationCard } from "@/components/customers/customer-location-card";
+import { CustomerProfileStatCard } from "@/components/customers/customer-profile-stat-card";
 import { enrichCustomerApplicationsForMedia } from "@/lib/enrich-customer-applications";
 import {
  buildCustomerProfileAttachments,
@@ -86,7 +88,7 @@ import { resolveMediaViewUrl } from "@/components/media/cached-media-preview";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/formatters";
 import { adaptApiCustomerRowToCustomer, extractCustomerDetail } from "@/lib/customer-adapters";
 import type { CustomerPortfolioData } from "@/lib/customer-portfolio-detail";
-import { customerToFormPayload } from "@/lib/customer-payload";
+import { formatReferenceRelationship } from "@/lib/customer-references";
 import type { LoanListRow } from "@/lib/loan-adapters";
 import { useSessionUser } from "@/lib/use-session-user";
 import type { Customer, Payment, RiskGrade, LoanStatus } from "@/lib/types";
@@ -259,10 +261,23 @@ export default function CustomerDetailPage() {
  () => extractCollateralFromApplications(applicationsForFiles),
  [applicationsForFiles]
  );
- const guarantorRows = useMemo(
+ const applicationGuarantorRows = useMemo(
  () => extractGuarantorsFromApplications(applicationsForFiles),
  [applicationsForFiles]
  );
+ const guarantorRows = useMemo(() => {
+  const registered =
+   customer?.guarantors?.map((g) => ({
+    applicationNumber: "Customer registration",
+    name: g.full_name,
+    nationalId: g.national_id ?? "—",
+    phone: g.phone,
+    address: "—",
+    relationship: g.relationship,
+    documents: [] as { name: string; url: string }[],
+   })) ?? [];
+  return [...registered, ...applicationGuarantorRows];
+ }, [customer?.guarantors, applicationGuarantorRows]);
 
  const applyPortfolio = (body: CustomerPortfolioData) => {
  setCustomerLoans(body.loans ?? []);
@@ -610,7 +625,7 @@ export default function CustomerDetailPage() {
  description={customer.customer_number}
  />
  <main className="flex min-h-0 flex-1 overflow-y-auto overflow-x-hidden scroll-smooth p-4 pb-10 lg:p-6 lg:pb-8">
- <div className="mx-auto max-w-7xl space-y-6">
+ <div className="mx-auto max-w-7xl space-y-4 sm:space-y-5">
  <div className="flex items-center justify-between">
  <Button variant="ghost" size="sm" asChild>
  <Link href={customersListPath}>
@@ -646,10 +661,10 @@ export default function CustomerDetailPage() {
  </div>
 
  {/* Customer Header Card */}
- <Card className="border-l-4 border-l-primary">
- <CardContent className="p-6">
- <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
- <Avatar className="h-24 w-24 shrink-0 ring-4 ring-primary/20">
+ <Card className="overflow-hidden border border-border/80 shadow-sm">
+ <CardContent className="p-4 sm:p-5">
+ <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+ <Avatar className="h-20 w-20 shrink-0 ring-2 ring-primary/15 sm:h-24 sm:w-24">
           {passportAvatarSrc ? (
             <AvatarImage
               src={passportAvatarSrc}
@@ -663,10 +678,10 @@ export default function CustomerDetailPage() {
  {customer.last_name[0]}
  </AvatarFallback>
  </Avatar>
- <div className="flex-1 space-y-4">
+ <div className="flex-1 min-w-0 space-y-3">
  <div>
- <div className="flex flex-wrap items-center gap-3">
- <h2 className="text-2xl font-bold text-foreground">
+ <div className="flex flex-wrap items-center gap-2">
+ <h2 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
  {customer.first_name} {customer.middle_name} {customer.last_name}
  </h2>
  {customer.is_blacklisted && (
@@ -676,9 +691,9 @@ export default function CustomerDetailPage() {
  </Badge>
  )}
  </div>
- <p className="text-muted-foreground font-mono">{customer.customer_number}</p>
+ <p className="text-sm text-muted-foreground font-mono">{customer.customer_number}</p>
  </div>
- <div className="flex flex-wrap gap-2">
+ <div className="flex flex-wrap gap-1.5">
  <Badge variant="outline" className="capitalize border-primary/30">
  {customer.customer_type === "business" ? (
  <Building2 className="mr-1 h-3 w-3 text-primary" />
@@ -713,86 +728,53 @@ export default function CustomerDetailPage() {
  <p className="text-sm text-muted-foreground">Loading loans and payment history…</p>
  ) : null}
 
- {/* Key Metrics Cards */}
- <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
- <Card className="bg-gradient-to-br from-cyan-50 to-white border-cyan-200">
- <CardContent className="p-4">
- <div className="flex items-center justify-between">
- <div>
- <p className="text-sm text-cyan-700 font-medium">Total Borrowed</p>
- <p className="text-2xl font-bold text-cyan-900">{formatCurrency(totalBorrowed)}</p>
- <p className="text-xs text-cyan-600">{customerLoans.length} loans</p>
+ {/* Key Metrics */}
+ <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
+ <CustomerProfileStatCard
+ title="Total borrowed"
+ value={formatCurrency(totalBorrowed)}
+ hint={`${customerLoans.length} loans`}
+ icon={Wallet}
+ tone="cyan"
+ />
+ <CustomerProfileStatCard
+ title="Total repaid"
+ value={formatCurrency(totalPaid)}
+ hint={
+ <span className="inline-flex items-center gap-1">
+ <TrendingUp className="h-3 w-3 shrink-0" />
+ {totalBorrowed > 0
+ ? `${((totalPaid / (totalBorrowed + totalBorrowed * 0.15)) * 100).toFixed(0)}% repaid`
+ : "0% repaid"}
+ </span>
+ }
+ icon={CheckCircle2}
+ tone="emerald"
+ />
+ <CustomerProfileStatCard
+ title="Outstanding"
+ value={formatCurrency(totalOutstanding)}
+ hint={`${activeLoans.length} active loans`}
+ icon={Clock}
+ tone="amber"
+ />
+ <CustomerProfileStatCard
+ title="Repayment rate"
+ value={`${repaymentRate.toFixed(0)}%`}
+ hint={`${onTimePayments} on-time payments`}
+ icon={TrendingUp}
+ tone="violet"
+ />
+ <CustomerProfileStatCard
+ title="Completed loans"
+ value={String(completedLoans.length)}
+ hint="Successfully paid off"
+ icon={CreditCard}
+ tone="teal"
+ />
  </div>
- <div className="h-12 w-12 rounded-full bg-cyan-100 flex items-center justify-center">
- <Wallet className="h-6 w-6 text-cyan-600" />
- </div>
- </div>
- </CardContent>
- </Card>
 
- <Card className="bg-gradient-to-br from-emerald-50 to-white border-emerald-200">
- <CardContent className="p-4">
- <div className="flex items-center justify-between">
- <div>
- <p className="text-sm text-emerald-700 font-medium">Total Repaid</p>
- <p className="text-2xl font-bold text-emerald-900">{formatCurrency(totalPaid)}</p>
- <p className="text-xs text-emerald-600 flex items-center gap-1">
- <TrendingUp className="h-3 w-3" />
- {totalBorrowed > 0 ? ((totalPaid / (totalBorrowed + (totalBorrowed * 0.15))) * 100).toFixed(0) : 0}% of total
- </p>
- </div>
- <div className="h-12 w-12 rounded-full bg-emerald-100 flex items-center justify-center">
- <CheckCircle2 className="h-6 w-6 text-emerald-600" />
- </div>
- </div>
- </CardContent>
- </Card>
-
- <Card className="bg-gradient-to-br from-amber-50 to-white border-amber-200">
- <CardContent className="p-4">
- <div className="flex items-center justify-between">
- <div>
- <p className="text-sm text-amber-700 font-medium">Outstanding</p>
- <p className="text-2xl font-bold text-amber-900">{formatCurrency(totalOutstanding)}</p>
- <p className="text-xs text-amber-600">{activeLoans.length} active loans</p>
- </div>
- <div className="h-12 w-12 rounded-full bg-amber-100 flex items-center justify-center">
- <Clock className="h-6 w-6 text-amber-600" />
- </div>
- </div>
- </CardContent>
- </Card>
-
- <Card className="bg-gradient-to-br from-violet-50 to-white border-violet-200">
- <CardContent className="p-4">
- <div className="flex items-center justify-between">
- <div>
- <p className="text-sm text-violet-700 font-medium">Repayment Rate</p>
- <p className="text-2xl font-bold text-violet-900">{repaymentRate.toFixed(0)}%</p>
- <p className="text-xs text-violet-600">{onTimePayments} on-time payments</p>
- </div>
- <div className="h-12 w-12 rounded-full bg-violet-100 flex items-center justify-center">
- <TrendingUp className="h-6 w-6 text-violet-600" />
- </div>
- </div>
- </CardContent>
- </Card>
-
- <Card className="bg-gradient-to-br from-teal-50 to-white border-teal-200">
- <CardContent className="p-4">
- <div className="flex items-center justify-between">
- <div>
- <p className="text-sm text-teal-700 font-medium">Completed Loans</p>
- <p className="text-2xl font-bold text-teal-900">{completedLoans.length}</p>
- <p className="text-xs text-teal-600">Successfully paid off</p>
- </div>
- <div className="h-12 w-12 rounded-full bg-teal-100 flex items-center justify-center">
- <CreditCard className="h-6 w-6 text-teal-600" />
- </div>
- </div>
- </CardContent>
- </Card>
- </div>
+ <CustomerLocationCard customer={customer} />
 
  {/* Tabs */}
  <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
@@ -992,6 +974,33 @@ export default function CustomerDetailPage() {
  </div>
  </CardContent>
  </Card>
+
+ {customer.references && customer.references.length > 0 ? (
+ <Card className="md:col-span-2">
+ <CardHeader className="bg-slate-50 rounded-t-lg">
+ <CardTitle className="text-base flex items-center gap-2">
+ <Users className="h-4 w-4 text-primary" />
+ References
+ </CardTitle>
+ </CardHeader>
+ <CardContent className="space-y-3 pt-4">
+ {customer.references.map((reference, index) => (
+ <div
+ key={`${reference.full_name}-${index}`}
+ className="rounded-lg border border-dashed px-3 py-2 text-sm"
+ >
+ <p className="font-medium">{reference.full_name}</p>
+ <p className="text-muted-foreground">
+ {formatReferenceRelationship(reference.relationship)} · {reference.phone}
+ </p>
+ {reference.address ? (
+ <p className="text-xs text-muted-foreground">{reference.address}</p>
+ ) : null}
+ </div>
+ ))}
+ </CardContent>
+ </Card>
+ ) : null}
 
  {/* Next of Kin */}
  <Card>

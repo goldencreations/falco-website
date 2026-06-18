@@ -150,6 +150,11 @@ const navigation: { title: string; items: SidebarNavItem[] }[] = [
  title: "Collections",
  href: "/collections",
  icon: AlertTriangle,
+ subItems: [
+ { title: "Recent activities", href: "/collections/activities" },
+ { title: "Collection queue", href: "/collections/queue" },
+ { title: "Vikundi", href: "/collections/vikundi" },
+ ],
  },
  ],
  },
@@ -266,9 +271,9 @@ export function AppSidebar() {
  <SidebarMenuSubItem key={subItem.href}>
  <SidebarMenuSubButton
  asChild
- isActive={pathname === subItem.href}
+ isActive={pathname === subItem.href || pathname.startsWith(`${subItem.href}/`)}
  className={cn(
- pathname === subItem.href && "text-sidebar-primary font-medium"
+ (pathname === subItem.href || pathname.startsWith(`${subItem.href}/`)) && "text-sidebar-primary font-medium"
  )}
  >
  <Link href={subItem.href}>

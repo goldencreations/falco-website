@@ -44,6 +44,8 @@ export function customerToFormPayload(customer: Customer, rawRow?: Record<string
  alt_phone: customer.phone_secondary ?? "",
  email: customer.email ?? "",
  physical_address: customer.physical_address,
+ home_latitude: customer.home_latitude ?? null,
+ home_longitude: customer.home_longitude ?? null,
  street: md.street != null ? String(md.street) : "",
  ward: customer.ward,
  district: customer.district,
@@ -59,6 +61,8 @@ export function customerToFormPayload(customer: Customer, rawRow?: Record<string
  business_name: customer.business_name ?? "",
  business_type: customer.business_type ?? "",
  business_address: customer.business_address ?? "",
+ business_latitude: customer.business_latitude ?? null,
+ business_longitude: customer.business_longitude ?? null,
  business_registration_no: customer.business_registration_number ?? "",
  years_in_business: customer.years_in_business != null ? String(customer.years_in_business) : "",
  cheque_number: md.cheque_number != null ? String(md.cheque_number) : "",
@@ -81,6 +85,8 @@ export function customerToFormPayload(customer: Customer, rawRow?: Record<string
  next_of_kin_address: customer.next_of_kin_address,
  is_blacklisted: customer.is_blacklisted,
  blacklist_reason: customer.blacklist_reason ?? "",
+ guarantors: customer.guarantors ?? [],
+ references: customer.references ?? [],
  };
 }
 
@@ -174,6 +180,28 @@ export function mapFormPayloadToCustomerApi(input: Record<string, unknown>): Rec
  const emailTrim = input.email ? String(input.email).trim() : "";
  const email = emailTrim.length > 0 ? emailTrim : undefined;
 
+ const guarantors = Array.isArray(input.guarantors)
+  ? (input.guarantors as Array<Record<string, unknown>>)
+      .map((row) => ({
+        full_name: String(row.full_name ?? row.name ?? "").trim(),
+        phone: String(row.phone ?? row.phone_number ?? "").replace(/\D/g, "") || String(row.phone ?? "").trim(),
+        relationship: String(row.relationship ?? "").trim(),
+        national_id: row.national_id != null ? String(row.national_id).trim() : undefined,
+      }))
+      .filter((row) => row.full_name && row.phone && row.relationship)
+  : [];
+
+ const references = Array.isArray(input.references)
+  ? (input.references as Array<Record<string, unknown>>)
+      .map((row) => ({
+        full_name: String(row.full_name ?? row.name ?? "").trim(),
+        phone: String(row.phone ?? row.phone_number ?? "").replace(/\D/g, "") || String(row.phone ?? "").trim(),
+        relationship: String(row.relationship ?? "").trim(),
+        address: row.address != null ? String(row.address).trim() : undefined,
+      }))
+      .filter((row) => row.full_name && row.phone && row.relationship)
+  : [];
+
  const payload: Record<string, unknown> = {
  customer_type,
  first_name,
@@ -226,6 +254,12 @@ export function mapFormPayloadToCustomerApi(input: Record<string, unknown>): Rec
  cheque_number: input.cheque_number ?? null,
  status: input.status ?? null,
  blacklist_reason: input.blacklist_reason ? String(input.blacklist_reason).trim() : null,
+ home_latitude: input.home_latitude ?? null,
+ home_longitude: input.home_longitude ?? null,
+ business_latitude: input.business_latitude ?? null,
+ business_longitude: input.business_longitude ?? null,
+ ...(guarantors.length > 0 ? { guarantors } : {}),
+ ...(references.length > 0 ? { references } : {}),
  },
  };
 

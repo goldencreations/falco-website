@@ -19,7 +19,7 @@ import { TzValidatedInput } from "@/components/forms/tz-validated-input";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -90,6 +90,15 @@ const locationTypeLabel: Record<LeadLocationType, string> = {
  sponsor: "Sponsor",
 };
 
+/** Local calendar date for `<input type="date">` (YYYY-MM-DD). */
+function todayInputDate(): string {
+ const d = new Date();
+ const y = d.getFullYear();
+ const m = String(d.getMonth() + 1).padStart(2, "0");
+ const day = String(d.getDate()).padStart(2, "0");
+ return `${y}-${m}-${day}`;
+}
+
 
 export default function LeadsPage() {
   const router = useRouter();
@@ -137,7 +146,7 @@ export default function LeadsPage() {
  latitude: "",
  longitude: "",
  notes: "",
- followUpDate: "",
+ followUpDate: todayInputDate(),
  status: "new" as LeadStatus,
  });
 
@@ -289,7 +298,7 @@ export default function LeadsPage() {
  latitude: formData.latitude || undefined,
  longitude: formData.longitude || undefined,
  notes: formData.notes,
- followUpDate: formData.followUpDate || undefined,
+ followUpDate: formData.followUpDate.trim() || todayInputDate(),
  status: formData.status,
  });
 
@@ -330,7 +339,7 @@ export default function LeadsPage() {
  latitude: "",
  longitude: "",
  notes: "",
- followUpDate: "",
+ followUpDate: todayInputDate(),
  status: "new",
  });
  } catch (e) {
@@ -505,7 +514,15 @@ export default function LeadsPage() {
  <Button
  type="button"
  className="w-full bg-emerald-600 hover:bg-emerald-700 sm:w-auto"
- onClick={() => setShowAddLeadForm((prev) => !prev)}
+ onClick={() => {
+ setShowAddLeadForm((prev) => {
+ const opening = !prev;
+ if (opening) {
+ setFormData((f) => ({ ...f, followUpDate: todayInputDate() }));
+ }
+ return opening;
+ });
+ }}
  >
  <Plus className="mr-2 h-4 w-4" />
  {showAddLeadForm ? "Close Add Lead" : "Add Lead"}
@@ -620,7 +637,7 @@ export default function LeadsPage() {
  <TableHead>Type</TableHead>
  <TableHead>Location</TableHead>
  <TableHead>Coordinates</TableHead>
- <TableHead>Follow-up</TableHead>
+ <TableHead>Date Added</TableHead>
  <TableHead>Status</TableHead>
  <TableHead className="text-right">Actions</TableHead>
  </TableRow>
@@ -872,7 +889,8 @@ export default function LeadsPage() {
                       />
                     </Field>
                     <Field>
-                      <FieldLabel>Follow-up Date</FieldLabel>
+                      <FieldLabel>Date Added</FieldLabel>
+                      <FieldDescription>When this lead was captured. Defaults to today.</FieldDescription>
                       <Input
                         type="date"
                         value={editFormData.followUpDate}
@@ -1093,7 +1111,8 @@ export default function LeadsPage() {
  />
  </Field>
  <Field>
- <FieldLabel>Follow-up Date</FieldLabel>
+ <FieldLabel>Date Added</FieldLabel>
+ <FieldDescription>When this lead was captured. Defaults to today; change if needed.</FieldDescription>
  <Input
  type="date"
  value={formData.followUpDate}

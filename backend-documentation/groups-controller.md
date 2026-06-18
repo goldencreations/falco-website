@@ -20,6 +20,8 @@ Supports Vikundi/group lending without overloading individual customer loans.
 
 Group create requires `group_name`, `loan_officer_id`, `chairperson_customer_id`, `formation_date`, `meeting_day`, `meeting_location`, and `village_or_street`. Optional fields include `branch_id`, `group_code`, secretary/treasurer IDs, member IDs, status, and notes.
 
+Meeting map coordinates are stored in `notes` as `[MEETING_GEO:lat,lng]` when the UI captures a pin (the OpenAPI schema does not yet expose dedicated latitude/longitude fields on `LoanGroup`).
+
 ## Outputs
 
 Responses return `LoanGroup` with `member_customer_ids`, member rows, role customer IDs, branch ID, status, and timestamps.

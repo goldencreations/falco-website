@@ -36,7 +36,7 @@ const managerNav = [
  { title: "Reconciliation", href: "/manager/reconciliation", icon: Scale },
  { title: "Team & Assignment", href: "/manager/team", icon: Users2 },
  { title: "Reports", href: "/manager/reports", icon: BarChart3 },
- { title: "Collections", href: "/manager/collections", icon: ShieldCheck },
+ { title: "Collections", href: "/manager/collections/activities", icon: ShieldCheck },
  { title: "Settings", href: "/manager/settings", icon: Settings },
 ];
 
@@ -64,8 +64,15 @@ export function ManagerSidebar({ user, branchLabel }: { user: SessionUser; branc
  <SidebarMenuItem key={item.href}>
  <SidebarMenuButton
  asChild
- isActive={pathname === item.href}
- className={cn(pathname === item.href && "bg-sidebar-primary/15 text-sidebar-primary font-medium")}
+ isActive={
+ pathname === item.href ||
+ (item.href.startsWith("/manager/collections") && pathname.startsWith("/manager/collections"))
+ }
+ className={cn(
+ (pathname === item.href ||
+ (item.href.startsWith("/manager/collections") && pathname.startsWith("/manager/collections"))) &&
+ "bg-sidebar-primary/15 text-sidebar-primary font-medium"
+ )}
  >
  <Link href={item.href}>
  <item.icon className="h-4 w-4" />

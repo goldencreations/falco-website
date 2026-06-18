@@ -9,6 +9,7 @@ import {
  uploadRequiredDocumentsByType,
  normalizeDocumentType,
  formatRequiredDocumentLabel,
+ hasDocumentFilesForType,
  uploadApplicationDocumentApi,
  fetchApplicationDocumentStatus,
  getMissingRequiredDocumentTypes,
@@ -147,14 +148,14 @@ async function parseApiError(res: Response, json: unknown): Promise<string> {
 
 export async function uploadApplicationDocumentsFromForm(
  applicationId: string,
- filesByType: Record<string, File | null | undefined>,
+ filesByType: Record<string, File[] | File | null | undefined>,
  requiredTypes: string[]
 ): Promise<{ ok: true } | { ok: false; error: string }> {
  if (!requiredTypes.length) return { ok: true };
  if (APPLICATION_DOCUMENTS_OPTIONAL) {
  return satisfyRequiredDocumentsForSubmit(applicationId, filesByType, requiredTypes);
  }
- const missingFiles = requiredTypes.filter((t) => !filesByType[normalizeDocumentType(t)]);
+ const missingFiles = requiredTypes.filter((t) => !hasDocumentFilesForType(filesByType, t));
  if (missingFiles.length > 0) {
  return {
  ok: false,
@@ -403,7 +404,7 @@ export async function runAdminActivateApplicationWorkflow(
  applicationId: string,
  approvedAmount: number,
  actorName: string,
- documentFiles?: Record<string, File | null | undefined>
+ documentFiles?: Record<string, File[] | File | null | undefined>
 ): Promise<
  | { ok: true; data?: unknown }
  | { ok: false; error: string; missingDocuments?: string[] }
@@ -528,7 +529,7 @@ export async function runPostCreateWorkflow(options: {
  role: string;
  approvedAmount: number;
  actorName: string;
- documentFiles?: Record<string, File | null | undefined>;
+ documentFiles?: Record<string, File[] | File | null | undefined>;
  requiredDocuments?: string[];
 }): Promise<{ ok: true } | { ok: false; error: string }> {
  const { applicationId, isDraft, role, approvedAmount } = options;
