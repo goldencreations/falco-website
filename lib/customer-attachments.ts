@@ -1,4 +1,5 @@
 export type CustomerAttachmentFormState = {
+  passport_photo: File | null;
   home_location_photos: File[];
   business_location_photos: File[];
   supporting_documents: File[];
@@ -25,6 +26,7 @@ export const DOCUMENT_MAX_BYTES = 10 * 1024 * 1024;
 
 export function emptyCustomerAttachments(): CustomerAttachmentFormState {
   return {
+    passport_photo: null,
     home_location_photos: [],
     business_location_photos: [],
     supporting_documents: [],
@@ -61,6 +63,10 @@ export function validateSupportingDocument(file: File): { ok: true } | { ok: fal
 export function validateCustomerAttachments(
   attachments: CustomerAttachmentFormState
 ): { ok: true } | { ok: false; error: string } {
+  if (attachments.passport_photo) {
+    const v = validateLocationPhoto(attachments.passport_photo);
+    if (!v.ok) return { ok: false, error: `Passport photo: ${v.error}` };
+  }
   for (const file of attachments.home_location_photos) {
     const v = validateLocationPhoto(file);
     if (!v.ok) return { ok: false, error: `Home location photo (${file.name}): ${v.error}` };

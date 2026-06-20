@@ -16,13 +16,13 @@ import {
  Building2,
  UserCog,
  ChevronDown,
- TrendingUp,
  Scale,
  Calculator,
  MapPin,
  DatabaseBackup,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { FalcoLogo } from "@/components/falco-logo";
 import { cn } from "@/lib/utils";
 import {
  Sidebar,
@@ -226,10 +226,8 @@ export function AppSidebar() {
  <Sidebar className="border-sidebar-border">
  <SidebarHeader className="border-b border-sidebar-border px-4 py-4">
  <div className="flex items-center gap-3">
- <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-sidebar-primary to-sidebar-primary/70 shadow-lg shadow-sidebar-primary/20">
- <TrendingUp className="h-6 w-6 text-sidebar-primary-foreground" />
- </div>
- <div className="flex flex-col">
+ <FalcoLogo size="md" />
+ <div className="flex min-w-0 flex-col">
  <span className="text-sm font-bold text-sidebar-foreground tracking-tight">
  {L("Falco Financial")}
  </span>

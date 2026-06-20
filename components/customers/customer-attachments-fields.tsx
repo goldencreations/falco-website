@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { ExternalLink, FileText, Home, Store, Trash2, Upload } from "lucide-react";
+import { ExternalLink, FileText, Home, Store, Trash2, Upload, User } from "lucide-react";
 import {
   CachedMediaPreview,
   resolveMediaViewUrl,
@@ -21,6 +21,8 @@ import { cn } from "@/lib/utils";
 type CustomerAttachmentsFieldsProps = {
   value: CustomerAttachmentFormState;
   onChange: (next: CustomerAttachmentFormState) => void;
+  existingPassportUrl?: string | null;
+  existingPassportPreviewUrl?: string | null;
   existingHomeUrl?: string | null;
   existingBusinessUrl?: string | null;
   existingDocuments?: Array<{ name: string; url: string; previewUrl?: string | null }>;
@@ -34,6 +36,132 @@ function isImageDocument(doc: { name: string; url: string; previewUrl?: string |
 
 function fileKey(file: File, index: number) {
   return `${file.name}-${file.size}-${file.lastModified}-${index}`;
+}
+
+type SingleImageUploadFieldProps = {
+  id: string;
+  title: string;
+  hint: string;
+  icon: React.ReactNode;
+  accept: string;
+  file: File | null;
+  existingUrl?: string | null;
+  existingPreviewUrl?: string | null;
+  error?: string | null;
+  onSelect: (file: File | null) => void;
+};
+
+function SingleImageUploadField({
+  id,
+  title,
+  hint,
+  icon,
+  accept,
+  file,
+  existingUrl,
+  existingPreviewUrl,
+  error,
+  onSelect,
+}: SingleImageUploadFieldProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!file) {
+      setPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
+  const existingViewUrl = resolveMediaViewUrl(existingPreviewUrl, existingUrl);
+
+  return (
+    <div className="space-y-2 rounded-lg border border-border p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Label htmlFor={id} className="flex items-center gap-1.5 text-sm font-medium">
+          {icon}
+          {title}
+        </Label>
+        <Badge
+          variant="secondary"
+          className="border border-emerald-200/80 bg-emerald-50/90 text-[10px] font-normal text-emerald-800"
+        >
+          Optional
+        </Badge>
+      </div>
+      <p className="text-xs text-muted-foreground">{hint}</p>
+
+      {!file && existingViewUrl ? (
+        <div className="space-y-2">
+          <p className="text-[11px] font-medium text-muted-foreground">Current photo on file</p>
+          <CachedMediaPreview
+            previewUrl={existingPreviewUrl}
+            authUrl={existingUrl ?? existingPreviewUrl ?? ""}
+            alt={title}
+            maxHeight="max-h-44"
+            imageClassName="object-cover"
+          />
+        </div>
+      ) : null}
+
+      <div
+        className={cn(
+          "flex flex-col items-center justify-center gap-3 rounded-md border border-dashed bg-muted/20 px-4 py-5 text-center sm:flex-row sm:justify-between sm:text-left",
+          error ? "border-destructive/40" : "border-border"
+        )}
+      >
+        <div className="flex flex-col items-center gap-2 sm:flex-row sm:items-start">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-background shadow-sm">
+            <Upload className="h-4 w-4 text-muted-foreground" aria-hidden />
+          </div>
+          <div className="space-y-0.5">
+            <p className="text-xs font-medium text-foreground">
+              {file ? "Replace photo" : "Upload photo"}
+            </p>
+            <p className="text-[11px] text-muted-foreground">JPG, JPEG, PNG, WEBP — max 5MB</p>
+          </div>
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center justify-center gap-2">
+          <input
+            ref={inputRef}
+            id={id}
+            type="file"
+            accept={accept}
+            className="sr-only"
+            onChange={(e) => {
+              const next = e.target.files?.[0] ?? null;
+              onSelect(next);
+              e.target.value = "";
+            }}
+          />
+          <Button type="button" variant="secondary" size="sm" onClick={() => inputRef.current?.click()}>
+            {file ? "Choose another" : "Browse"}
+          </Button>
+          {file ? (
+            <Button type="button" variant="outline" size="sm" onClick={() => onSelect(null)}>
+              Remove
+            </Button>
+          ) : null}
+        </div>
+      </div>
+
+      {previewUrl ? (
+        <div className="overflow-hidden rounded-md border bg-background">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={previewUrl} alt={`${title} preview`} className="max-h-48 w-full object-cover" />
+        </div>
+      ) : null}
+
+      {error ? (
+        <p role="alert" className="text-xs text-destructive">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
 type MultiImageUploadFieldProps = {
@@ -180,6 +308,8 @@ function MultiImageUploadField({
 export function CustomerAttachmentsFields({
   value,
   onChange,
+  existingPassportUrl,
+  existingPassportPreviewUrl,
   existingHomeUrl,
   existingBusinessUrl,
   existingDocuments = [],
@@ -187,9 +317,25 @@ export function CustomerAttachmentsFields({
 }: CustomerAttachmentsFieldsProps) {
   const docsInputRef = useRef<HTMLInputElement>(null);
   const docsId = useId();
+  const [passportError, setPassportError] = useState<string | null>(null);
   const [homeError, setHomeError] = useState<string | null>(null);
   const [businessError, setBusinessError] = useState<string | null>(null);
   const [docsError, setDocsError] = useState<string | null>(null);
+
+  const selectPassportPhoto = (file: File | null) => {
+    if (!file) {
+      setPassportError(null);
+      onChange({ ...value, passport_photo: null });
+      return;
+    }
+    const v = validateLocationPhoto(file);
+    if (!v.ok) {
+      setPassportError(v.error);
+      return;
+    }
+    setPassportError(null);
+    onChange({ ...value, passport_photo: file });
+  };
 
   const addHomePhotos = (files: FileList | null) => {
     if (!files?.length) return;
@@ -251,6 +397,19 @@ export function CustomerAttachmentsFields({
 
   return (
     <div className={cn("space-y-4", className)}>
+      <SingleImageUploadField
+        id="customer-passport-photo"
+        title="Passport / profile photo"
+        hint="Customer headshot used on the customer list and profile header."
+        icon={<User className="h-3.5 w-3.5 text-sky-700" aria-hidden />}
+        accept={PHOTO_ACCEPT}
+        file={value.passport_photo}
+        existingUrl={existingPassportUrl}
+        existingPreviewUrl={existingPassportPreviewUrl}
+        error={passportError}
+        onSelect={selectPassportPhoto}
+      />
+
       <MultiImageUploadField
         id="customer-home-photos"
         title="Home location photos"

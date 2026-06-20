@@ -2,6 +2,10 @@ import { parseMoneyInput } from "@/lib/money-input";
 import { parseCustomerMetadata, readCustomerLocationPins } from "@/lib/customer-location";
 import { parseCustomerGuarantorsFromRow } from "@/lib/customer-guarantors";
 import { parseCustomerReferencesFromRow } from "@/lib/customer-references";
+import {
+  extractPassportPhotoPreviewUrl,
+  extractPassportPhotoUrl,
+} from "@/lib/customer-profile-extras";
 import type { Customer, CustomerType, EmploymentType, RiskGrade } from "@/lib/types";
 
 function isPlaceholderCustomerNamePart(value: string | undefined): boolean {
@@ -203,6 +207,8 @@ export function adaptApiCustomerRowToCustomer(row: Record<string, unknown>): Cus
  const id = resolveCustomerLoanOfficerId(row);
  return id || undefined;
  })(),
+ passport_photo_url: extractPassportPhotoUrl(row),
+ passport_photo_preview_url: extractPassportPhotoPreviewUrl(row),
  created_at: String(row.created_at ?? new Date().toISOString()),
  updated_at: String(row.updated_at ?? row.created_at ?? new Date().toISOString()),
  is_active: row.is_active !== false,

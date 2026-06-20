@@ -42,6 +42,11 @@ import {
 import { formatValidationDetails } from "@/lib/falco-api";
 import { customerToFormPayload } from "@/lib/customer-payload";
 import { adaptApiCustomerRowToCustomer, extractCustomerDetail } from "@/lib/customer-adapters";
+import { uploadCustomerPassportPhoto } from "@/lib/customer-photo-uploads";
+import {
+  extractPassportPhotoPreviewUrl,
+  extractPassportPhotoUrl,
+} from "@/lib/customer-profile-extras";
 import {
  activeBranchesForAssignment,
  loanOfficersForBranch,
@@ -257,6 +262,11 @@ export function CustomerEditDialog({
  () => extractCustomerAttachmentsFromRow(sourceRow),
  [sourceRow]
  );
+ const existingPassportUrl = useMemo(() => extractPassportPhotoUrl(sourceRow), [sourceRow]);
+ const existingPassportPreviewUrl = useMemo(
+  () => extractPassportPhotoPreviewUrl(sourceRow),
+  [sourceRow]
+ );
 
  const loadBranches = useCallback(async () => {
  setBranchesLoading(true);
@@ -431,7 +441,23 @@ export function CustomerEditDialog({
  setError("Unexpected response from server.");
  return;
  }
- onSaved(adaptApiCustomerRowToCustomer(row), row);
+
+ let savedRow = row;
+ if (attachments.passport_photo) {
+  const photoUpload = await uploadCustomerPassportPhoto(customerId, attachments.passport_photo);
+  if (!photoUpload.ok) {
+   setError(`Customer saved but passport photo upload failed: ${photoUpload.error}`);
+   return;
+  }
+  const detailRes = await fetch(`/api/customers/${encodeURIComponent(customerId)}`, {
+   credentials: "include",
+  });
+  const detailBody = (await detailRes.json().catch(() => ({}))) as unknown;
+  const refreshed = extractCustomerDetail(detailBody);
+  if (refreshed) savedRow = refreshed;
+ }
+
+ onSaved(adaptApiCustomerRowToCustomer(savedRow), savedRow);
  onOpenChange(false);
  } catch {
  setError("Network error. Try again.");
@@ -833,13 +859,14 @@ export function CustomerEditDialog({
  <div className="space-y-1">
  <p className="text-sm font-semibold">Attachments</p>
  <p className="text-xs text-muted-foreground">
- Optional location photos and supporting documents. New files are kept on this form until customer
- upload is enabled on the API.
+  Passport photo, location photos, and supporting documents. New files upload when you save.
  </p>
  </div>
  <CustomerAttachmentsFields
  value={attachments}
  onChange={setAttachments}
+ existingPassportUrl={existingPassportUrl}
+ existingPassportPreviewUrl={existingPassportPreviewUrl}
  existingHomeUrl={existingAttachments.homeLocationPhotoUrl}
  existingBusinessUrl={existingAttachments.businessLocationPhotoUrl}
  existingDocuments={existingAttachments.supportingDocuments}
