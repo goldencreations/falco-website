@@ -68,6 +68,7 @@ import {
   type CustomerReferenceFormRow,
 } from "@/lib/customer-references";
 import { setCustomerGuarantorPendingFiles } from "@/lib/customer-guarantor-pending-files";
+import { uploadCustomerPassportPhoto } from "@/lib/customer-photo-uploads";
 import { extractCustomerDetail } from "@/lib/customer-adapters";
 import { parseNominatimAddress, reverseGeocodeNominatim } from "@/lib/nominatim";
 import { searchPlacesInTanzania, type PlaceSuggestion } from "@/lib/nominatim-search";
@@ -262,9 +263,10 @@ function NewCustomerPageInner() {
  const [references, setReferences] = useState<CustomerReferenceFormRow[]>(defaultCustomerReferenceForm);
 
  const attachmentCount =
- attachments.home_location_photos.length +
- attachments.business_location_photos.length +
- attachments.supporting_documents.length;
+  (attachments.passport_photo ? 1 : 0) +
+  attachments.home_location_photos.length +
+  attachments.business_location_photos.length +
+  attachments.supporting_documents.length;
 
  const [leadPrefillId, setLeadPrefillId] = useState<string | null>(null);
  const appliedLeadPrefillRef = useRef(false);
@@ -716,6 +718,13 @@ function NewCustomerPageInner() {
 
  const createdRow = extractCustomerDetail(responseBody);
  const createdId = createdRow?.id != null ? String(createdRow.id) : "";
+ if (createdId && attachments.passport_photo) {
+  const photoUpload = await uploadCustomerPassportPhoto(createdId, attachments.passport_photo);
+  if (!photoUpload.ok) {
+   setError(`Customer created but passport photo upload failed: ${photoUpload.error}`);
+   return;
+  }
+ }
  if (createdId && customerGuarantorFormToRecords(guarantors).length > 0) {
  setCustomerGuarantorPendingFiles(createdId, guarantors);
  }

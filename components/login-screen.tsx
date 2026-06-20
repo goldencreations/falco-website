@@ -4,7 +4,9 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { loginRedirectForRole } from "@/lib/role-portal";
 import type { UserRole } from "@/lib/types";
 import Image from "next/image";
-import { Building2, Eye, EyeOff, Globe, Languages } from "lucide-react";
+import { Eye, EyeOff, Globe, Languages } from "lucide-react";
+
+import { FalcoLogo } from "@/components/falco-logo";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -115,13 +117,8 @@ export function LoginScreen() {
  <div className="mx-auto grid min-h-[calc(100vh-2rem)] max-w-6xl overflow-hidden rounded-[2.25rem] border border-border bg-card text-card-foreground shadow-md ring-1 ring-emerald-100/70 md:grid-cols-[420px_1fr]">
  <section className="flex items-center px-6 py-10 md:px-10">
  <div className="w-full">
- <div className="mb-10 flex items-center gap-3">
- <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
- <Building2 className="h-5 w-5" aria-hidden />
- </div>
- <p className="text-2xl font-semibold tracking-tight text-foreground">
- Falco Financial
- </p>
+ <div className="mb-10">
+ <FalcoLogo variant="wordmark" size="xl" priority />
  </div>
 
  <h1 className="text-4xl font-semibold tracking-tight text-foreground">{t.welcome}</h1>

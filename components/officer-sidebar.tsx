@@ -23,6 +23,7 @@ import {
  SidebarMenuButton,
  SidebarMenuItem,
 } from "@/components/ui/sidebar";
+import { FalcoLogo } from "@/components/falco-logo";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { useLanguage } from "@/components/language-provider";
@@ -57,8 +58,13 @@ export function OfficerSidebar({ user, branchLabel }: { user: SessionUser; branc
  return (
  <Sidebar className="border-sidebar-border">
  <SidebarHeader className="border-b border-sidebar-border px-4 py-4">
+ <div className="flex items-center gap-3">
+ <FalcoLogo size="md" />
+ <div className="min-w-0">
  <p className="text-sm font-bold text-sidebar-foreground">{L("Falco Officer Portal")}</p>
- <p className="text-[11px] text-sidebar-foreground/60">{branchLabel}</p>
+ <p className="truncate text-[11px] text-sidebar-foreground/60">{branchLabel}</p>
+ </div>
+ </div>
  </SidebarHeader>
  <SidebarContent className="px-2 py-4">
  <SidebarMenu>

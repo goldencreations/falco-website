@@ -71,8 +71,8 @@ import {
 } from "@/lib/customer-profile-attachments";
 import type { ApplicationViewRow } from "@/lib/application-adapters";
 import {
+ buildCustomerGuarantorRows,
  extractCollateralFromApplications,
- extractGuarantorsFromApplications,
  extractPassportPhotoPreviewUrl,
  extractPassportPhotoUrl,
 } from "@/lib/customer-profile-extras";
@@ -87,6 +87,7 @@ import {
 import { resolveMediaViewUrl } from "@/components/media/cached-media-preview";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/formatters";
 import { adaptApiCustomerRowToCustomer, extractCustomerDetail } from "@/lib/customer-adapters";
+import { customerToFormPayload } from "@/lib/customer-payload";
 import type { CustomerPortfolioData } from "@/lib/customer-portfolio-detail";
 import { formatReferenceRelationship } from "@/lib/customer-references";
 import type { LoanListRow } from "@/lib/loan-adapters";
@@ -261,23 +262,10 @@ export default function CustomerDetailPage() {
  () => extractCollateralFromApplications(applicationsForFiles),
  [applicationsForFiles]
  );
- const applicationGuarantorRows = useMemo(
- () => extractGuarantorsFromApplications(applicationsForFiles),
- [applicationsForFiles]
+ const guarantorRows = useMemo(
+  () => buildCustomerGuarantorRows(customer?.guarantors, applicationsForFiles, sourceRow),
+  [customer?.guarantors, applicationsForFiles, sourceRow]
  );
- const guarantorRows = useMemo(() => {
-  const registered =
-   customer?.guarantors?.map((g) => ({
-    applicationNumber: "Customer registration",
-    name: g.full_name,
-    nationalId: g.national_id ?? "—",
-    phone: g.phone,
-    address: "—",
-    relationship: g.relationship,
-    documents: [] as { name: string; url: string }[],
-   })) ?? [];
-  return [...registered, ...applicationGuarantorRows];
- }, [customer?.guarantors, applicationGuarantorRows]);
 
  const applyPortfolio = (body: CustomerPortfolioData) => {
  setCustomerLoans(body.loans ?? []);

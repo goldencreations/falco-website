@@ -4,7 +4,8 @@ import type { Customer } from "@/lib/types";
 function customerNeedsDetailEnrichment(c: Customer): boolean {
  const missingOfficer = !String(c.assigned_loan_officer_id ?? "").trim();
  const missingIncome = !c.monthly_income || c.monthly_income <= 0;
- return missingOfficer || missingIncome;
+ const missingPhoto = !String(c.passport_photo_url ?? "").trim();
+ return missingOfficer || missingIncome || missingPhoto;
 }
 
 /**
@@ -38,6 +39,9 @@ export async function enrichCustomersWithLoanOfficerDetails(
  income_verified: enriched.income_verified || prev.income_verified,
  assigned_loan_officer_id: enriched.assigned_loan_officer_id ?? prev.assigned_loan_officer_id,
  created_by: enriched.created_by || prev.created_by,
+ passport_photo_url: enriched.passport_photo_url ?? prev.passport_photo_url,
+ passport_photo_preview_url:
+  enriched.passport_photo_preview_url ?? prev.passport_photo_preview_url,
  });
  })
  );
