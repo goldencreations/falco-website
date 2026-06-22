@@ -1,8 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import dynamic from "next/dynamic";
 import { Loader2 } from "lucide-react";
 import { CustomerAttachmentsFields } from "@/components/customers/customer-attachments-fields";
+import { CustomerCollateralFields } from "@/components/customers/customer-collateral-fields";
+import { CustomerGuarantorsFields } from "@/components/customers/customer-guarantors-fields";
 import { Button } from "@/components/ui/button";
 import {
  Dialog,
@@ -44,6 +47,26 @@ import { customerToFormPayload } from "@/lib/customer-payload";
 import { adaptApiCustomerRowToCustomer, extractCustomerDetail } from "@/lib/customer-adapters";
 import { uploadCustomerPassportPhoto } from "@/lib/customer-photo-uploads";
 import {
+  customerCollateralApiRecordsToForm,
+  customerCollateralFormToApiRecords,
+  customerCollateralRowsWithImages,
+  defaultCustomerCollateralForm,
+  parseCustomerCollateralFromRow,
+  validateCustomerCollateral,
+  type CustomerCollateralFormRow,
+} from "@/lib/customer-collateral";
+import { uploadCustomerCollateralImages } from "@/lib/customer-collateral-uploads";
+import { uploadCustomerGuarantorIdDocuments } from "@/lib/customer-guarantor-uploads";
+import {
+  customerGuarantorApiRecordsToForm,
+  customerGuarantorFormToApiRecords,
+  customerGuarantorRowsWithIdFiles,
+  defaultCustomerGuarantorForm,
+  parseCustomerGuarantorApiRecordsFromRow,
+  validateCustomerGuarantors,
+  type CustomerGuarantorFormRow,
+} from "@/lib/customer-guarantors";
+import {
   extractPassportPhotoPreviewUrl,
   extractPassportPhotoUrl,
 } from "@/lib/customer-profile-extras";
@@ -53,6 +76,21 @@ import {
 } from "@/lib/customer-assignment-options";
 import type { Branch, Customer, User } from "@/lib/types";
 import { useSessionUser } from "@/lib/use-session-user";
+
+const CustomerLocationMapPicker = dynamic(
+  () =>
+    import("@/components/customers/business-location-map-picker").then(
+      (mod) => mod.CustomerLocationMapPicker
+    ),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-48 items-center justify-center rounded-lg border bg-muted/20 text-sm text-muted-foreground">
+        Loading map…
+      </div>
+    ),
+  }
+);
 
 type CustomerStatus =
  | "pending_registration_fee"
@@ -75,6 +113,8 @@ type EditForm = {
  ward: string;
  district: string;
  region: string;
+ home_latitude: number | null;
+ home_longitude: number | null;
  national_id: string;
  id_type: string;
  occupation: string;
@@ -86,6 +126,8 @@ type EditForm = {
  business_name: string;
  business_type: string;
  business_address: string;
+ business_latitude: number | null;
+ business_longitude: number | null;
  business_registration_no: string;
  years_in_business: string;
  cheque_number: string;
@@ -138,6 +180,12 @@ function toEditForm(p: Record<string, unknown>): EditForm {
  ward: String(p.ward ?? ""),
  district: String(p.district ?? ""),
  region: String(p.region ?? ""),
+ home_latitude:
+  p.home_latitude != null && Number.isFinite(Number(p.home_latitude)) ? Number(p.home_latitude) : null,
+ home_longitude:
+  p.home_longitude != null && Number.isFinite(Number(p.home_longitude))
+   ? Number(p.home_longitude)
+   : null,
  national_id: String(p.national_id ?? ""),
  id_type: String(p.id_type ?? "NIDA"),
  occupation: String(p.occupation ?? ""),
@@ -149,6 +197,14 @@ function toEditForm(p: Record<string, unknown>): EditForm {
  business_name: String(p.business_name ?? ""),
  business_type: String(p.business_type ?? ""),
  business_address: String(p.business_address ?? ""),
+ business_latitude:
+  p.business_latitude != null && Number.isFinite(Number(p.business_latitude))
+   ? Number(p.business_latitude)
+   : null,
+ business_longitude:
+  p.business_longitude != null && Number.isFinite(Number(p.business_longitude))
+   ? Number(p.business_longitude)
+   : null,
  business_registration_no: String(p.business_registration_no ?? ""),
  years_in_business: String(p.years_in_business ?? ""),
  cheque_number: String(p.cheque_number ?? ""),
@@ -186,6 +242,8 @@ function formToPatchBody(form: EditForm): Record<string, unknown> {
  ward: form.ward,
  district: form.district,
  region: form.region,
+ home_latitude: form.home_latitude,
+ home_longitude: form.home_longitude,
  national_id: form.national_id,
  id_type: form.id_type,
  occupation: form.occupation,
@@ -197,6 +255,8 @@ function formToPatchBody(form: EditForm): Record<string, unknown> {
  business_name: form.business_name,
  business_type: form.business_type,
  business_address: form.business_address,
+ business_latitude: form.business_latitude,
+ business_longitude: form.business_longitude,
  business_registration_no: form.business_registration_no,
  years_in_business: form.years_in_business,
  cheque_number: form.cheque_number,
@@ -257,6 +317,8 @@ export function CustomerEditDialog({
  const [officersLoading, setOfficersLoading] = useState(false);
  const [officersError, setOfficersError] = useState("");
  const [attachments, setAttachments] = useState<CustomerAttachmentFormState>(emptyCustomerAttachments);
+ const [guarantors, setGuarantors] = useState<CustomerGuarantorFormRow[]>(defaultCustomerGuarantorForm);
+ const [collateral, setCollateral] = useState<CustomerCollateralFormRow[]>(defaultCustomerCollateralForm);
 
  const existingAttachments = useMemo(
  () => extractCustomerAttachmentsFromRow(sourceRow),
@@ -354,11 +416,15 @@ export function CustomerEditDialog({
  setForm(null);
  setError("");
  setAttachments(emptyCustomerAttachments());
+ setGuarantors(defaultCustomerGuarantorForm());
+ setCollateral(defaultCustomerCollateralForm());
  return;
  }
  const base = customerToFormPayload(customer, sourceRow);
  setForm(toEditForm(base));
  setAttachments(emptyCustomerAttachments());
+ setGuarantors(customerGuarantorApiRecordsToForm(parseCustomerGuarantorApiRecordsFromRow(sourceRow)));
+ setCollateral(customerCollateralApiRecordsToForm(parseCustomerCollateralFromRow(sourceRow)));
  }, [open, customer, sourceRow]);
 
  const updateField = <K extends keyof EditForm>(key: K, value: EditForm[K]) => {
@@ -407,13 +473,28 @@ export function CustomerEditDialog({
  setError(attachmentValidation.error);
  return;
  }
+ const guarantorValidation = validateCustomerGuarantors(guarantors);
+ if (!guarantorValidation.ok) {
+ setError(guarantorValidation.error);
+ return;
+ }
+ const collateralValidation = validateCustomerCollateral(collateral);
+ if (!collateralValidation.ok) {
+ setError(collateralValidation.error);
+ return;
+ }
  setSaving(true);
  try {
  const r = await fetch(`/api/customers/${encodeURIComponent(customerId)}`, {
  method: "PATCH",
  credentials: "include",
  headers: { "Content-Type": "application/json" },
- body: JSON.stringify({ ...formToPatchBody(form), is_blacklisted: customer.is_blacklisted }),
+ body: JSON.stringify({
+  ...formToPatchBody(form),
+  is_blacklisted: customer.is_blacklisted,
+  guarantors: customerGuarantorFormToApiRecords(guarantors),
+  collateral: customerCollateralFormToApiRecords(collateral),
+ }),
  });
  const body = (await r.json().catch(() => ({}))) as {
  message?: string;
@@ -457,6 +538,40 @@ export function CustomerEditDialog({
   if (refreshed) savedRow = refreshed;
  }
 
+ if (customerCollateralRowsWithImages(collateral).length > 0) {
+  const collateralUpload = await uploadCustomerCollateralImages(customerId, savedRow, collateral);
+  if (!collateralUpload.ok) {
+   setError(`Customer saved but collateral image upload failed: ${collateralUpload.error}`);
+   return;
+  }
+  const detailRes = await fetch(`/api/customers/${encodeURIComponent(customerId)}`, {
+   credentials: "include",
+  });
+  const detailBody = (await detailRes.json().catch(() => ({}))) as unknown;
+  const refreshed = extractCustomerDetail(detailBody);
+  if (refreshed) savedRow = refreshed;
+ }
+
+ if (customerGuarantorRowsWithIdFiles(guarantors).length > 0) {
+  const preGuarantorUploadRes = await fetch(`/api/customers/${encodeURIComponent(customerId)}`, {
+   credentials: "include",
+  });
+  const preGuarantorUploadBody = (await preGuarantorUploadRes.json().catch(() => ({}))) as unknown;
+  const refreshedBeforeUpload = extractCustomerDetail(preGuarantorUploadBody);
+  if (refreshedBeforeUpload) savedRow = refreshedBeforeUpload;
+  const guarantorUpload = await uploadCustomerGuarantorIdDocuments(customerId, savedRow, guarantors);
+  if (!guarantorUpload.ok) {
+   setError(`Customer saved but guarantor ID upload failed: ${guarantorUpload.error}`);
+   return;
+  }
+  const postGuarantorUploadRes = await fetch(`/api/customers/${encodeURIComponent(customerId)}`, {
+   credentials: "include",
+  });
+  const postGuarantorUploadBody = (await postGuarantorUploadRes.json().catch(() => ({}))) as unknown;
+  const refreshedAfterGuarantorUpload = extractCustomerDetail(postGuarantorUploadBody);
+  if (refreshedAfterGuarantorUpload) savedRow = refreshedAfterGuarantorUpload;
+ }
+
  onSaved(adaptApiCustomerRowToCustomer(savedRow), savedRow);
  onOpenChange(false);
  } catch {
@@ -471,7 +586,7 @@ export function CustomerEditDialog({
  <div className="space-y-2">
  <h2 className="text-xl font-semibold tracking-tight">Edit customer</h2>
  <p className="text-sm text-muted-foreground">
- Update KYC and assignment details. Changes are saved to the LMS via{" "}
+ Update KYC, assignment, guarantors, collateral, and attachment details. Changes are saved to the LMS via{" "}
  <span className="font-mono text-xs">PATCH /customers/{"{id}"}</span>.
  </p>
  </div>
@@ -479,7 +594,7 @@ export function CustomerEditDialog({
  <DialogHeader>
  <DialogTitle>Edit customer</DialogTitle>
  <DialogDescription>
- Update KYC and assignment details. Changes are saved to the LMS via{" "}
+ Update KYC, assignment, guarantors, collateral, and attachment details. Changes are saved to the LMS via{" "}
  <span className="font-mono text-xs">PATCH /customers/{"{id}"}</span>.
  </DialogDescription>
  </DialogHeader>
@@ -649,6 +764,21 @@ export function CustomerEditDialog({
  <Input id="edit-region" value={form.region} onChange={(e) => updateField("region", e.target.value)} />
  </div>
  </div>
+ <CustomerLocationMapPicker
+  purpose="home"
+  latitude={form.home_latitude}
+  longitude={form.home_longitude}
+  onPick={(lat, lng) =>
+   setForm((prev) =>
+    prev ? { ...prev, home_latitude: lat, home_longitude: lng } : prev
+   )
+  }
+  onClear={() =>
+   setForm((prev) =>
+    prev ? { ...prev, home_latitude: null, home_longitude: null } : prev
+   )
+  }
+ />
 
  <Separator />
 
@@ -716,6 +846,21 @@ export function CustomerEditDialog({
  onChange={(e) => updateField("business_address", e.target.value)}
  />
  </div>
+ <CustomerLocationMapPicker
+  purpose="business"
+  latitude={form.business_latitude}
+  longitude={form.business_longitude}
+  onPick={(lat, lng) =>
+   setForm((prev) =>
+    prev ? { ...prev, business_latitude: lat, business_longitude: lng } : prev
+   )
+  }
+  onClear={() =>
+   setForm((prev) =>
+    prev ? { ...prev, business_latitude: null, business_longitude: null } : prev
+   )
+  }
+ />
  <div className="space-y-2">
  <Label htmlFor="edit-biz-reg">Business registration no.</Label>
  <Input
@@ -853,6 +998,29 @@ export function CustomerEditDialog({
  <Input id="edit-cheque" value={form.cheque_number} onChange={(e) => updateField("cheque_number", e.target.value)} />
  </div>
  </div>
+
+ <Separator />
+
+ <div className="space-y-1">
+ <p className="text-sm font-semibold">Guarantors</p>
+ <p className="text-xs text-muted-foreground">
+  Up to two guarantors on this customer profile. ID front and back scans upload to{" "}
+  <span className="font-mono text-[11px]">id_front_document_id</span> /{" "}
+  <span className="font-mono text-[11px]">id_back_document_id</span> on the customer record.
+ </p>
+ </div>
+ <CustomerGuarantorsFields value={guarantors} onChange={setGuarantors} />
+
+ <Separator />
+
+ <div className="space-y-1">
+ <p className="text-sm font-semibold">Collateral</p>
+ <p className="text-xs text-muted-foreground">
+  Optional collateral on this customer profile. Type, value, and description are saved via{" "}
+  <span className="font-mono text-[11px]">PATCH /customers/{"{id}"}</span> collateral.
+ </p>
+ </div>
+ <CustomerCollateralFields value={collateral} onChange={setCollateral} />
 
  <Separator />
 

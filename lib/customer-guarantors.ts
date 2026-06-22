@@ -1,4 +1,6 @@
 import type { GuarantorFileRow } from "@/lib/application-linked-uploads";
+import { normalizeGuarantors } from "@/lib/application-adapters";
+import { parseCustomerMetadata } from "@/lib/customer-location";
 
 export const MAX_CUSTOMER_GUARANTORS = 2;
 
@@ -9,7 +11,18 @@ export type CustomerGuarantorRecord = {
   relationship: string;
 };
 
+export type CustomerGuarantorApiRecord = CustomerGuarantorRecord & {
+  id?: string;
+  id_front_document_id?: string;
+  id_back_document_id?: string;
+  id_front_url?: string;
+  id_back_url?: string;
+  id_front_preview_url?: string;
+  id_back_preview_url?: string;
+};
+
 export type CustomerGuarantorFormRow = {
+  id?: string;
   name: string;
   phone: string;
   nationalId: string;
@@ -17,6 +30,12 @@ export type CustomerGuarantorFormRow = {
   otherRelationship: string;
   idFront: File | null;
   idBack: File | null;
+  idFrontDocumentId?: string;
+  idBackDocumentId?: string;
+  existingIdFrontUrl?: string;
+  existingIdFrontPreviewUrl?: string;
+  existingIdBackUrl?: string;
+  existingIdBackPreviewUrl?: string;
 };
 
 export function emptyCustomerGuarantorRow(): CustomerGuarantorFormRow {
@@ -69,32 +88,260 @@ export function customerGuarantorFormToRecords(rows: CustomerGuarantorFormRow[])
     .slice(0, MAX_CUSTOMER_GUARANTORS);
 }
 
-export function parseCustomerGuarantorsFromRow(
-  row: Record<string, unknown> | null | undefined
-): CustomerGuarantorRecord[] {
-  if (!row) return [];
-  const md =
-    row.metadata && typeof row.metadata === "object" && row.metadata !== null
-      ? (row.metadata as Record<string, unknown>)
-      : {};
-  const raw = md.guarantors ?? row.guarantors;
-  if (!Array.isArray(raw)) return [];
+export function customerGuarantorFormToApiRecords(
+  rows: CustomerGuarantorFormRow[]
+): CustomerGuarantorApiRecord[] {
+  return rows
+    .map((row) => {
+      const base = customerGuarantorFormToRecord(row);
+      if (!base) return null;
+      return {
+        ...(row.id ? { id: row.id } : {}),
+        ...base,
+        ...(row.idFrontDocumentId ? { id_front_document_id: row.idFrontDocumentId } : {}),
+        ...(row.idBackDocumentId ? { id_back_document_id: row.idBackDocumentId } : {}),
+      };
+    })
+    .filter((row): row is CustomerGuarantorApiRecord => Boolean(row))
+    .slice(0, MAX_CUSTOMER_GUARANTORS);
+}
 
-  const out: CustomerGuarantorRecord[] = [];
-  for (const item of raw) {
+export function readCustomerGuarantorsArray(
+  row: Record<string, unknown> | null | undefined
+): unknown[] {
+  if (!row) return [];
+  const md = parseCustomerMetadata(row);
+  const raw = row.guarantors ?? md.guarantors;
+  return Array.isArray(raw) ? raw : [];
+}
+
+export function extractCustomerGuarantorIds(
+  row: Record<string, unknown> | null | undefined
+): string[] {
+  return readCustomerGuarantorsArray(row)
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const id = String((item as Record<string, unknown>).id ?? "").trim();
+      return id || null;
+    })
+    .filter((id): id is string => Boolean(id));
+}
+
+function guarantorApiRecordFromRow(
+  item: Record<string, unknown>,
+  field?: "id_front_document_id" | "id_back_document_id",
+  documentId?: string
+): Record<string, unknown> | null {
+  const id = item.id != null ? String(item.id).trim() : "";
+  const full_name = String(item.full_name ?? item.name ?? "").trim();
+  const phone = normalizePhone(String(item.phone ?? item.phone_number ?? ""));
+  const relationship = String(item.relationship ?? "").trim();
+  if (!full_name || !phone || !relationship) return null;
+
+  const record: Record<string, unknown> = {
+    ...(id ? { id } : {}),
+    full_name,
+    phone,
+    relationship,
+    attachments: Array.isArray(item.attachments) ? item.attachments : [],
+  };
+
+  const national_id = String(item.national_id ?? item.nationalId ?? "").trim();
+  if (national_id) record.national_id = national_id;
+
+  const frontId =
+    field === "id_front_document_id" && documentId
+      ? documentId
+      : item.id_front_document_id != null
+        ? String(item.id_front_document_id).trim()
+        : "";
+  const backId =
+    field === "id_back_document_id" && documentId
+      ? documentId
+      : item.id_back_document_id != null
+        ? String(item.id_back_document_id).trim()
+        : "";
+  if (frontId) record.id_front_document_id = frontId;
+  if (backId) record.id_back_document_id = backId;
+
+  return record;
+}
+
+/** Build a PATCH body that links an uploaded document to one customer guarantor row. */
+export function buildCustomerGuarantorDocumentLinkPatch(
+  sourceRow: Record<string, unknown>,
+  guarantorId: string,
+  field: "id_front_document_id" | "id_back_document_id",
+  documentId: string
+): { guarantors: Record<string, unknown>[] } | null {
+  const guarantors: Record<string, unknown>[] = [];
+  let matched = false;
+
+  for (const item of readCustomerGuarantorsArray(sourceRow)) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as Record<string, unknown>;
+    const id = String(o.id ?? "").trim();
+    if (!id) continue;
+
+    const record = guarantorApiRecordFromRow(
+      o,
+      id === guarantorId ? field : undefined,
+      id === guarantorId ? documentId : undefined
+    );
+    if (!record) continue;
+
+    if (id === guarantorId) matched = true;
+    guarantors.push(record);
+  }
+
+  if (!matched) return null;
+  return { guarantors };
+}
+
+export function customerGuarantorRowsWithIdFiles(
+  rows: CustomerGuarantorFormRow[]
+): CustomerGuarantorFormRow[] {
+  return rows.filter(
+    (row) => row.name.trim() && row.phone.trim() && (row.idFront || row.idBack)
+  );
+}
+
+function guarantorFormMatchKey(row: CustomerGuarantorFormRow): string {
+  const name = row.name.trim().toLowerCase();
+  const phone = row.phone.replace(/\D/g, "");
+  const nationalId = row.nationalId.trim().toLowerCase();
+  return `${name}|${phone}|${nationalId}`;
+}
+
+function guarantorApiMatchKey(item: Record<string, unknown>): string {
+  const name = String(item.full_name ?? item.name ?? "").trim().toLowerCase();
+  const phone = String(item.phone ?? item.phone_number ?? "").replace(/\D/g, "");
+  const nationalId = String(item.national_id ?? item.nationalId ?? "").trim().toLowerCase();
+  return `${name}|${phone}|${nationalId}`;
+}
+
+/** Resolve the current backend guarantor id for a form row (stable across PATCH side-effects). */
+export function resolveCustomerGuarantorIdForFormRow(
+  row: CustomerGuarantorFormRow,
+  sourceRow: Record<string, unknown> | null | undefined,
+  index: number
+): string | null {
+  const formKey = guarantorFormMatchKey(row);
+  for (const item of readCustomerGuarantorsArray(sourceRow)) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as Record<string, unknown>;
+    const id = String(o.id ?? "").trim();
+    if (!id) continue;
+    if (row.id && row.id === id) return id;
+    if (guarantorApiMatchKey(o) === formKey) return id;
+  }
+  const ids = extractCustomerGuarantorIds(sourceRow);
+  return ids[index] ?? null;
+}
+
+const STANDARD_GUARANTOR_RELATIONSHIPS = new Set([
+  "spouse",
+  "parent",
+  "sibling",
+  "relative",
+  "friend",
+  "colleague",
+  "business_partner",
+]);
+
+export function customerGuarantorRecordsToForm(
+  records: CustomerGuarantorRecord[]
+): CustomerGuarantorFormRow[] {
+  return customerGuarantorApiRecordsToForm(records);
+}
+
+export function customerGuarantorApiRecordsToForm(
+  records: CustomerGuarantorApiRecord[]
+): CustomerGuarantorFormRow[] {
+  const rows: CustomerGuarantorFormRow[] = records.map((record) => {
+    const normalized = record.relationship.trim().toLowerCase().replace(/\s+/g, "_");
+    const isStandard = STANDARD_GUARANTOR_RELATIONSHIPS.has(normalized);
+    return {
+      ...(record.id ? { id: record.id } : {}),
+      name: record.full_name,
+      phone: record.phone,
+      nationalId: record.national_id ?? "",
+      relationship: isStandard ? normalized : normalized ? "other" : "",
+      otherRelationship: isStandard ? "" : record.relationship,
+      idFront: null,
+      idBack: null,
+      ...(record.id_front_document_id ? { idFrontDocumentId: record.id_front_document_id } : {}),
+      ...(record.id_back_document_id ? { idBackDocumentId: record.id_back_document_id } : {}),
+      ...(record.id_front_url ? { existingIdFrontUrl: record.id_front_url } : {}),
+      ...(record.id_front_preview_url
+        ? { existingIdFrontPreviewUrl: record.id_front_preview_url }
+        : {}),
+      ...(record.id_back_url ? { existingIdBackUrl: record.id_back_url } : {}),
+      ...(record.id_back_preview_url
+        ? { existingIdBackPreviewUrl: record.id_back_preview_url }
+        : {}),
+    };
+  });
+
+  while (rows.length < MAX_CUSTOMER_GUARANTORS) {
+    rows.push(emptyCustomerGuarantorRow());
+  }
+
+  return rows.slice(0, MAX_CUSTOMER_GUARANTORS);
+}
+
+export function parseCustomerGuarantorApiRecordsFromRow(
+  row: Record<string, unknown> | null | undefined
+): CustomerGuarantorApiRecord[] {
+  const out: CustomerGuarantorApiRecord[] = [];
+
+  for (const item of readCustomerGuarantorsArray(row)) {
     if (!item || typeof item !== "object") continue;
     const o = item as Record<string, unknown>;
     const full_name = String(o.full_name ?? o.name ?? "").trim();
     const phone = normalizePhone(String(o.phone ?? o.phone_number ?? ""));
     const relationship = String(o.relationship ?? "").trim();
     if (!full_name || !phone || !relationship) continue;
-    const record: CustomerGuarantorRecord = { full_name, phone, relationship };
+
+    const normalized = normalizeGuarantors([o])[0];
+    const record: CustomerGuarantorApiRecord = { full_name, phone, relationship };
+    const id = String(o.id ?? "").trim();
+    if (id) record.id = id;
     const national_id = String(o.national_id ?? o.nationalId ?? "").trim();
     if (national_id) record.national_id = national_id;
+
+    const id_front_document_id = String(o.id_front_document_id ?? "").trim();
+    const id_back_document_id = String(o.id_back_document_id ?? "").trim();
+    if (id_front_document_id) record.id_front_document_id = id_front_document_id;
+    if (id_back_document_id) record.id_back_document_id = id_back_document_id;
+
+    if (normalized?.id_front_url) record.id_front_url = normalized.id_front_url;
+    if (normalized?.id_back_url) record.id_back_url = normalized.id_back_url;
+    if (normalized?.id_front_preview_url) {
+      record.id_front_preview_url = normalized.id_front_preview_url;
+    }
+    if (normalized?.id_back_preview_url) {
+      record.id_back_preview_url = normalized.id_back_preview_url;
+    }
+
     out.push(record);
     if (out.length >= MAX_CUSTOMER_GUARANTORS) break;
   }
+
   return out;
+}
+
+export function parseCustomerGuarantorsFromRow(
+  row: Record<string, unknown> | null | undefined
+): CustomerGuarantorRecord[] {
+  return parseCustomerGuarantorApiRecordsFromRow(row).map(
+    ({ full_name, phone, national_id, relationship }) => ({
+      full_name,
+      phone,
+      relationship,
+      ...(national_id ? { national_id } : {}),
+    })
+  );
 }
 
 export function validateCustomerGuarantors(

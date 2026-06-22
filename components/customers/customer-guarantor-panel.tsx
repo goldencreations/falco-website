@@ -124,7 +124,12 @@ export function CustomerGuarantorPanel({ rows }: { rows: CustomerGuarantorRow[] 
                 </div>
               </div>
             ) : (
-              <p className="text-xs text-muted-foreground">No guarantor attachment URLs on file yet.</p>
+              <p className="text-xs text-muted-foreground">
+                No guarantor ID photos on this customer record yet. Add ID front and back when
+                registering or editing the customer; they are stored on{" "}
+                <span className="font-mono text-[11px]">id_front_document_id</span> /{" "}
+                <span className="font-mono text-[11px]">id_back_document_id</span>.
+              </p>
             )}
           </CardContent>
         </Card>
