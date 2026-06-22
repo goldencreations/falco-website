@@ -99,7 +99,7 @@ export function CustomerEditPage() {
  <div className="space-y-1">
  <p className="text-sm font-semibold text-emerald-800">Customer Update Workspace</p>
  <p className="text-xs text-muted-foreground">
- Edit KYC, assignment, risk, payment, and attachment details in the same workspace style as customer creation.
+ Edit KYC, assignment, guarantors, collateral, risk, payment, and attachment details in the same workspace style as customer creation.
  </p>
  </div>
  <Button variant="outline" asChild>

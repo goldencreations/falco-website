@@ -182,13 +182,33 @@ export function mapFormPayloadToCustomerApi(input: Record<string, unknown>): Rec
 
  const guarantors = Array.isArray(input.guarantors)
   ? (input.guarantors as Array<Record<string, unknown>>)
-      .map((row) => ({
-        full_name: String(row.full_name ?? row.name ?? "").trim(),
-        phone: String(row.phone ?? row.phone_number ?? "").replace(/\D/g, "") || String(row.phone ?? "").trim(),
-        relationship: String(row.relationship ?? "").trim(),
-        national_id: row.national_id != null ? String(row.national_id).trim() : undefined,
-      }))
-      .filter((row) => row.full_name && row.phone && row.relationship)
+      .map((row) => {
+        const full_name = String(row.full_name ?? row.name ?? "").trim();
+        const phone =
+          String(row.phone ?? row.phone_number ?? "").replace(/\D/g, "") ||
+          String(row.phone ?? "").trim();
+        const relationship = String(row.relationship ?? "").trim();
+        if (!full_name || !phone || !relationship) return null;
+
+        const id = row.id != null ? String(row.id).trim() : "";
+        const national_id = row.national_id != null ? String(row.national_id).trim() : "";
+        const id_front_document_id =
+          row.id_front_document_id != null ? String(row.id_front_document_id).trim() : "";
+        const id_back_document_id =
+          row.id_back_document_id != null ? String(row.id_back_document_id).trim() : "";
+
+        return {
+          ...(id ? { id } : {}),
+          full_name,
+          phone,
+          relationship,
+          ...(national_id ? { national_id } : {}),
+          attachments: [] as [],
+          ...(id_front_document_id ? { id_front_document_id } : {}),
+          ...(id_back_document_id ? { id_back_document_id } : {}),
+        };
+      })
+      .filter((row): row is NonNullable<typeof row> => Boolean(row))
   : [];
 
  const references = Array.isArray(input.references)
@@ -200,6 +220,32 @@ export function mapFormPayloadToCustomerApi(input: Record<string, unknown>): Rec
         address: row.address != null ? String(row.address).trim() : undefined,
       }))
       .filter((row) => row.full_name && row.phone && row.relationship)
+  : [];
+
+ const collateral = Array.isArray(input.collateral)
+  ? (input.collateral as Array<Record<string, unknown>>)
+      .map((row) => {
+        const collateral_type = String(row.collateral_type ?? row.type ?? "").trim();
+        const estimated_value = Number(row.estimated_value ?? row.value ?? 0);
+        const description = String(row.description ?? "").trim();
+        if (!collateral_type || !Number.isFinite(estimated_value) || estimated_value <= 0) {
+          return null;
+        }
+        const id = row.id != null ? String(row.id).trim() : "";
+        const image_document_id =
+          row.image_document_id != null ? String(row.image_document_id).trim() : "";
+        return {
+          ...(id ? { id } : {}),
+          collateral_type,
+          estimated_value,
+          description,
+          ...(image_document_id ? { image_document_id } : {}),
+          attachments: [] as [],
+          collateral_image_attachments: [] as [],
+          collaterall_image_attachment: [] as [],
+        };
+      })
+      .filter((row): row is NonNullable<typeof row> => Boolean(row))
   : [];
 
  const payload: Record<string, unknown> = {
@@ -227,6 +273,10 @@ export function mapFormPayloadToCustomerApi(input: Record<string, unknown>): Rec
  input.years_in_business != null && input.years_in_business !== ""
  ? Math.max(0, Math.round(Number(input.years_in_business)))
  : null,
+ home_latitude: input.home_latitude ?? null,
+ home_longitude: input.home_longitude ?? null,
+ business_latitude: input.business_latitude ?? null,
+ business_longitude: input.business_longitude ?? null,
  next_of_kin_name: nokName || "Not specified",
  next_of_kin_relationship: nokRel || "spouse",
  next_of_kin_phone: nokPhone || phone_number,
@@ -260,8 +310,11 @@ export function mapFormPayloadToCustomerApi(input: Record<string, unknown>): Rec
  business_longitude: input.business_longitude ?? null,
  ...(guarantors.length > 0 ? { guarantors } : {}),
  ...(references.length > 0 ? { references } : {}),
+ ...(collateral.length > 0 ? { collateral } : {}),
  },
  };
+
+ if (collateral.length > 0) payload.collateral = collateral;
 
  if (email) payload.email = email;
  if (alternate_phone) payload.alternate_phone = alternate_phone;

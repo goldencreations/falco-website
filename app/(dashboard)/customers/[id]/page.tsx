@@ -71,8 +71,8 @@ import {
 } from "@/lib/customer-profile-attachments";
 import type { ApplicationViewRow } from "@/lib/application-adapters";
 import {
+ buildCustomerCollateralRows,
  buildCustomerGuarantorRows,
- extractCollateralFromApplications,
  extractPassportPhotoPreviewUrl,
  extractPassportPhotoUrl,
 } from "@/lib/customer-profile-extras";
@@ -259,8 +259,8 @@ export default function CustomerDetailPage() {
  [passportPhotoPreviewUrl, passportPhotoUrl]
  );
  const collateralRows = useMemo(
- () => extractCollateralFromApplications(applicationsForFiles),
- [applicationsForFiles]
+  () => buildCustomerCollateralRows(sourceRow, applicationsForFiles),
+  [sourceRow, applicationsForFiles]
  );
  const guarantorRows = useMemo(
   () => buildCustomerGuarantorRows(customer?.guarantors, applicationsForFiles, sourceRow),

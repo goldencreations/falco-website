@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import {
@@ -10,6 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { TzValidatedInput } from "@/components/forms/tz-validated-input";
+import { CachedMediaPreview } from "@/components/media/cached-media-preview";
 import {
   MAX_CUSTOMER_GUARANTORS,
   type CustomerGuarantorFormRow,
@@ -19,6 +21,65 @@ type Props = {
   value: CustomerGuarantorFormRow[];
   onChange: (rows: CustomerGuarantorFormRow[]) => void;
 };
+
+function GuarantorIdFilePreview({ file, label }: { file: File; label: string }) {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const isImage = file.type.startsWith("image/");
+
+  useEffect(() => {
+    if (!isImage) return;
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file, isImage]);
+
+  if (isImage && previewUrl) {
+    return (
+      <div className="overflow-hidden rounded-md border border-border">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={previewUrl}
+          alt={label}
+          className="max-h-48 w-full bg-muted/20 object-contain"
+        />
+        <p className="truncate border-t border-border bg-muted px-2 py-1 text-xs text-muted-foreground">
+          {file.name}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <p className="truncate text-xs text-muted-foreground">
+      Selected: {file.name}
+    </p>
+  );
+}
+
+function GuarantorExistingIdPreview({
+  authUrl,
+  previewUrl,
+  label,
+}: {
+  authUrl: string;
+  previewUrl?: string;
+  label: string;
+}) {
+  return (
+    <div className="space-y-1 overflow-hidden rounded-md border border-border">
+      <CachedMediaPreview
+        previewUrl={previewUrl}
+        authUrl={authUrl}
+        alt={label}
+        maxHeight="max-h-48"
+        imageClassName="object-contain"
+      />
+      <p className="border-t border-border bg-muted px-2 py-1 text-xs text-muted-foreground">
+        {label}
+      </p>
+    </div>
+  );
+}
 
 export function CustomerGuarantorsFields({ value, onChange }: Props) {
   const updateRow = (
@@ -103,7 +164,13 @@ export function CustomerGuarantorsFields({ value, onChange }: Props) {
                   onChange={(e) => updateRow(index, "idFront", e.target.files?.[0] ?? null)}
                 />
                 {row.idFront ? (
-                  <p className="mt-1 truncate text-xs text-muted-foreground">{row.idFront.name}</p>
+                  <GuarantorIdFilePreview file={row.idFront} label="Guarantor ID front" />
+                ) : row.existingIdFrontUrl ? (
+                  <GuarantorExistingIdPreview
+                    authUrl={row.existingIdFrontUrl}
+                    previewUrl={row.existingIdFrontPreviewUrl}
+                    label="Current ID front on file"
+                  />
                 ) : null}
               </Field>
               <Field>
@@ -114,7 +181,13 @@ export function CustomerGuarantorsFields({ value, onChange }: Props) {
                   onChange={(e) => updateRow(index, "idBack", e.target.files?.[0] ?? null)}
                 />
                 {row.idBack ? (
-                  <p className="mt-1 truncate text-xs text-muted-foreground">{row.idBack.name}</p>
+                  <GuarantorIdFilePreview file={row.idBack} label="Guarantor ID back" />
+                ) : row.existingIdBackUrl ? (
+                  <GuarantorExistingIdPreview
+                    authUrl={row.existingIdBackUrl}
+                    previewUrl={row.existingIdBackPreviewUrl}
+                    label="Current ID back on file"
+                  />
                 ) : null}
               </Field>
             </div>

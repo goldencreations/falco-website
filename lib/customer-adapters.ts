@@ -181,12 +181,21 @@ export function adaptApiCustomerRowToCustomer(row: Record<string, unknown>): Cus
  ? Number(md.other_income)
  : undefined,
  income_verified: Boolean(row.income_verified ?? false),
- business_name: row.business_name ? String(row.business_name) : undefined,
+ business_name: row.business_name
+  ? String(row.business_name)
+  : md.business_name
+    ? String(md.business_name)
+    : undefined,
  business_registration_number: row.business_registration_number
- ? String(row.business_registration_number)
- : undefined,
+  ? String(row.business_registration_number)
+  : undefined,
  business_type: row.business_type ? String(row.business_type) : undefined,
- business_address: row.business_address ? String(row.business_address) : undefined,
+ business_address:
+  row.business_address != null && String(row.business_address).trim()
+   ? String(row.business_address).trim()
+   : md.business_address != null && String(md.business_address).trim()
+     ? String(md.business_address).trim()
+     : undefined,
  years_in_business: row.years_in_business != null ? Number(row.years_in_business) : undefined,
  next_of_kin_name: String(row.next_of_kin_name ?? "—"),
  next_of_kin_relationship: String(row.next_of_kin_relationship ?? "—"),

@@ -1,7 +1,8 @@
 import type { ApplicationViewRow, GuarantorRow } from "@/lib/application-adapters";
+import { normalizeCollaterals, normalizeGuarantors } from "@/lib/application-adapters";
 import { shouldShowGuarantorLegacyDocument } from "@/lib/application-detail-display";
 import type { CustomerGuarantorRecord } from "@/lib/customer-guarantors";
-import type { LoanApplication } from "@/lib/types";
+import { readCustomerCollateralArray } from "@/lib/customer-collateral";
 
 function readUrl(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -124,6 +125,8 @@ export type CustomerCollateralRow = {
   description: string;
   value: number;
   status: string;
+  image_url?: string;
+  image_preview_url?: string;
 };
 
 export type CustomerGuarantorDocument = {
@@ -210,16 +213,119 @@ function mergeGuarantorDocuments(
   return merged;
 }
 
-export function extractCollateralFromApplications(applications: LoanApplication[]): CustomerCollateralRow[] {
-  return applications
-    .filter((a) => a.collateral_type || a.collateral_description || (a.collateral_value ?? 0) > 0)
-    .map((a) => ({
-      applicationNumber: a.application_number,
-      type: a.collateral_type ?? "—",
-      description: a.collateral_description ?? "—",
-      value: a.collateral_value ?? 0,
-      status: a.status,
-    }));
+function readCustomerCollateralArrayFromRow(
+  sourceRow: Record<string, unknown> | null | undefined
+): unknown[] {
+  return readCustomerCollateralArray(sourceRow);
+}
+
+function readCustomerNestedArray(
+  sourceRow: Record<string, unknown> | null | undefined,
+  key: "collaterals" | "guarantors"
+): unknown[] {
+  if (!sourceRow) return [];
+  const md =
+    sourceRow.metadata && typeof sourceRow.metadata === "object" && sourceRow.metadata !== null
+      ? (sourceRow.metadata as Record<string, unknown>)
+      : {};
+  const raw = sourceRow[key] ?? md[key];
+  return Array.isArray(raw) ? raw : [];
+}
+
+function collateralKey(type: string, description: string, value: number): string {
+  return `${type.trim().toLowerCase()}|${description.trim().toLowerCase()}|${value}`;
+}
+
+function mergeCollateralImages(
+  base: CustomerCollateralRow,
+  extra: CustomerCollateralRow
+): CustomerCollateralRow {
+  return {
+    ...base,
+    image_url: base.image_url || extra.image_url,
+    image_preview_url: base.image_preview_url || extra.image_preview_url,
+  };
+}
+
+export function extractCollateralFromApplications(
+  applications: ApplicationViewRow[]
+): CustomerCollateralRow[] {
+  const rows: CustomerCollateralRow[] = [];
+
+  for (const app of applications) {
+    const nested = app.collaterals?.filter((c) => c.type?.trim()) ?? [];
+    if (nested.length > 0) {
+      for (const c of nested) {
+        rows.push({
+          applicationNumber: app.application_number,
+          type: c.type,
+          description: c.description ?? "—",
+          value: c.estimated_value ?? 0,
+          status: app.status,
+          image_url: c.image_url,
+          image_preview_url: c.image_preview_url,
+        });
+      }
+      continue;
+    }
+
+    if (!app.collateral_type && !app.collateral_description && (app.collateral_value ?? 0) <= 0) {
+      continue;
+    }
+
+    rows.push({
+      applicationNumber: app.application_number,
+      type: app.collateral_type ?? "—",
+      description: app.collateral_description ?? "—",
+      value: app.collateral_value ?? 0,
+      status: app.status,
+    });
+  }
+
+  return rows;
+}
+
+/** Collateral declared on the customer record (`GET /customers/{id}`). */
+export function extractCollateralFromCustomerRow(
+  sourceRow: Record<string, unknown> | null | undefined
+): CustomerCollateralRow[] {
+  const normalized = normalizeCollaterals(readCustomerCollateralArrayFromRow(sourceRow));
+  return normalized.map((c) => ({
+    applicationNumber: "Customer registration",
+    type: c.type,
+    description: c.description ?? "—",
+    value: c.estimated_value ?? 0,
+    status: "registered",
+    image_url: c.image_url,
+    image_preview_url: c.image_preview_url,
+  }));
+}
+
+/** Customer registration collateral merged with application collateral rows. */
+export function buildCustomerCollateralRows(
+  sourceRow: Record<string, unknown> | null | undefined,
+  applications: ApplicationViewRow[]
+): CustomerCollateralRow[] {
+  const fromCustomer = extractCollateralFromCustomerRow(sourceRow);
+  const fromApps = extractCollateralFromApplications(applications);
+
+  if (fromCustomer.length === 0) return fromApps;
+  if (fromApps.length === 0) return fromCustomer;
+
+  const mergedByKey = new Map<string, CustomerCollateralRow>();
+  for (const row of fromCustomer) {
+    mergedByKey.set(collateralKey(row.type, row.description, row.value), row);
+  }
+  for (const row of fromApps) {
+    const key = collateralKey(row.type, row.description, row.value);
+    const existing = mergedByKey.get(key);
+    if (existing) {
+      mergedByKey.set(key, mergeCollateralImages(existing, row));
+      continue;
+    }
+    mergedByKey.set(key, row);
+  }
+  return [...mergedByKey.values()];
 }
 
 export function extractGuarantorsFromApplications(
@@ -265,6 +371,38 @@ export function extractGuarantorsFromApplications(
   return rows;
 }
 
+function guarantorRowFromApiItem(
+  item: Record<string, unknown>,
+  applicationNumber: string
+): CustomerGuarantorRow | null {
+  const full_name = String(item.full_name ?? item.name ?? "").trim();
+  if (!full_name) return null;
+
+  const normalized = normalizeGuarantors([item])[0];
+  if (!normalized) return null;
+
+  return {
+    applicationNumber,
+    name: normalized.full_name,
+    nationalId: normalized.national_id ?? "—",
+    phone: normalized.phone ?? "—",
+    relationship: normalized.relationship ?? "—",
+    documents: guarantorDocumentsFromRow(normalized),
+  };
+}
+
+function extractGuarantorsFromCustomerRow(
+  sourceRow: Record<string, unknown> | null | undefined
+): CustomerGuarantorRow[] {
+  const rows: CustomerGuarantorRow[] = [];
+  for (const item of readCustomerNestedArray(sourceRow, "guarantors")) {
+    if (!item || typeof item !== "object") continue;
+    const row = guarantorRowFromApiItem(item as Record<string, unknown>, "Customer registration");
+    if (row) rows.push(row);
+  }
+  return rows;
+}
+
 function extractMetadataGuarantorDocuments(
   sourceRow: Record<string, unknown> | null | undefined,
   registered: CustomerGuarantorRecord
@@ -290,13 +428,23 @@ function extractMetadataGuarantorDocuments(
 
     const frontDoc = readDocumentField(o, "id_front_document");
     const backDoc = readDocumentField(o, "id_back_document");
+    const normalized = normalizeGuarantors([o])[0];
     const guarantor: GuarantorRow = {
       full_name: registered.full_name,
-      id_front_preview_url: frontDoc.preview_url,
-      id_front_url: frontDoc.url ?? readUrl(o.id_front_url) ?? undefined,
-      id_back_preview_url: backDoc.preview_url,
-      id_back_url: backDoc.url ?? readUrl(o.id_back_url) ?? undefined,
+      id_front_preview_url: normalized?.id_front_preview_url ?? frontDoc.preview_url,
+      id_front_url:
+        normalized?.id_front_url ??
+        frontDoc.url ??
+        readUrl(o.id_front_url) ??
+        undefined,
+      id_back_preview_url: normalized?.id_back_preview_url ?? backDoc.preview_url,
+      id_back_url:
+        normalized?.id_back_url ??
+        backDoc.url ??
+        readUrl(o.id_back_url) ??
+        undefined,
       document_url:
+        normalized?.document_url ??
         readUrl(o.document_url) ??
         readUrl(o.id_document_url) ??
         readUrl(o.national_id_url) ??
@@ -315,7 +463,9 @@ export function buildCustomerGuarantorRows(
   sourceRow?: Record<string, unknown> | null
 ): CustomerGuarantorRow[] {
   const fromApps = extractGuarantorsFromApplications(applications);
+  const fromCustomerApi = extractGuarantorsFromCustomerRow(sourceRow);
   const appsByKey = new Map<string, CustomerGuarantorRow[]>();
+  const customerApiByKey = new Map<string, CustomerGuarantorRow>();
 
   for (const row of fromApps) {
     const key = guarantorMatchKey(
@@ -326,6 +476,16 @@ export function buildCustomerGuarantorRows(
     const list = appsByKey.get(key) ?? [];
     list.push(row);
     appsByKey.set(key, list);
+  }
+
+  for (const row of fromCustomerApi) {
+    const key = guarantorMatchKey(
+      row.name,
+      row.phone,
+      row.nationalId === "—" ? "" : row.nationalId
+    );
+    const existing = customerApiByKey.get(key);
+    customerApiByKey.set(key, existing ? mergeGuarantorDocuments(existing, row) : row);
   }
 
   const result: CustomerGuarantorRow[] = [];
@@ -344,11 +504,29 @@ export function buildCustomerGuarantorRows(
       documents: extractMetadataGuarantorDocuments(sourceRow, g),
     };
 
+    const fromApi = customerApiByKey.get(key);
+    if (fromApi) row = mergeGuarantorDocuments(row, fromApi);
+
     for (const match of appsByKey.get(key) ?? []) {
       row = mergeGuarantorDocuments(row, match);
     }
 
     result.push(row);
+  }
+
+  for (const row of fromCustomerApi) {
+    const key = guarantorMatchKey(
+      row.name,
+      row.phone,
+      row.nationalId === "—" ? "" : row.nationalId
+    );
+    if (registeredKeys.has(key)) continue;
+    let merged = row;
+    for (const match of appsByKey.get(key) ?? []) {
+      merged = mergeGuarantorDocuments(merged, match);
+    }
+    result.push(merged);
+    registeredKeys.add(key);
   }
 
   for (const row of fromApps) {
