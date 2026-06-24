@@ -122,6 +122,25 @@ function resolveCustomerCreatedBy(row: Record<string, unknown>): string {
  return nested;
 }
 
+function readBusinessAddress(
+  row: Record<string, unknown>,
+  md: Record<string, unknown>
+): string | undefined {
+  const candidates = [
+    row.business_address,
+    row.businessAddress,
+    md.business_address,
+    md.businessAddress,
+    row.business_physical_address,
+    md.business_physical_address,
+  ];
+  for (const value of candidates) {
+    const text = value != null ? String(value).trim() : "";
+    if (text) return text;
+  }
+  return undefined;
+}
+
 /** Maps API list/detail customer row into the richer `Customer` UI model (defaults for unknown fields). */
 export function adaptApiCustomerRowToCustomer(row: Record<string, unknown>): Customer {
  const md = parseCustomerMetadata(row);
@@ -190,12 +209,7 @@ export function adaptApiCustomerRowToCustomer(row: Record<string, unknown>): Cus
   ? String(row.business_registration_number)
   : undefined,
  business_type: row.business_type ? String(row.business_type) : undefined,
- business_address:
-  row.business_address != null && String(row.business_address).trim()
-   ? String(row.business_address).trim()
-   : md.business_address != null && String(md.business_address).trim()
-     ? String(md.business_address).trim()
-     : undefined,
+ business_address: readBusinessAddress(row, md),
  years_in_business: row.years_in_business != null ? Number(row.years_in_business) : undefined,
  next_of_kin_name: String(row.next_of_kin_name ?? "—"),
  next_of_kin_relationship: String(row.next_of_kin_relationship ?? "—"),

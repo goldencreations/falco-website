@@ -34,6 +34,10 @@ export function customerToFormPayload(customer: Customer, rawRow?: Record<string
 
  const paymentRef = md.payment_reference != null ? String(md.payment_reference) : "";
  const statusVal = md.status != null ? String(md.status) : "active";
+ const businessAddress =
+  customer.business_address?.trim() ||
+  (rawRow?.business_address != null ? String(rawRow.business_address).trim() : "") ||
+  (md.business_address != null ? String(md.business_address).trim() : "");
 
  return {
  first_name: customer.first_name,
@@ -60,7 +64,7 @@ export function customerToFormPayload(customer: Customer, rawRow?: Record<string
  monthly_income: String(customer.monthly_income ?? ""),
  business_name: customer.business_name ?? "",
  business_type: customer.business_type ?? "",
- business_address: customer.business_address ?? "",
+ business_address: businessAddress,
  business_latitude: customer.business_latitude ?? null,
  business_longitude: customer.business_longitude ?? null,
  business_registration_no: customer.business_registration_number ?? "",
@@ -304,6 +308,7 @@ export function mapFormPayloadToCustomerApi(input: Record<string, unknown>): Rec
  cheque_number: input.cheque_number ?? null,
  status: input.status ?? null,
  blacklist_reason: input.blacklist_reason ? String(input.blacklist_reason).trim() : null,
+ business_address: input.business_address ? String(input.business_address).trim() : null,
  home_latitude: input.home_latitude ?? null,
  home_longitude: input.home_longitude ?? null,
  business_latitude: input.business_latitude ?? null,

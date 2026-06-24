@@ -1381,8 +1381,8 @@ function NewCustomerPageInner() {
  <CardHeader>
  <CardTitle>References</CardTitle>
  <CardDescription>
- Add friends or family contacts reachable if the customer is unavailable. Up to three references
- are saved on the customer profile and sent automatically with loan applications per Falco{" "}
+ Add friends or family contacts reachable if the customer is unavailable. References are saved on
+ the customer profile and sent automatically with loan applications per Falco{" "}
  <code className="text-xs">POST /applications</code>.
  </CardDescription>
  </CardHeader>

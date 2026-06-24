@@ -1,7 +1,5 @@
 import { parseCustomerMetadata } from "@/lib/customer-location";
 
-export const MAX_CUSTOMER_REFERENCES = 3;
-
 export type CustomerReferenceRecord = {
   full_name: string;
   phone: string;
@@ -52,8 +50,7 @@ export function customerReferenceFormToRecords(
 ): CustomerReferenceRecord[] {
   return rows
     .map(customerReferenceFormToRecord)
-    .filter((row): row is CustomerReferenceRecord => Boolean(row))
-    .slice(0, MAX_CUSTOMER_REFERENCES);
+    .filter((row): row is CustomerReferenceRecord => Boolean(row));
 }
 
 export function parseCustomerReferencesFromRow(
@@ -76,7 +73,6 @@ export function parseCustomerReferencesFromRow(
     const address = String(o.address ?? "").trim();
     if (address) record.address = address;
     out.push(record);
-    if (out.length >= MAX_CUSTOMER_REFERENCES) break;
   }
   return out;
 }

@@ -840,8 +840,9 @@ export function CustomerEditDialog({
  </div>
  <div className="space-y-2 md:col-span-2">
  <Label htmlFor="edit-biz-addr">Business address</Label>
- <Input
+ <Textarea
  id="edit-biz-addr"
+ rows={2}
  value={form.business_address}
  onChange={(e) => updateField("business_address", e.target.value)}
  />
