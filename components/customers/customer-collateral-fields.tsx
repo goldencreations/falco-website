@@ -73,9 +73,24 @@ export function CustomerCollateralFields({ value, onChange }: Props) {
   const updateRow = (
     index: number,
     key: keyof CustomerCollateralFormRow,
-    next: string | File | null
+    next: string | File | File[] | null
   ) => {
     onChange(value.map((row, i) => (i === index ? { ...row, [key]: next } : row)));
+  };
+
+  const updateImages = (index: number, files: FileList | null) => {
+    const nextFiles = files ? Array.from(files) : [];
+    onChange(
+      value.map((row, i) =>
+        i === index
+          ? {
+              ...row,
+              images: nextFiles,
+              image: nextFiles[0] ?? null,
+            }
+          : row
+      )
+    );
   };
 
   const addRow = () => {
@@ -137,10 +152,22 @@ export function CustomerCollateralFields({ value, onChange }: Props) {
               <Input
                 type="file"
                 accept={PHOTO_ACCEPT}
-                onChange={(e) => updateRow(index, "image", e.target.files?.[0] ?? null)}
+                multiple
+                onChange={(e) => updateImages(index, e.target.files)}
               />
-              <p className="text-xs text-muted-foreground">JPG, JPEG, PNG, or WEBP — max 5MB</p>
-              {row.image ? (
+              <p className="text-xs text-muted-foreground">
+                JPG, JPEG, PNG, or WEBP — max 5MB each. You can select multiple images.
+              </p>
+              {row.images.length > 0 ? (
+                <div className="space-y-2">
+                  {row.images.map((file, fileIndex) => (
+                    <CollateralImagePreview
+                      key={`${file.name}-${file.size}-${file.lastModified}-${fileIndex}`}
+                      file={file}
+                    />
+                  ))}
+                </div>
+              ) : row.image ? (
                 <CollateralImagePreview file={row.image} />
               ) : row.existingImageUrl || row.existingImagePreviewUrl ? (
                 <CollateralExistingImagePreview

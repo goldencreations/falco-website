@@ -954,6 +954,12 @@ export default function CustomerDetailPage() {
  <span className="text-muted-foreground">Business Type</span>
  <span>{customer.business_type}</span>
  </div>
+ {customer.business_address ? (
+ <div className="space-y-1 py-2 border-b border-dashed">
+ <span className="text-muted-foreground">Business Address</span>
+ <p className="text-sm leading-relaxed">{customer.business_address}</p>
+ </div>
+ ) : null}
  </>
  )}
  <div className="flex justify-between py-2 bg-emerald-50 px-3 rounded-lg">

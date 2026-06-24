@@ -24,6 +24,7 @@ export type CustomerCollateralFormRow = {
   estimatedValue: string;
   description: string;
   image: File | null;
+  images: File[];
   imageDocumentId?: string;
   existingImageUrl?: string;
   existingImagePreviewUrl?: string;
@@ -35,6 +36,7 @@ export function emptyCustomerCollateralRow(): CustomerCollateralFormRow {
     estimatedValue: "",
     description: "",
     image: null,
+    images: [],
   };
 }
 
@@ -47,7 +49,8 @@ function rowHasAnyInput(row: CustomerCollateralFormRow): boolean {
     row.collateralType.trim() ||
       row.estimatedValue.trim() ||
       row.description.trim() ||
-      row.image
+      row.image ||
+      row.images.length
   );
 }
 
@@ -180,8 +183,9 @@ export function validateCustomerCollateral(
       return { ok: false, error: `Collateral ${i + 1}: estimated value is required.` };
     }
 
-    if (row.image) {
-      const imageValidation = validateLocationPhoto(row.image);
+    const files = row.images.length > 0 ? row.images : row.image ? [row.image] : [];
+    for (const file of files) {
+      const imageValidation = validateLocationPhoto(file);
       if (!imageValidation.ok) {
         return { ok: false, error: `Collateral ${i + 1}: ${imageValidation.error}` };
       }
@@ -194,7 +198,9 @@ export function validateCustomerCollateral(
 export function customerCollateralRowsWithImages(
   rows: CustomerCollateralFormRow[]
 ): CustomerCollateralFormRow[] {
-  return rows.filter((row) => row.collateralType.trim() && row.image);
+  return rows.filter(
+    (row) => row.collateralType.trim() && (row.image != null || row.images.length > 0)
+  );
 }
 
 export function parseCustomerCollateralFromRow(
@@ -244,6 +250,7 @@ export function customerCollateralApiRecordsToForm(
     estimatedValue: String(record.estimated_value),
     description: record.description,
     image: null,
+    images: [],
     imageDocumentId: record.image_document_id,
     existingImageUrl: record.image_url,
     existingImagePreviewUrl: record.image_preview_url,

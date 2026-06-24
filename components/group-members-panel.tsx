@@ -41,6 +41,8 @@ type Props = {
  groupId: string;
  group: GroupDetailView;
  onChanged: () => void | Promise<void>;
+ /** Sum of `total_outstanding` from each member's loans (from loans API). */
+ memberOutstanding?: Record<string, number> | null;
  /** Loan officers: view members only (no assign/remove). */
  readOnly?: boolean;
  customerDetailHref?: (customerId: string) => string;
@@ -50,6 +52,7 @@ export function GroupMembersPanel({
  groupId,
  group,
  onChanged,
+ memberOutstanding = null,
  readOnly = false,
  customerDetailHref = (id) => `/customers/${id}`,
 }: Props) {
@@ -275,6 +278,7 @@ export function GroupMembersPanel({
  <TableHead>Phone</TableHead>
  <TableHead>Risk</TableHead>
  <TableHead>Role</TableHead>
+ <TableHead className="text-right">Amount owed</TableHead>
  <TableHead className="text-right">Monthly income</TableHead>
  {!readOnly ? <TableHead className="text-right">Actions</TableHead> : null}
  </TableRow>
@@ -283,7 +287,7 @@ export function GroupMembersPanel({
  {group.members.length === 0 ? (
  <TableRow>
  <TableCell
- colSpan={readOnly ? 6 : 7}
+ colSpan={readOnly ? 7 : 8}
  className="py-8 text-center text-muted-foreground"
  >
  {readOnly
@@ -295,6 +299,7 @@ export function GroupMembersPanel({
  group.members.map((member) => {
  const leadership = leadershipRoleForCustomer(member.customerId, group);
  const displayRole = leadership ?? member.role ?? "Member";
+ const owed = memberOutstanding?.[member.customerId];
  return (
  <TableRow key={member.customerId}>
  <TableCell>
@@ -327,6 +332,15 @@ export function GroupMembersPanel({
  <Badge variant={leadership ? "default" : "secondary"} className="capitalize">
  {displayRole}
  </Badge>
+ </TableCell>
+ <TableCell className="text-right font-medium tabular-nums">
+ {owed == null ? (
+ "—"
+ ) : owed > 0 ? (
+ <span className="text-destructive">{formatCurrency(owed)}</span>
+ ) : (
+ formatCurrency(0)
+ )}
  </TableCell>
  <TableCell className="text-right">
  {member.monthlyIncome != null ? formatCurrency(member.monthlyIncome) : "—"}
