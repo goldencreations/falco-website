@@ -13,7 +13,8 @@ import {
  User,
  Briefcase,
  Calendar,
- Shield,
+  Home,
+  Shield,
  CreditCard,
  AlertTriangle,
  Edit,
@@ -63,6 +64,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { CustomerCollateralPanel } from "@/components/customers/customer-collateral-panel";
 import { CustomerGuarantorPanel } from "@/components/customers/customer-guarantor-panel";
 import { CustomerLocationCard } from "@/components/customers/customer-location-card";
+import { CustomerLocationPhotosGrid } from "@/components/customers/customer-location-photos-grid";
+import { CustomerSupportingDocumentsList } from "@/components/customers/customer-supporting-documents-list";
 import { CustomerProfileStatCard } from "@/components/customers/customer-profile-stat-card";
 import { enrichCustomerApplicationsForMedia } from "@/lib/enrich-customer-applications";
 import {
@@ -849,34 +852,15 @@ export default function CustomerDetailPage() {
  <TabsContent value="details" className="space-y-6">
  {mountedTabs.has("details") ? (
  <div className="grid gap-6 md:grid-cols-2">
- {/* Contact Information */}
+ {/* Home Information */}
  <Card>
  <CardHeader className="bg-slate-50 rounded-t-lg">
  <CardTitle className="text-base flex items-center gap-2">
- <Phone className="h-4 w-4 text-primary" />
- Contact Information
+ <Home className="h-4 w-4 text-primary" />
+ Home Information
  </CardTitle>
  </CardHeader>
  <CardContent className="space-y-4 pt-4">
- <div className="flex items-center gap-3">
- <div className="h-8 w-8 rounded-full bg-cyan-100 flex items-center justify-center">
- <Phone className="h-4 w-4 text-cyan-600" />
- </div>
- <div>
- <p className="font-medium">{customer.phone_primary}</p>
- {customer.phone_secondary && (
- <p className="text-sm text-muted-foreground">{customer.phone_secondary}</p>
- )}
- </div>
- </div>
- {customer.email && (
- <div className="flex items-center gap-3">
- <div className="h-8 w-8 rounded-full bg-violet-100 flex items-center justify-center">
- <Mail className="h-4 w-4 text-violet-600" />
- </div>
- <p>{customer.email}</p>
- </div>
- )}
  <div className="flex items-start gap-3">
  <div className="h-8 w-8 rounded-full bg-emerald-100 flex items-center justify-center mt-0.5">
  <MapPin className="h-4 w-4 text-emerald-600" />
@@ -888,6 +872,10 @@ export default function CustomerDetailPage() {
  </p>
  </div>
  </div>
+ <CustomerLocationPhotosGrid
+ photos={customerAttachments.homeLocationPhotos}
+ label="Home location photos"
+ />
  </CardContent>
  </Card>
 
@@ -900,6 +888,25 @@ export default function CustomerDetailPage() {
  </CardTitle>
  </CardHeader>
  <CardContent className="space-y-3 pt-4">
+ <div className="flex items-center gap-3 pb-2 border-b border-dashed">
+ <div className="h-8 w-8 rounded-full bg-cyan-100 flex items-center justify-center">
+ <Phone className="h-4 w-4 text-cyan-600" />
+ </div>
+ <div>
+ <p className="font-medium">{customer.phone_primary}</p>
+ {customer.phone_secondary && (
+ <p className="text-sm text-muted-foreground">{customer.phone_secondary}</p>
+ )}
+ </div>
+ </div>
+ {customer.email ? (
+ <div className="flex items-center gap-3 pb-2 border-b border-dashed">
+ <div className="h-8 w-8 rounded-full bg-violet-100 flex items-center justify-center">
+ <Mail className="h-4 w-4 text-violet-600" />
+ </div>
+ <p>{customer.email}</p>
+ </div>
+ ) : null}
  <div className="flex justify-between py-2 border-b border-dashed">
  <span className="text-muted-foreground">National ID</span>
  <span className="font-mono text-sm">{customer.national_id}</span>
@@ -916,6 +923,7 @@ export default function CustomerDetailPage() {
  <span className="text-muted-foreground">Customer Since</span>
  <span>{formatDate(customer.created_at)}</span>
  </div>
+ <CustomerSupportingDocumentsList documents={customerAttachments.supportingDocuments} />
  </CardContent>
  </Card>
 
@@ -966,6 +974,10 @@ export default function CustomerDetailPage() {
  <span className="text-emerald-700">Monthly Income</span>
  <span className="font-bold text-emerald-700">{formatCurrency(customer.monthly_income)}</span>
  </div>
+ <CustomerLocationPhotosGrid
+ photos={customerAttachments.businessLocationPhotos}
+ label="Business location photos"
+ />
  </CardContent>
  </Card>
 

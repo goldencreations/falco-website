@@ -78,6 +78,10 @@ import {
 } from "@/lib/customer-references";
 import { uploadCustomerCollateralImages } from "@/lib/customer-collateral-uploads";
 import { uploadCustomerGuarantorIdDocuments } from "@/lib/customer-guarantor-uploads";
+import {
+  customerAttachmentFormHasLocationPhotos,
+  uploadCustomerLocationPhotos,
+} from "@/lib/customer-location-photo-uploads";
 import { uploadCustomerPassportPhoto } from "@/lib/customer-photo-uploads";
 import { extractCustomerDetail } from "@/lib/customer-adapters";
 import { parseNominatimAddress, reverseGeocodeNominatim } from "@/lib/nominatim";
@@ -740,6 +744,13 @@ function NewCustomerPageInner() {
   const photoUpload = await uploadCustomerPassportPhoto(createdId, attachments.passport_photo);
   if (!photoUpload.ok) {
    setError(`Customer created but passport photo upload failed: ${photoUpload.error}`);
+   return;
+  }
+ }
+ if (createdId && customerAttachmentFormHasLocationPhotos(attachments)) {
+  const locationUpload = await uploadCustomerLocationPhotos(createdId, attachments);
+  if (!locationUpload.ok) {
+   setError(`Customer created but location photo upload failed: ${locationUpload.error}`);
    return;
   }
  }
