@@ -64,13 +64,19 @@ export async function PATCH(
  const { id } = await context.params;
 
  if (isBranchDataScoped(auth.user)) {
- const pre = await falcoServerFetch<unknown>(`/customers/${encodeURIComponent(id)}`);
- if (pre.ok) {
+ const pre = await falcoServerFetch<unknown>(`/customers/${encodeURIComponent(id)}`, {
+  request,
+ });
+ if (!pre.ok) {
+  return NextResponse.json(
+   { message: pre.error.message, details: pre.error.details },
+   { status: pre.error.status }
+  );
+ }
  const row = extractCustomerDetail(pre.data);
  const rid = row?.branch_id != null ? String(row.branch_id) : undefined;
  const denied = ensureResourceBranchAllowed(auth.user, rid);
  if (denied) return denied;
- }
  }
 
  let body: Record<string, unknown>;
@@ -81,13 +87,16 @@ export async function PATCH(
  }
 
  const apiBody = mapFormPayloadToCustomerApi(body);
+ // Branch-scoped updates must not send branch_id — backend rejects cross-branch
+ // body values and the customer record branch is already validated above.
  if (isBranchDataScoped(auth.user)) {
- apiBody.branch_id = auth.user.branch_id;
+ delete apiBody.branch_id;
  }
 
  const res = await falcoServerFetch<unknown>(`/customers/${encodeURIComponent(id)}`, {
  method: "PATCH",
  body: apiBody,
+ request,
  });
 
  if (!res.ok) {

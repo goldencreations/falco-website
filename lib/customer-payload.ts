@@ -236,17 +236,11 @@ export function mapFormPayloadToCustomerApi(input: Record<string, unknown>): Rec
           return null;
         }
         const id = row.id != null ? String(row.id).trim() : "";
-        const image_document_id =
-          row.image_document_id != null ? String(row.image_document_id).trim() : "";
         return {
           ...(id ? { id } : {}),
           collateral_type,
           estimated_value,
           description,
-          ...(image_document_id ? { image_document_id } : {}),
-          attachments: [] as [],
-          collateral_image_attachments: [] as [],
-          collaterall_image_attachment: [] as [],
         };
       })
       .filter((row): row is NonNullable<typeof row> => Boolean(row))

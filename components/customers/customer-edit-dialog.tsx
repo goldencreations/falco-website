@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import dynamic from "next/dynamic";
 import { Loader2 } from "lucide-react";
 import { CustomerAttachmentsFields } from "@/components/customers/customer-attachments-fields";
@@ -48,7 +48,8 @@ import { adaptApiCustomerRowToCustomer, extractCustomerDetail } from "@/lib/cust
 import { uploadCustomerPassportPhoto } from "@/lib/customer-photo-uploads";
 import {
   customerCollateralApiRecordsToForm,
-  customerCollateralFormToApiRecords,
+  collateralMetadataRecordsEqual,
+  customerCollateralFormToMetadataRecords,
   customerCollateralRowsWithImages,
   defaultCustomerCollateralForm,
   parseCustomerCollateralFromRow,
@@ -319,6 +320,13 @@ export function CustomerEditDialog({
  const [attachments, setAttachments] = useState<CustomerAttachmentFormState>(emptyCustomerAttachments);
  const [guarantors, setGuarantors] = useState<CustomerGuarantorFormRow[]>(defaultCustomerGuarantorForm);
  const [collateral, setCollateral] = useState<CustomerCollateralFormRow[]>(defaultCustomerCollateralForm);
+ const initialCollateralMetadataRef = useRef(
+  customerCollateralFormToMetadataRecords(defaultCustomerCollateralForm())
+ );
+ const initialFormPatchRef = useRef<Record<string, unknown> | null>(null);
+ const initialGuarantorsRef = useRef(
+  customerGuarantorFormToApiRecords(defaultCustomerGuarantorForm())
+ );
 
  const existingAttachments = useMemo(
  () => extractCustomerAttachmentsFromRow(sourceRow),
@@ -421,10 +429,16 @@ export function CustomerEditDialog({
  return;
  }
  const base = customerToFormPayload(customer, sourceRow);
- setForm(toEditForm(base));
  setAttachments(emptyCustomerAttachments());
- setGuarantors(customerGuarantorApiRecordsToForm(parseCustomerGuarantorApiRecordsFromRow(sourceRow)));
- setCollateral(customerCollateralApiRecordsToForm(parseCustomerCollateralFromRow(sourceRow)));
+ const loadedGuarantors = customerGuarantorApiRecordsToForm(parseCustomerGuarantorApiRecordsFromRow(sourceRow));
+ setGuarantors(loadedGuarantors);
+ const loadedCollateral = customerCollateralApiRecordsToForm(parseCustomerCollateralFromRow(sourceRow));
+ setCollateral(loadedCollateral);
+ initialCollateralMetadataRef.current = customerCollateralFormToMetadataRecords(loadedCollateral);
+ const editForm = toEditForm(base);
+ setForm(editForm);
+ initialFormPatchRef.current = formToPatchBody(editForm);
+ initialGuarantorsRef.current = customerGuarantorFormToApiRecords(loadedGuarantors);
  }, [open, customer, sourceRow]);
 
  const updateField = <K extends keyof EditForm>(key: K, value: EditForm[K]) => {
@@ -485,16 +499,40 @@ export function CustomerEditDialog({
  }
  setSaving(true);
  try {
+ const nextCollateralMetadata = customerCollateralFormToMetadataRecords(collateral);
+ const collateralMetadataChanged = !collateralMetadataRecordsEqual(
+  initialCollateralMetadataRef.current,
+  nextCollateralMetadata
+ );
+ const nextGuarantors = customerGuarantorFormToApiRecords(guarantors);
+ const guarantorsChanged =
+  JSON.stringify(nextGuarantors) !== JSON.stringify(initialGuarantorsRef.current);
+ const formPatchChanged =
+  JSON.stringify(formToPatchBody(form)) !== JSON.stringify(initialFormPatchRef.current);
+ const hasNewCollateralImages = customerCollateralRowsWithImages(collateral).length > 0;
+ const collateralImagesOnlySave =
+  hasNewCollateralImages &&
+  !collateralMetadataChanged &&
+  !guarantorsChanged &&
+  !formPatchChanged &&
+  !attachments.passport_photo;
+
+ let savedRow = sourceRow;
+ if (!collateralImagesOnlySave) {
+ const patchBody: Record<string, unknown> = {
+  ...formToPatchBody(form),
+  is_blacklisted: customer.is_blacklisted,
+  guarantors: nextGuarantors,
+ };
+ if (collateralMetadataChanged) {
+  patchBody.collateral = nextCollateralMetadata;
+ }
+
  const r = await fetch(`/api/customers/${encodeURIComponent(customerId)}`, {
  method: "PATCH",
  credentials: "include",
  headers: { "Content-Type": "application/json" },
- body: JSON.stringify({
-  ...formToPatchBody(form),
-  is_blacklisted: customer.is_blacklisted,
-  guarantors: customerGuarantorFormToApiRecords(guarantors),
-  collateral: customerCollateralFormToApiRecords(collateral),
- }),
+ body: JSON.stringify(patchBody),
  });
  const body = (await r.json().catch(() => ({}))) as {
  message?: string;
@@ -522,8 +560,17 @@ export function CustomerEditDialog({
  setError("Unexpected response from server.");
  return;
  }
+ savedRow = row;
+ if (collateralMetadataChanged) {
+  const detailRes = await fetch(`/api/customers/${encodeURIComponent(customerId)}`, {
+   credentials: "include",
+  });
+  const detailBody = (await detailRes.json().catch(() => ({}))) as unknown;
+  const refreshed = extractCustomerDetail(detailBody);
+  if (refreshed) savedRow = refreshed;
+ }
+ }
 
- let savedRow = row;
  if (attachments.passport_photo) {
   const photoUpload = await uploadCustomerPassportPhoto(customerId, attachments.passport_photo);
   if (!photoUpload.ok) {
