@@ -57,7 +57,7 @@ import { syntheticBranchFromSession } from "@/lib/branch-scope";
 import { formatValidationDetails } from "@/lib/falco-api";
 import { parseLeadPrefillFromSearchParams } from "@/lib/lead-to-customer-prefill";
 import {
-  customerCollateralFormToApiRecords,
+  customerCollateralFormToMetadataRecords,
   customerCollateralRowsWithImages,
   defaultCustomerCollateralForm,
   validateCustomerCollateral,
@@ -661,7 +661,7 @@ function NewCustomerPageInner() {
  branch_id: effectiveBranchId || form.branch_id,
  created_by: form.created_by,
  guarantors: customerGuarantorFormToApiRecords(guarantors),
- collateral: customerCollateralFormToApiRecords(collateral),
+ collateral: customerCollateralFormToMetadataRecords(collateral),
  references: customerReferenceFormToRecords(references),
  });
 

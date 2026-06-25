@@ -45,9 +45,20 @@ export async function POST(
         ? collaterals.some((item) => {
             if (!item || typeof item !== "object") return false;
             const o = item as Record<string, unknown>;
-            return (
-              String(o.id ?? "") === collateralId &&
-              Boolean(o.image_document || o.image_document_id || o.image_url)
+            if (String(o.id ?? "") !== collateralId) return false;
+            const attachmentCount =
+              (Array.isArray(o.collateral_image_attachments)
+                ? o.collateral_image_attachments.length
+                : 0) +
+              (Array.isArray(o.collaterall_image_attachment)
+                ? o.collaterall_image_attachment.length
+                : 0) +
+              (Array.isArray(o.image_document_ids) ? o.image_document_ids.length : 0);
+            return Boolean(
+              o.image_document ||
+                o.image_document_id ||
+                o.image_url ||
+                attachmentCount > 0
             );
           })
         : false;
