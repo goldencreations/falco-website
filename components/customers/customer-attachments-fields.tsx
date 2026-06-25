@@ -18,13 +18,15 @@ import {
 } from "@/lib/customer-attachments";
 import { cn } from "@/lib/utils";
 
+type ExistingPhoto = { name: string; url: string; previewUrl?: string | null };
+
 type CustomerAttachmentsFieldsProps = {
   value: CustomerAttachmentFormState;
   onChange: (next: CustomerAttachmentFormState) => void;
   existingPassportUrl?: string | null;
   existingPassportPreviewUrl?: string | null;
-  existingHomeUrl?: string | null;
-  existingBusinessUrl?: string | null;
+  existingHomePhotos?: ExistingPhoto[];
+  existingBusinessPhotos?: ExistingPhoto[];
   existingDocuments?: Array<{ name: string; url: string; previewUrl?: string | null }>;
   className?: string;
 };
@@ -171,7 +173,7 @@ type MultiImageUploadFieldProps = {
   icon: React.ReactNode;
   accept: string;
   files: File[];
-  existingUrl?: string | null;
+  existingPhotos?: ExistingPhoto[];
   error?: string | null;
   onAdd: (files: FileList | null) => void;
   onRemove: (index: number) => void;
@@ -185,7 +187,7 @@ function MultiImageUploadField({
   icon,
   accept,
   files,
-  existingUrl,
+  existingPhotos = [],
   error,
   onAdd,
   onRemove,
@@ -257,10 +259,36 @@ function MultiImageUploadField({
         </div>
       </div>
 
-      {!files.length && existingUrl ? (
-        <p className="text-xs text-muted-foreground">
-          Current file on record (add photos below to supplement or replace on next save).
-        </p>
+      {existingPhotos.length > 0 ? (
+        <div className="space-y-2">
+          <p className="text-[11px] font-medium text-muted-foreground">
+            {existingPhotos.length === 1 ? "Current photo on file" : "Current photos on file"}
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {existingPhotos.map((photo, index) => (
+              <div
+                key={`${photo.url}-${index}`}
+                className="overflow-hidden rounded-md border border-border bg-background"
+              >
+                <CachedMediaPreview
+                  previewUrl={photo.previewUrl}
+                  authUrl={photo.url}
+                  alt={photo.name}
+                  maxHeight="max-h-44"
+                  imageClassName="object-cover"
+                />
+                <p className="truncate border-t px-2 py-1 text-[11px] text-muted-foreground">
+                  {photo.name}
+                </p>
+              </div>
+            ))}
+          </div>
+          {files.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              Add more photos below — new uploads are saved when you submit the form.
+            </p>
+          ) : null}
+        </div>
       ) : null}
 
       {files.length > 0 ? (
@@ -310,8 +338,8 @@ export function CustomerAttachmentsFields({
   onChange,
   existingPassportUrl,
   existingPassportPreviewUrl,
-  existingHomeUrl,
-  existingBusinessUrl,
+  existingHomePhotos = [],
+  existingBusinessPhotos = [],
   existingDocuments = [],
   className,
 }: CustomerAttachmentsFieldsProps) {
@@ -417,7 +445,7 @@ export function CustomerAttachmentsFields({
         icon={<Home className="h-3.5 w-3.5 text-emerald-700" aria-hidden />}
         accept={PHOTO_ACCEPT}
         files={value.home_location_photos}
-        existingUrl={existingHomeUrl}
+        existingPhotos={existingHomePhotos}
         error={homeError}
         onAdd={addHomePhotos}
         onRemove={(index) =>
@@ -439,7 +467,7 @@ export function CustomerAttachmentsFields({
         icon={<Store className="h-3.5 w-3.5 text-amber-700" aria-hidden />}
         accept={PHOTO_ACCEPT}
         files={value.business_location_photos}
-        existingUrl={existingBusinessUrl}
+        existingPhotos={existingBusinessPhotos}
         error={businessError}
         onAdd={addBusinessPhotos}
         onRemove={(index) =>

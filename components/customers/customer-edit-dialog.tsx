@@ -59,6 +59,10 @@ import {
 import { uploadCustomerCollateralImages } from "@/lib/customer-collateral-uploads";
 import { uploadCustomerGuarantorIdDocuments } from "@/lib/customer-guarantor-uploads";
 import {
+  customerAttachmentFormHasLocationPhotos,
+  uploadCustomerLocationPhotos,
+} from "@/lib/customer-location-photo-uploads";
+import {
   customerGuarantorApiRecordsToForm,
   customerGuarantorFormToApiRecords,
   customerGuarantorRowsWithIdFiles,
@@ -585,6 +589,20 @@ export function CustomerEditDialog({
   if (refreshed) savedRow = refreshed;
  }
 
+ if (customerAttachmentFormHasLocationPhotos(attachments)) {
+  const locationUpload = await uploadCustomerLocationPhotos(customerId, attachments);
+  if (!locationUpload.ok) {
+   setError(`Customer saved but location photo upload failed: ${locationUpload.error}`);
+   return;
+  }
+  const detailRes = await fetch(`/api/customers/${encodeURIComponent(customerId)}`, {
+   credentials: "include",
+  });
+  const detailBody = (await detailRes.json().catch(() => ({}))) as unknown;
+  const refreshed = extractCustomerDetail(detailBody);
+  if (refreshed) savedRow = refreshed;
+ }
+
  if (customerCollateralRowsWithImages(collateral).length > 0) {
   const collateralUpload = await uploadCustomerCollateralImages(customerId, savedRow, collateral);
   if (!collateralUpload.ok) {
@@ -1083,8 +1101,8 @@ export function CustomerEditDialog({
  onChange={setAttachments}
  existingPassportUrl={existingPassportUrl}
  existingPassportPreviewUrl={existingPassportPreviewUrl}
- existingHomeUrl={existingAttachments.homeLocationPhotoUrl}
- existingBusinessUrl={existingAttachments.businessLocationPhotoUrl}
+ existingHomePhotos={existingAttachments.homeLocationPhotos}
+ existingBusinessPhotos={existingAttachments.businessLocationPhotos}
  existingDocuments={existingAttachments.supportingDocuments}
  />
 

@@ -3,6 +3,8 @@ import { getFalcoApiBaseUrl } from "@/lib/falco-api";
 import { resolveFalcoAccessToken } from "@/lib/server-falco";
 
 export const CUSTOMER_COLLATERAL_IMAGE_DOCUMENT_TYPE = "collateral_image";
+export const CUSTOMER_HOME_LOCATION_PHOTO_DOCUMENT_TYPE = "home_location_photo";
+export const CUSTOMER_BUSINESS_LOCATION_PHOTO_DOCUMENT_TYPE = "business_location_photo";
 export const CUSTOMER_GUARANTOR_ID_FRONT_DOCUMENT_TYPE = "guarantor_id_front";
 export const CUSTOMER_GUARANTOR_ID_BACK_DOCUMENT_TYPE = "guarantor_id_back";
 
