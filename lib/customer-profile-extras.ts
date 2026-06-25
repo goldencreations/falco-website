@@ -2,7 +2,11 @@ import type { ApplicationViewRow, GuarantorRow } from "@/lib/application-adapter
 import { normalizeCollaterals, normalizeGuarantors } from "@/lib/application-adapters";
 import { shouldShowGuarantorLegacyDocument } from "@/lib/application-detail-display";
 import type { CustomerGuarantorRecord } from "@/lib/customer-guarantors";
-import { readCustomerCollateralArray } from "@/lib/customer-collateral";
+import {
+  dedupeMediaUrls,
+  extractCollateralImageUrlsFromItem,
+  readCustomerCollateralArray,
+} from "@/lib/customer-collateral";
 
 function readUrl(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -127,6 +131,7 @@ export type CustomerCollateralRow = {
   status: string;
   image_url?: string;
   image_preview_url?: string;
+  image_urls?: string[];
 };
 
 export type CustomerGuarantorDocument = {
@@ -240,10 +245,13 @@ function mergeCollateralImages(
   base: CustomerCollateralRow,
   extra: CustomerCollateralRow
 ): CustomerCollateralRow {
+  const imageUrls = [...(base.image_urls ?? []), ...(extra.image_urls ?? [])];
+  const uniqueImageUrls = dedupeMediaUrls(imageUrls);
   return {
     ...base,
     image_url: base.image_url || extra.image_url,
     image_preview_url: base.image_preview_url || extra.image_preview_url,
+    image_urls: uniqueImageUrls.length > 0 ? uniqueImageUrls : undefined,
   };
 }
 
@@ -290,7 +298,10 @@ export function extractCollateralFromCustomerRow(
   sourceRow: Record<string, unknown> | null | undefined
 ): CustomerCollateralRow[] {
   const normalized = normalizeCollaterals(readCustomerCollateralArrayFromRow(sourceRow));
-  return normalized.map((c) => ({
+  const raw = readCustomerCollateralArrayFromRow(sourceRow);
+  return normalized.map((c, i) => {
+    const allUrls = extractCollateralImageUrlsFromItem(raw[i]);
+    return {
     applicationNumber: "Customer registration",
     type: c.type,
     description: c.description ?? "—",
@@ -298,7 +309,9 @@ export function extractCollateralFromCustomerRow(
     status: "registered",
     image_url: c.image_url,
     image_preview_url: c.image_preview_url,
-  }));
+    image_urls: allUrls.length > 0 ? allUrls : c.image_url ? [c.image_url] : undefined,
+  };
+  });
 }
 
 /** Customer registration collateral merged with application collateral rows. */

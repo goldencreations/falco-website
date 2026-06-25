@@ -10,7 +10,6 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { CachedMediaPreview } from "@/components/media/cached-media-preview";
 import { PHOTO_ACCEPT } from "@/lib/customer-attachments";
 import {
-  MAX_CUSTOMER_COLLATERAL,
   emptyCustomerCollateralRow,
   type CustomerCollateralFormRow,
 } from "@/lib/customer-collateral";
@@ -20,7 +19,13 @@ type Props = {
   onChange: (rows: CustomerCollateralFormRow[]) => void;
 };
 
-function CollateralImagePreview({ file }: { file: File }) {
+function CollateralImagePreview({
+  file,
+  onRemove,
+}: {
+  file: File;
+  onRemove?: () => void;
+}) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -39,9 +44,14 @@ function CollateralImagePreview({ file }: { file: File }) {
         alt="Collateral preview"
         className="max-h-48 w-full object-contain bg-muted/20"
       />
-      <p className="truncate border-t border-border bg-muted px-2 py-1 text-xs text-muted-foreground">
-        {file.name}
-      </p>
+      <div className="flex items-center justify-between gap-2 border-t border-border bg-muted px-2 py-1">
+        <p className="truncate text-xs text-muted-foreground">{file.name}</p>
+        {onRemove ? (
+          <Button type="button" variant="ghost" size="sm" className="h-6 px-2" onClick={onRemove}>
+            Remove
+          </Button>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -49,9 +59,11 @@ function CollateralImagePreview({ file }: { file: File }) {
 function CollateralExistingImagePreview({
   authUrl,
   previewUrl,
+  onRemove,
 }: {
   authUrl: string;
   previewUrl?: string;
+  onRemove?: () => void;
 }) {
   return (
     <div className="space-y-1 overflow-hidden rounded-md border border-border">
@@ -62,9 +74,14 @@ function CollateralExistingImagePreview({
         maxHeight="max-h-48"
         imageClassName="object-contain"
       />
-      <p className="border-t border-border bg-muted px-2 py-1 text-xs text-muted-foreground">
-        Current image on file
-      </p>
+      <div className="flex items-center justify-between gap-2 border-t border-border bg-muted px-2 py-1">
+        <p className="text-xs text-muted-foreground">Current image on file</p>
+        {onRemove ? (
+          <Button type="button" variant="ghost" size="sm" className="h-6 px-2" onClick={onRemove}>
+            Remove
+          </Button>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -80,21 +97,52 @@ export function CustomerCollateralFields({ value, onChange }: Props) {
 
   const updateImages = (index: number, files: FileList | null) => {
     const nextFiles = files ? Array.from(files) : [];
+    if (nextFiles.length === 0) return;
     onChange(
       value.map((row, i) =>
         i === index
           ? {
               ...row,
-              images: nextFiles,
-              image: nextFiles[0] ?? null,
+              images: [...row.images, ...nextFiles],
+              image: row.images[0] ?? nextFiles[0] ?? null,
             }
           : row
       )
     );
   };
 
+  const removeImage = (index: number, fileIndex: number) => {
+    onChange(
+      value.map((row, i) => {
+        if (i !== index) return row;
+        const nextFiles = row.images.filter((_, idx) => idx !== fileIndex);
+        return {
+          ...row,
+          images: nextFiles,
+          image: nextFiles[0] ?? null,
+        };
+      })
+    );
+  };
+
+  const removeExistingImage = (index: number, urlIndex: number) => {
+    onChange(
+      value.map((row, i) => {
+        if (i !== index) return row;
+        const nextUrls = row.existingImageUrls.filter((_, idx) => idx !== urlIndex);
+        return {
+          ...row,
+          existingImageUrls: nextUrls,
+          existingImageUrl: nextUrls[0],
+          existingImagePreviewUrl: nextUrls[0],
+          imageDocumentId: nextUrls.length > 0 ? row.imageDocumentId : undefined,
+          imageDocumentIds: nextUrls.length > 0 ? row.imageDocumentIds : [],
+        };
+      })
+    );
+  };
+
   const addRow = () => {
-    if (value.length >= MAX_CUSTOMER_COLLATERAL) return;
     onChange([...value, emptyCustomerCollateralRow()]);
   };
 
@@ -108,7 +156,7 @@ export function CustomerCollateralFields({ value, onChange }: Props) {
 
   return (
     <div className="space-y-4">
-      {value.slice(0, MAX_CUSTOMER_COLLATERAL).map((row, index) => (
+      {value.map((row, index) => (
         <div key={index} className="rounded-lg border border-border p-4">
           <div className="mb-3 flex items-center justify-between gap-2">
             <p className="text-sm font-semibold">Collateral {index + 1}</p>
@@ -158,33 +206,37 @@ export function CustomerCollateralFields({ value, onChange }: Props) {
               <p className="text-xs text-muted-foreground">
                 JPG, JPEG, PNG, or WEBP — max 5MB each. You can select multiple images.
               </p>
+              {row.existingImageUrls.length > 0 ? (
+                <div className="space-y-2">
+                  {row.existingImageUrls.map((authUrl, urlIndex) => (
+                    <CollateralExistingImagePreview
+                      key={`${authUrl}-${urlIndex}`}
+                      authUrl={authUrl}
+                      previewUrl={authUrl}
+                      onRemove={() => removeExistingImage(index, urlIndex)}
+                    />
+                  ))}
+                </div>
+              ) : null}
               {row.images.length > 0 ? (
                 <div className="space-y-2">
                   {row.images.map((file, fileIndex) => (
                     <CollateralImagePreview
                       key={`${file.name}-${file.size}-${file.lastModified}-${fileIndex}`}
                       file={file}
+                      onRemove={() => removeImage(index, fileIndex)}
                     />
                   ))}
                 </div>
-              ) : row.image ? (
-                <CollateralImagePreview file={row.image} />
-              ) : row.existingImageUrl || row.existingImagePreviewUrl ? (
-                <CollateralExistingImagePreview
-                  authUrl={row.existingImageUrl ?? row.existingImagePreviewUrl ?? ""}
-                  previewUrl={row.existingImagePreviewUrl}
-                />
               ) : null}
             </Field>
           </FieldGroup>
         </div>
       ))}
 
-      {value.length < MAX_CUSTOMER_COLLATERAL ? (
-        <Button type="button" variant="outline" size="sm" onClick={addRow}>
-          Add another collateral
-        </Button>
-      ) : null}
+      <Button type="button" variant="outline" size="sm" onClick={addRow}>
+        Add another collateral
+      </Button>
     </div>
   );
 }

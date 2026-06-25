@@ -17,6 +17,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { CustomerCollateralRow } from "@/lib/customer-profile-extras";
+import { dedupeMediaUrls } from "@/lib/customer-collateral";
 import { toProxyUrl } from "@/lib/document-proxy";
 import { formatCurrency } from "@/lib/formatters";
 
@@ -66,7 +67,12 @@ function CollateralPhotoBlock({
 }
 
 export function CustomerCollateralPanel({ rows }: { rows: CustomerCollateralRow[] }) {
-  const rowsWithImages = rows.filter((row) => row.image_url || row.image_preview_url);
+  const rowsWithImages = rows.filter(
+    (row) =>
+      (Array.isArray(row.image_urls) && row.image_urls.length > 0) ||
+      row.image_url ||
+      row.image_preview_url
+  );
 
   if (rows.length === 0) {
     return (
@@ -128,18 +134,22 @@ export function CustomerCollateralPanel({ rows }: { rows: CustomerCollateralRow[
             <p className="text-sm font-medium">Collateral photos</p>
             <div className="grid gap-4 md:grid-cols-2">
               {rowsWithImages.map((row) => {
-                const authUrl = row.image_url ?? row.image_preview_url ?? "";
                 const title = row.description
                   ? `${row.type}: ${row.description}`
                   : row.type;
-                return (
-                  <CollateralPhotoBlock
-                    key={`${row.applicationNumber}-${row.type}-${row.description}-photo`}
-                    title={title}
-                    authUrl={authUrl}
-                    previewUrl={row.image_preview_url}
-                  />
+                const imageUrls = dedupeMediaUrls(
+                  row.image_urls && row.image_urls.length > 0
+                    ? row.image_urls
+                    : [row.image_url ?? row.image_preview_url ?? ""].filter(Boolean)
                 );
+                return imageUrls.map((authUrl, idx) => (
+                  <CollateralPhotoBlock
+                    key={`${row.applicationNumber}-${row.type}-${row.description}-photo-${idx}`}
+                    title={imageUrls.length > 1 ? `${title} (${idx + 1})` : title}
+                    authUrl={authUrl}
+                    previewUrl={authUrl}
+                  />
+                ));
               })}
             </div>
           </div>

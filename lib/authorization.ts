@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isBranchDataScoped } from "@/lib/branch-scope";
+import { branchIdsMatch, isBranchDataScoped } from "@/lib/branch-scope";
 import type { UserRole } from "@/lib/types";
 import {
  ACCESS_TOKEN_COOKIE_NAME,
@@ -83,10 +83,10 @@ export function ensureResourceBranchAllowed(
 ): NextResponse | null {
  if (!isBranchDataScoped(user)) return null;
  const rid = (resourceBranchId ?? "").trim();
- if (!rid || rid === user.branch_id.trim()) return null;
+ if (!rid || branchIdsMatch(rid, user.branch_id)) return null;
  return NextResponse.json(
- { error: "Forbidden", message: "This record is outside your branch." },
- { status: 403 }
+  { error: "Forbidden", message: "This record is outside your branch." },
+  { status: 403 }
  );
 }
 
