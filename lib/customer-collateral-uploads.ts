@@ -46,11 +46,12 @@ export async function uploadCustomerCollateralImages(
   const collateralRows = rows.filter((row) => row.collateralType.trim());
 
   for (let i = 0; i < collateralRows.length; i++) {
-    const files =
-      collateralRows[i].images.length > 0
-        ? collateralRows[i].images
-        : collateralRows[i].image
-          ? [collateralRows[i].image]
+    const row = collateralRows[i];
+    const files: File[] =
+      row.images.length > 0
+        ? row.images
+        : row.image != null
+          ? [row.image]
           : [];
     if (files.length === 0) continue;
 
@@ -62,7 +63,7 @@ export async function uploadCustomerCollateralImages(
       };
     }
 
-    const label = `Collateral ${collateralRows[i].collateralType}`;
+    const label = `Collateral ${row.collateralType}`;
     for (let fileIndex = 0; fileIndex < files.length; fileIndex++) {
       const result = await uploadCustomerCollateralImage(
         customerId,
