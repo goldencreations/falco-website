@@ -137,39 +137,6 @@ export function normalizeGuarantors(raw: unknown[]): GuarantorRow[] {
             .map((item) => extractDocumentField(item as Record<string, unknown>, "document"))
             .filter((doc) => doc.url || doc.preview_url)
         : [];
-      const attachmentUrls = urlsFromAttachmentList(o.attachments);
-      const directStorageUrls = attachmentUrls.filter(
-        (url) => url.includes("/storage/") || !url.includes("/documents/")
-      );
-
-      let attachmentFront: string | undefined;
-      let attachmentBack: string | undefined;
-      if (directStorageUrls.length === 1) {
-        attachmentFront = directStorageUrls[0];
-      } else if (directStorageUrls.length >= 2) {
-        attachmentFront = directStorageUrls[0];
-        attachmentBack = directStorageUrls[1];
-      }
-
-      let id_front_url =
-        attachmentFront ??
-        frontDoc.url ??
-        documentUrlFromDocumentId(o.id_front_document_id) ??
-        readRawUrl(o, "id_front_url");
-      let id_back_url =
-        attachmentBack ??
-        backDoc.url ??
-        documentUrlFromDocumentId(o.id_back_document_id) ??
-        readRawUrl(o, "id_back_url");
-      if (!id_front_url && !id_back_url && attachmentUrls.length === 1) {
-        id_front_url = attachmentUrls[0];
-      } else if (!id_front_url && !id_back_url && attachmentUrls.length >= 2) {
-        id_front_url = attachmentUrls[0];
-        id_back_url = attachmentUrls[1];
-      } else if (!id_front_url && attachmentUrls[0] && attachmentUrls.length >= 2) {
-        id_front_url = attachmentUrls[0];
-        if (!id_back_url) id_back_url = attachmentUrls[1];
-      }
       return {
         id: o.id != null ? String(o.id) : undefined,
         full_name: String(o.full_name ?? o.name ?? "").trim(),

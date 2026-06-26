@@ -288,7 +288,6 @@ export function GroupMembersPanel({
  <TableRow>
  <TableCell
  colSpan={7}
- colSpan={readOnly ? 7 : 8}
  className="py-8 text-center text-muted-foreground"
  >
  {readOnly
