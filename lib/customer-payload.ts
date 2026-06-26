@@ -34,6 +34,10 @@ export function customerToFormPayload(customer: Customer, rawRow?: Record<string
 
  const paymentRef = md.payment_reference != null ? String(md.payment_reference) : "";
  const statusVal = md.status != null ? String(md.status) : "active";
+ const businessAddress =
+  customer.business_address?.trim() ||
+  (rawRow?.business_address != null ? String(rawRow.business_address).trim() : "") ||
+  (md.business_address != null ? String(md.business_address).trim() : "");
 
  return {
  first_name: customer.first_name,
@@ -60,7 +64,7 @@ export function customerToFormPayload(customer: Customer, rawRow?: Record<string
  monthly_income: String(customer.monthly_income ?? ""),
  business_name: customer.business_name ?? "",
  business_type: customer.business_type ?? "",
- business_address: customer.business_address ?? "",
+ business_address: businessAddress,
  business_latitude: customer.business_latitude ?? null,
  business_longitude: customer.business_longitude ?? null,
  business_registration_no: customer.business_registration_number ?? "",
@@ -207,6 +211,32 @@ export function mapFormPayloadToCustomerApi(input: Record<string, unknown>): Rec
         return record;
       })
       .filter((row) => row.full_name && row.phone && row.relationship)
+        const full_name = String(row.full_name ?? row.name ?? "").trim();
+        const phone =
+          String(row.phone ?? row.phone_number ?? "").replace(/\D/g, "") ||
+          String(row.phone ?? "").trim();
+        const relationship = String(row.relationship ?? "").trim();
+        if (!full_name || !phone || !relationship) return null;
+
+        const id = row.id != null ? String(row.id).trim() : "";
+        const national_id = row.national_id != null ? String(row.national_id).trim() : "";
+        const id_front_document_id =
+          row.id_front_document_id != null ? String(row.id_front_document_id).trim() : "";
+        const id_back_document_id =
+          row.id_back_document_id != null ? String(row.id_back_document_id).trim() : "";
+
+        return {
+          ...(id ? { id } : {}),
+          full_name,
+          phone,
+          relationship,
+          ...(national_id ? { national_id } : {}),
+          attachments: [] as [],
+          ...(id_front_document_id ? { id_front_document_id } : {}),
+          ...(id_back_document_id ? { id_back_document_id } : {}),
+        };
+      })
+      .filter((row): row is NonNullable<typeof row> => Boolean(row))
   : [];
 
  const references = Array.isArray(input.references)
@@ -218,6 +248,26 @@ export function mapFormPayloadToCustomerApi(input: Record<string, unknown>): Rec
         address: row.address != null ? String(row.address).trim() : undefined,
       }))
       .filter((row) => row.full_name && row.phone && row.relationship)
+  : [];
+
+ const collateral = Array.isArray(input.collateral)
+  ? (input.collateral as Array<Record<string, unknown>>)
+      .map((row) => {
+        const collateral_type = String(row.collateral_type ?? row.type ?? "").trim();
+        const estimated_value = Number(row.estimated_value ?? row.value ?? 0);
+        const description = String(row.description ?? "").trim();
+        if (!collateral_type || !Number.isFinite(estimated_value) || estimated_value <= 0) {
+          return null;
+        }
+        const id = row.id != null ? String(row.id).trim() : "";
+        return {
+          ...(id ? { id } : {}),
+          collateral_type,
+          estimated_value,
+          description,
+        };
+      })
+      .filter((row): row is NonNullable<typeof row> => Boolean(row))
   : [];
 
  const payload: Record<string, unknown> = {
@@ -245,6 +295,10 @@ export function mapFormPayloadToCustomerApi(input: Record<string, unknown>): Rec
  input.years_in_business != null && input.years_in_business !== ""
  ? Math.max(0, Math.round(Number(input.years_in_business)))
  : null,
+ home_latitude: input.home_latitude ?? null,
+ home_longitude: input.home_longitude ?? null,
+ business_latitude: input.business_latitude ?? null,
+ business_longitude: input.business_longitude ?? null,
  next_of_kin_name: nokName || "Not specified",
  next_of_kin_relationship: nokRel || "spouse",
  next_of_kin_phone: nokPhone || phone_number,
@@ -272,14 +326,18 @@ export function mapFormPayloadToCustomerApi(input: Record<string, unknown>): Rec
  cheque_number: input.cheque_number ?? null,
  status: input.status ?? null,
  blacklist_reason: input.blacklist_reason ? String(input.blacklist_reason).trim() : null,
+ business_address: input.business_address ? String(input.business_address).trim() : null,
  home_latitude: input.home_latitude ?? null,
  home_longitude: input.home_longitude ?? null,
  business_latitude: input.business_latitude ?? null,
  business_longitude: input.business_longitude ?? null,
  ...(guarantors.length > 0 ? { guarantors } : {}),
  ...(references.length > 0 ? { references } : {}),
+ ...(collateral.length > 0 ? { collateral } : {}),
  },
  };
+
+ if (collateral.length > 0) payload.collateral = collateral;
 
  if (email) payload.email = email;
  if (alternate_phone) payload.alternate_phone = alternate_phone;

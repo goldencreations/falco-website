@@ -118,16 +118,14 @@ export function CustomerAttachmentsDisplay({ attachments }: Props) {
   const {
     passportPhotoUrl,
     passportPhotoPreviewUrl,
-    homeLocationPhotoUrl,
-    homeLocationPhotoPreviewUrl,
-    businessLocationPhotoUrl,
-    businessLocationPhotoPreviewUrl,
+    homeLocationPhotos,
+    businessLocationPhotos,
     supportingDocuments,
     applicationAttachments,
   } = attachments;
 
   const hasProfilePhotos = Boolean(
-    passportPhotoUrl || homeLocationPhotoUrl || businessLocationPhotoUrl
+    passportPhotoUrl || homeLocationPhotos.length > 0 || businessLocationPhotos.length > 0
   );
 
   return (
@@ -149,22 +147,32 @@ export function CustomerAttachmentsDisplay({ attachments }: Props) {
                 icon={<User className="h-4 w-4 text-sky-700" aria-hidden />}
               />
             ) : null}
-            {homeLocationPhotoUrl ? (
+            {homeLocationPhotos.map((photo, index) => (
               <PhotoBlock
-                title="Home location photo"
-                authUrl={homeLocationPhotoUrl}
-                previewUrl={homeLocationPhotoPreviewUrl}
+                key={`${photo.url}-${index}`}
+                title={
+                  homeLocationPhotos.length > 1
+                    ? `Home location photo (${index + 1})`
+                    : "Home location photo"
+                }
+                authUrl={photo.url}
+                previewUrl={photo.previewUrl}
                 icon={<Home className="h-4 w-4 text-emerald-700" aria-hidden />}
               />
-            ) : null}
-            {businessLocationPhotoUrl ? (
+            ))}
+            {businessLocationPhotos.map((photo, index) => (
               <PhotoBlock
-                title="Business location photo"
-                authUrl={businessLocationPhotoUrl}
-                previewUrl={businessLocationPhotoPreviewUrl}
+                key={`${photo.url}-${index}`}
+                title={
+                  businessLocationPhotos.length > 1
+                    ? `Business location photo (${index + 1})`
+                    : "Business location photo"
+                }
+                authUrl={photo.url}
+                previewUrl={photo.previewUrl}
                 icon={<Store className="h-4 w-4 text-amber-700" aria-hidden />}
               />
-            ) : null}
+            ))}
           </div>
         ) : null}
 

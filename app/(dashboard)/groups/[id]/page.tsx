@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, UserCheck, Users, Loader2 } from "lucide-react";
+import { ArrowLeft, UserCheck, Users, Loader2, Wallet } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { GroupMembersPanel } from "@/components/group-members-panel";
 import { GroupMeetingLocationCard } from "@/components/groups/group-meeting-location-card";
@@ -13,7 +13,9 @@ import { Badge } from "@/components/ui/badge";
 import { useBranchAssignment } from "@/components/branch-assignment-context";
 import { extractGroupDetail, type GroupDetailView } from "@/lib/group-adapters";
 import { extractCustomersList } from "@/lib/customer-adapters";
-import { formatDate } from "@/lib/formatters";
+import { extractLoansList } from "@/lib/loan-adapters";
+import { formatCurrency, formatDate } from "@/lib/formatters";
+import { buildVikundiCollectionDetail } from "@/lib/vikundi-collection-summary";
 import type { GroupMemberRow } from "@/lib/group-adapters";
 import { resolvePortalHref } from "@/lib/portal-paths";
 import { useSessionUser } from "@/lib/use-session-user";
@@ -29,8 +31,10 @@ export default function GroupDetailPage() {
  : "";
  const { user } = useSessionUser();
  const groupsListHref = resolvePortalHref(user?.role, "/groups");
- const { users, branches } = useBranchAssignment();
+ const { users } = useBranchAssignment();
  const [group, setGroup] = useState<GroupDetailView | null>(null);
+ const [totalGroupDebt, setTotalGroupDebt] = useState<number | null>(null);
+ const [memberOutstanding, setMemberOutstanding] = useState<Record<string, number> | null>(null);
  const [loading, setLoading] = useState(true);
  const [error, setError] = useState<string | null>(null);
 
@@ -39,6 +43,8 @@ export default function GroupDetailPage() {
  if (!groupId) {
  setError("Group not found");
  setGroup(null);
+ setTotalGroupDebt(null);
+ setMemberOutstanding(null);
  setLoading(false);
  return;
  }
@@ -46,6 +52,8 @@ export default function GroupDetailPage() {
  setLoading(true);
  }
  setError(null);
+ setTotalGroupDebt(null);
+ setMemberOutstanding(null);
  try {
  const res = await fetch(`/api/groups/${encodeURIComponent(groupId)}`, {
  credentials: "include",
@@ -55,12 +63,16 @@ export default function GroupDetailPage() {
  const o = json as { message?: string };
  setError(o.message ?? "Group not found");
  setGroup(null);
+ setTotalGroupDebt(null);
+ setMemberOutstanding(null);
  return;
  }
  const detail = extractGroupDetail(json);
  if (!detail) {
  setError("Group not found");
  setGroup(null);
+ setTotalGroupDebt(null);
+ setMemberOutstanding(null);
  return;
  }
 
@@ -100,9 +112,48 @@ export default function GroupDetailPage() {
  }
 
  setGroup(detail);
+
+ if (detail.branch_id) {
+  try {
+   const loanParams = new URLSearchParams({
+    branch_id: detail.branch_id,
+    page_size: "500",
+   });
+   const loanRes = await fetch(`/api/loans?${loanParams.toString()}`, {
+    credentials: "include",
+   });
+   if (loanRes.ok) {
+    const loanJson = (await loanRes.json()) as unknown;
+    const collectionDetail = buildVikundiCollectionDetail(detail, {
+     loans: extractLoansList(loanJson),
+     payments: [],
+     queue: [],
+     leads: [],
+     customers: [],
+    });
+    setTotalGroupDebt(collectionDetail.total_outstanding);
+    setMemberOutstanding(
+     Object.fromEntries(
+      collectionDetail.members.map((member) => [member.customer_id, member.total_outstanding])
+     )
+    );
+   } else {
+    setTotalGroupDebt(0);
+    setMemberOutstanding({});
+   }
+  } catch {
+   setTotalGroupDebt(0);
+   setMemberOutstanding({});
+  }
+ } else {
+  setTotalGroupDebt(0);
+  setMemberOutstanding({});
+ }
  } catch {
  setError("Could not load group details.");
  setGroup(null);
+ setTotalGroupDebt(null);
+ setMemberOutstanding(null);
  } finally {
  if (!options?.silent) {
  setLoading(false);
@@ -204,11 +255,14 @@ export default function GroupDetailPage() {
  </Card>
  <Card>
  <CardHeader className="pb-2">
- <CardTitle className="text-sm text-muted-foreground">Branch</CardTitle>
+ <CardTitle className="text-sm text-muted-foreground flex items-center gap-2">
+ <Wallet className="h-4 w-4" />
+ Total group debt
+ </CardTitle>
  </CardHeader>
  <CardContent>
- <p className="text-lg font-semibold">
- {branches.find((b) => b.id === group.branch_id)?.name ?? group.branch_id}
+ <p className="text-2xl font-bold">
+ {totalGroupDebt == null ? "—" : formatCurrency(totalGroupDebt)}
  </p>
  </CardContent>
  </Card>
@@ -225,6 +279,7 @@ export default function GroupDetailPage() {
  <GroupMembersPanel
  groupId={groupId}
  group={group}
+ memberOutstanding={memberOutstanding}
  readOnly={user?.role === "loan_officer"}
  customerDetailHref={(id) => resolvePortalHref(user?.role, `/customers/${id}`)}
  onChanged={() => loadGroup({ silent: true })}

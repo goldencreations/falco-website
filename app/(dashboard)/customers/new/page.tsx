@@ -18,6 +18,7 @@ import {
   Users,
 } from "lucide-react";
 import { CustomerAttachmentsFields } from "@/components/customers/customer-attachments-fields";
+import { CustomerCollateralFields } from "@/components/customers/customer-collateral-fields";
 import { CustomerGuarantorsFields } from "@/components/customers/customer-guarantors-fields";
 import { CustomerReferencesFields } from "@/components/customers/customer-references-fields";
 import { DashboardHeader } from "@/components/dashboard-header";
@@ -56,7 +57,15 @@ import { syntheticBranchFromSession } from "@/lib/branch-scope";
 import { formatValidationDetails } from "@/lib/falco-api";
 import { parseLeadPrefillFromSearchParams } from "@/lib/lead-to-customer-prefill";
 import {
-  customerGuarantorFormToRecords,
+  customerCollateralFormToMetadataRecords,
+  customerCollateralRowsWithImages,
+  defaultCustomerCollateralForm,
+  validateCustomerCollateral,
+  type CustomerCollateralFormRow,
+} from "@/lib/customer-collateral";
+import {
+  customerGuarantorFormToApiRecords,
+  customerGuarantorRowsWithIdFiles,
   defaultCustomerGuarantorForm,
   validateCustomerGuarantors,
   type CustomerGuarantorFormRow,
@@ -67,7 +76,13 @@ import {
   validateCustomerReferences,
   type CustomerReferenceFormRow,
 } from "@/lib/customer-references";
-import { setCustomerGuarantorPendingFiles } from "@/lib/customer-guarantor-pending-files";
+import { uploadCustomerCollateralImages } from "@/lib/customer-collateral-uploads";
+import { uploadCustomerGuarantorIdDocuments } from "@/lib/customer-guarantor-uploads";
+import {
+  customerAttachmentFormHasLocationPhotos,
+  uploadCustomerLocationPhotos,
+} from "@/lib/customer-location-photo-uploads";
+import { uploadCustomerPassportPhoto } from "@/lib/customer-photo-uploads";
 import { extractCustomerDetail } from "@/lib/customer-adapters";
 import { parseNominatimAddress, reverseGeocodeNominatim } from "@/lib/nominatim";
 import { searchPlacesInTanzania, type PlaceSuggestion } from "@/lib/nominatim-search";
@@ -259,12 +274,14 @@ function NewCustomerPageInner() {
  const [officersError, setOfficersError] = useState("");
  const [attachments, setAttachments] = useState<CustomerAttachmentFormState>(emptyCustomerAttachments);
  const [guarantors, setGuarantors] = useState<CustomerGuarantorFormRow[]>(defaultCustomerGuarantorForm);
+ const [collateral, setCollateral] = useState<CustomerCollateralFormRow[]>(defaultCustomerCollateralForm);
  const [references, setReferences] = useState<CustomerReferenceFormRow[]>(defaultCustomerReferenceForm);
 
  const attachmentCount =
- attachments.home_location_photos.length +
- attachments.business_location_photos.length +
- attachments.supporting_documents.length;
+  (attachments.passport_photo ? 1 : 0) +
+  attachments.home_location_photos.length +
+  attachments.business_location_photos.length +
+  attachments.supporting_documents.length;
 
  const [leadPrefillId, setLeadPrefillId] = useState<string | null>(null);
  const appliedLeadPrefillRef = useRef(false);
@@ -647,7 +664,8 @@ function NewCustomerPageInner() {
  loan_officer_id: effectiveOfficerId || form.loan_officer_id,
  branch_id: effectiveBranchId || form.branch_id,
  created_by: form.created_by,
- guarantors: customerGuarantorFormToRecords(guarantors),
+ guarantors: customerGuarantorFormToApiRecords(guarantors),
+ collateral: customerCollateralFormToMetadataRecords(collateral),
  references: customerReferenceFormToRecords(references),
  });
 
@@ -669,6 +687,12 @@ function NewCustomerPageInner() {
  const guarantorValidation = validateCustomerGuarantors(guarantors);
  if (!guarantorValidation.ok) {
  setError(guarantorValidation.error);
+ return;
+ }
+
+ const collateralValidation = validateCustomerCollateral(collateral);
+ if (!collateralValidation.ok) {
+ setError(collateralValidation.error);
  return;
  }
 
@@ -716,8 +740,43 @@ function NewCustomerPageInner() {
 
  const createdRow = extractCustomerDetail(responseBody);
  const createdId = createdRow?.id != null ? String(createdRow.id) : "";
- if (createdId && customerGuarantorFormToRecords(guarantors).length > 0) {
- setCustomerGuarantorPendingFiles(createdId, guarantors);
+ if (createdId && attachments.passport_photo) {
+  const photoUpload = await uploadCustomerPassportPhoto(createdId, attachments.passport_photo);
+  if (!photoUpload.ok) {
+   setError(`Customer created but passport photo upload failed: ${photoUpload.error}`);
+   return;
+  }
+ }
+ if (createdId && customerAttachmentFormHasLocationPhotos(attachments)) {
+  const locationUpload = await uploadCustomerLocationPhotos(createdId, attachments);
+  if (!locationUpload.ok) {
+   setError(`Customer created but location photo upload failed: ${locationUpload.error}`);
+   return;
+  }
+ }
+ if (createdId && customerCollateralRowsWithImages(collateral).length > 0) {
+  const detailRes = await fetch(`/api/customers/${encodeURIComponent(createdId)}`, {
+   credentials: "include",
+  });
+  const detailBody = (await detailRes.json().catch(() => ({}))) as unknown;
+  const detailRow = extractCustomerDetail(detailBody);
+  const collateralUpload = await uploadCustomerCollateralImages(createdId, detailRow, collateral);
+  if (!collateralUpload.ok) {
+   setError(`Customer created but collateral image upload failed: ${collateralUpload.error}`);
+   return;
+  }
+ }
+ if (createdId && customerGuarantorRowsWithIdFiles(guarantors).length > 0) {
+  const detailRes = await fetch(`/api/customers/${encodeURIComponent(createdId)}`, {
+   credentials: "include",
+  });
+  const detailBody = (await detailRes.json().catch(() => ({}))) as unknown;
+  const detailRow = extractCustomerDetail(detailBody);
+  const guarantorUpload = await uploadCustomerGuarantorIdDocuments(createdId, detailRow, guarantors);
+  if (!guarantorUpload.ok) {
+   setError(`Customer created but guarantor ID upload failed: ${guarantorUpload.error}`);
+   return;
+  }
  }
 
  router.replace(customersBasePath);
@@ -1304,8 +1363,10 @@ function NewCustomerPageInner() {
  <CardHeader>
  <CardTitle>Guarantors</CardTitle>
  <CardDescription>
- Register up to two guarantors for this customer. They are copied automatically when you create a
- loan application for this borrower (per Falco `POST /applications` guarantors).
+ Register up to two guarantors for this customer. ID front and back scans upload to{" "}
+ <code className="text-xs">id_front_document_id</code> /{" "}
+ <code className="text-xs">id_back_document_id</code> on the customer profile (per Falco{" "}
+ <code className="text-xs">POST /customers</code> guarantors).
  </CardDescription>
  </CardHeader>
  <CardContent>
@@ -1315,10 +1376,24 @@ function NewCustomerPageInner() {
 
  <Card>
  <CardHeader>
+ <CardTitle>Collateral</CardTitle>
+ <CardDescription>
+ Optional collateral registered on this customer profile. Type, value, and description are sent
+ with customer registration per Falco <code className="text-xs">POST /customers</code>{" "}
+ <code className="text-xs">collateral</code>.
+ </CardDescription>
+ </CardHeader>
+ <CardContent>
+ <CustomerCollateralFields value={collateral} onChange={setCollateral} />
+ </CardContent>
+ </Card>
+
+ <Card>
+ <CardHeader>
  <CardTitle>References</CardTitle>
  <CardDescription>
- Add friends or family contacts reachable if the customer is unavailable. Up to three references
- are saved on the customer profile and sent automatically with loan applications per Falco{" "}
+ Add friends or family contacts reachable if the customer is unavailable. References are saved on
+ the customer profile and sent automatically with loan applications per Falco{" "}
  <code className="text-xs">POST /applications</code>.
  </CardDescription>
  </CardHeader>

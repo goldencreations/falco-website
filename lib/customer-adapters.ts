@@ -2,6 +2,10 @@ import { parseMoneyInput } from "@/lib/money-input";
 import { parseCustomerMetadata, readCustomerLocationPins } from "@/lib/customer-location";
 import { parseCustomerGuarantorsFromRow } from "@/lib/customer-guarantors";
 import { parseCustomerReferencesFromRow } from "@/lib/customer-references";
+import {
+  extractPassportPhotoPreviewUrl,
+  extractPassportPhotoUrl,
+} from "@/lib/customer-profile-extras";
 import type { Customer, CustomerType, EmploymentType, RiskGrade } from "@/lib/types";
 
 function isPlaceholderCustomerNamePart(value: string | undefined): boolean {
@@ -118,6 +122,25 @@ function resolveCustomerCreatedBy(row: Record<string, unknown>): string {
  return nested;
 }
 
+function readBusinessAddress(
+  row: Record<string, unknown>,
+  md: Record<string, unknown>
+): string | undefined {
+  const candidates = [
+    row.business_address,
+    row.businessAddress,
+    md.business_address,
+    md.businessAddress,
+    row.business_physical_address,
+    md.business_physical_address,
+  ];
+  for (const value of candidates) {
+    const text = value != null ? String(value).trim() : "";
+    if (text) return text;
+  }
+  return undefined;
+}
+
 /** Maps API list/detail customer row into the richer `Customer` UI model (defaults for unknown fields). */
 export function adaptApiCustomerRowToCustomer(row: Record<string, unknown>): Customer {
  const md = parseCustomerMetadata(row);
@@ -177,12 +200,16 @@ export function adaptApiCustomerRowToCustomer(row: Record<string, unknown>): Cus
  ? Number(md.other_income)
  : undefined,
  income_verified: Boolean(row.income_verified ?? false),
- business_name: row.business_name ? String(row.business_name) : undefined,
+ business_name: row.business_name
+  ? String(row.business_name)
+  : md.business_name
+    ? String(md.business_name)
+    : undefined,
  business_registration_number: row.business_registration_number
- ? String(row.business_registration_number)
- : undefined,
+  ? String(row.business_registration_number)
+  : undefined,
  business_type: row.business_type ? String(row.business_type) : undefined,
- business_address: row.business_address ? String(row.business_address) : undefined,
+ business_address: readBusinessAddress(row, md),
  years_in_business: row.years_in_business != null ? Number(row.years_in_business) : undefined,
  next_of_kin_name: String(row.next_of_kin_name ?? "—"),
  next_of_kin_relationship: String(row.next_of_kin_relationship ?? "—"),
@@ -203,6 +230,8 @@ export function adaptApiCustomerRowToCustomer(row: Record<string, unknown>): Cus
  const id = resolveCustomerLoanOfficerId(row);
  return id || undefined;
  })(),
+ passport_photo_url: extractPassportPhotoUrl(row),
+ passport_photo_preview_url: extractPassportPhotoPreviewUrl(row),
  created_at: String(row.created_at ?? new Date().toISOString()),
  updated_at: String(row.updated_at ?? row.created_at ?? new Date().toISOString()),
  is_active: row.is_active !== false,

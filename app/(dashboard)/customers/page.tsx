@@ -36,7 +36,8 @@ import {
  SelectTrigger,
  SelectValue,
 } from "@/components/ui/select";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { resolveMediaViewUrl } from "@/components/media/cached-media-preview";
 import { extractCustomersList } from "@/lib/customer-adapters";
 import { useTranslations } from "@/lib/i18n/use-translations";
 import { formatCurrency, formatDate } from "@/lib/formatters";
@@ -336,12 +337,24 @@ export default function CustomersPage() {
  filteredCustomers.map((customer) => {
  const risk = riskGradeConfig[customer.risk_grade];
  const { count: activeLoanCount, outstanding: totalOutstanding } = activeLoansForCustomer(customer.id);
+ const avatarSrc = resolveMediaViewUrl(
+  customer.passport_photo_preview_url,
+  customer.passport_photo_url
+ );
 
  return (
  <TableRow key={customer.id}>
  <TableCell>
  <div className="flex items-center gap-3">
  <Avatar className="h-9 w-9">
+ {avatarSrc ? (
+  <AvatarImage
+   src={avatarSrc}
+   alt={`${customer.first_name} ${customer.last_name}`}
+   className="object-cover"
+   loading="lazy"
+  />
+ ) : null}
  <AvatarFallback className="bg-primary/10 text-primary text-sm">
  {customer.first_name[0]}
  {customer.last_name[0]}

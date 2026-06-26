@@ -149,7 +149,8 @@ export function customerHasLocationData(
   return (
     customerHasMapPin(customer) ||
     Boolean(customerHomeAddressQuery(customer).trim()) ||
-    Boolean(customer.business_address?.trim())
+    Boolean(customer.business_address?.trim()) ||
+    Boolean(customer.business_name?.trim())
   );
 }
 

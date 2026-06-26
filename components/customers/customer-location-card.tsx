@@ -74,11 +74,34 @@ function LocationBlock({ title, address, pin, addressQuery }: LocationBlockProps
   );
 }
 
+function LocationEmptyBlock({
+  title,
+  businessName,
+}: {
+  title: string;
+  businessName?: string;
+}) {
+  return (
+    <div className="flex min-h-[220px] flex-col justify-center rounded-lg border border-dashed bg-muted/15 px-4 py-6 text-center sm:min-h-[260px]">
+      <p className="text-sm font-semibold text-foreground">{title}</p>
+      {businessName ? (
+        <p className="mt-1 text-xs text-muted-foreground">{businessName}</p>
+      ) : null}
+      <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+        No business address or GPS pin on file yet. Edit the customer profile to add a business
+        address or drop a map pin.
+      </p>
+    </div>
+  );
+}
+
 type Props = {
   customer: Pick<
     Customer,
+    | "customer_type"
     | "physical_address"
     | "business_address"
+    | "business_name"
     | "ward"
     | "district"
     | "region"
@@ -100,14 +123,17 @@ export function CustomerLocationCard({ customer }: Props) {
   const homeDisplay = [customer.physical_address, customer.ward, customer.district, customer.region]
     .filter(Boolean)
     .join(", ");
-  const businessDisplay =
-    customer.business_address ||
-    [customer.physical_address, customer.ward, customer.district, customer.region]
-      .filter(Boolean)
-      .join(", ");
+  const businessDisplay = customer.business_address?.trim() || undefined;
+  const businessName = customer.business_name?.trim() || undefined;
 
   const showHome = hasHomePin || Boolean(homeAddress.trim());
-  const showBusiness = hasBusinessPin || Boolean(customer.business_address?.trim());
+  const hasBusinessMapData =
+    hasBusinessPin || Boolean(customer.business_address?.trim());
+  const hasBusinessProfile =
+    Boolean(businessName) ||
+    customer.customer_type === "business" ||
+    hasBusinessMapData;
+  const showBusiness = hasBusinessProfile || showHome;
   const locationCount = [showHome, showBusiness].filter(Boolean).length;
   const hasAny = customerHasLocationData(customer);
 
@@ -153,19 +179,23 @@ export function CustomerLocationCard({ customer }: Props) {
               />
             ) : null}
             {showBusiness ? (
-              <LocationBlock
-                title="Business premises"
-                address={businessDisplay}
-                pin={
-                  hasBusinessPin
-                    ? {
-                        latitude: customer.business_latitude!,
-                        longitude: customer.business_longitude!,
-                      }
-                    : null
-                }
-                addressQuery={businessAddress}
-              />
+              hasBusinessMapData ? (
+                <LocationBlock
+                  title="Business premises"
+                  address={businessDisplay}
+                  pin={
+                    hasBusinessPin
+                      ? {
+                          latitude: customer.business_latitude!,
+                          longitude: customer.business_longitude!,
+                        }
+                      : null
+                  }
+                  addressQuery={businessAddress}
+                />
+              ) : (
+                <LocationEmptyBlock title="Business premises" businessName={businessName} />
+              )
             ) : null}
           </div>
         )}

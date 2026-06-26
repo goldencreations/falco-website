@@ -5,6 +5,7 @@ import {
  type ApplicationWorkflowStage,
 } from "@/lib/application-status";
 import { resolveCustomerLoanOfficerId } from "@/lib/customer-adapters";
+import { DEFAULT_FALCO_API_BASE_URL } from "@/lib/falco-api";
 import type {
  LoanApplication,
  LoanApplicationStatus,
@@ -47,12 +48,59 @@ function extractDocumentField(
   return {};
 }
 
-function normalizeCollaterals(raw: unknown[]): CollateralRow[] {
+function documentUrlFromDocumentId(id: unknown): string | undefined {
+  const s = id != null ? String(id).trim() : "";
+  if (!s) return undefined;
+  const base =
+    (typeof process !== "undefined" && process.env.NEXT_PUBLIC_FALCO_API_URL?.trim()) ||
+    (typeof process !== "undefined" && process.env.FALCO_API_BASE_URL?.trim()) ||
+    DEFAULT_FALCO_API_BASE_URL;
+  return `${base.replace(/\/+$/, "")}/documents/${encodeURIComponent(s)}`;
+}
+
+function urlsFromAttachmentList(attachments: unknown): string[] {
+  if (!Array.isArray(attachments)) return [];
+  const out: string[] = [];
+  for (const item of attachments) {
+    if (typeof item === "string" && item.trim()) {
+      out.push(item.trim());
+      continue;
+    }
+    if (!item || typeof item !== "object") continue;
+    const o = item as Record<string, unknown>;
+    const url = readRawUrl(o, "url", "download_url");
+    if (url) {
+      out.push(url);
+      continue;
+    }
+    const fromId = documentUrlFromDocumentId(o.document_id ?? o.id);
+    if (fromId) out.push(fromId);
+    const nested = extractDocumentField(o, "document");
+    if (nested.url) out.push(nested.url);
+  }
+  return out;
+}
+
+function firstAttachmentDocumentUrl(attachments: unknown): string | undefined {
+  return urlsFromAttachmentList(attachments)[0];
+}
+
+export function normalizeCollaterals(raw: unknown[]): CollateralRow[] {
   return raw
     .filter((item) => item && typeof item === "object")
     .map((item) => {
       const o = item as Record<string, unknown>;
       const imgDoc = extractDocumentField(o, "image_document");
+      const imageDocumentId = o.image_document_id != null ? String(o.image_document_id).trim() : "";
+      const fromAttachments =
+        firstAttachmentDocumentUrl(o.collateral_image_attachments) ??
+        firstAttachmentDocumentUrl(o.collaterall_image_attachment) ??
+        firstAttachmentDocumentUrl(o.attachments);
+      const image_url =
+        fromAttachments ??
+        imgDoc.url ??
+        readRawUrl(o, "image_url", "photo_url", "image", "photo") ??
+        documentUrlFromDocumentId(imageDocumentId);
       return {
         id: o.id != null ? String(o.id) : undefined,
         type: String(o.type ?? o.collateral_type ?? "").trim(),
@@ -63,16 +111,17 @@ function normalizeCollaterals(raw: unknown[]): CollateralRow[] {
             : o.value != null
             ? Number(o.value)
             : undefined,
-        // preview_url: usable directly in <img> without auth (expires ~15 min)
-        image_preview_url: imgDoc.preview_url,
-        // url: requires Bearer auth — use via document proxy for download
-        image_url: imgDoc.url ?? readRawUrl(o, "image_url", "photo_url", "image", "photo"),
+        // Direct storage URLs from attachment arrays can load without a separate preview field.
+        image_preview_url:
+          imgDoc.preview_url ??
+          (fromAttachments && !fromAttachments.includes("/documents/") ? fromAttachments : undefined),
+        image_url,
       };
     })
     .filter((c) => c.type.length > 0);
 }
 
-function normalizeGuarantors(raw: unknown[]): GuarantorRow[] {
+export function normalizeGuarantors(raw: unknown[]): GuarantorRow[] {
   return raw
     .filter((item) => item && typeof item === "object")
     .map((item) => {
@@ -88,6 +137,39 @@ function normalizeGuarantors(raw: unknown[]): GuarantorRow[] {
             .map((item) => extractDocumentField(item as Record<string, unknown>, "document"))
             .filter((doc) => doc.url || doc.preview_url)
         : [];
+      const attachmentUrls = urlsFromAttachmentList(o.attachments);
+      const directStorageUrls = attachmentUrls.filter(
+        (url) => url.includes("/storage/") || !url.includes("/documents/")
+      );
+
+      let attachmentFront: string | undefined;
+      let attachmentBack: string | undefined;
+      if (directStorageUrls.length === 1) {
+        attachmentFront = directStorageUrls[0];
+      } else if (directStorageUrls.length >= 2) {
+        attachmentFront = directStorageUrls[0];
+        attachmentBack = directStorageUrls[1];
+      }
+
+      let id_front_url =
+        attachmentFront ??
+        frontDoc.url ??
+        documentUrlFromDocumentId(o.id_front_document_id) ??
+        readRawUrl(o, "id_front_url");
+      let id_back_url =
+        attachmentBack ??
+        backDoc.url ??
+        documentUrlFromDocumentId(o.id_back_document_id) ??
+        readRawUrl(o, "id_back_url");
+      if (!id_front_url && !id_back_url && attachmentUrls.length === 1) {
+        id_front_url = attachmentUrls[0];
+      } else if (!id_front_url && !id_back_url && attachmentUrls.length >= 2) {
+        id_front_url = attachmentUrls[0];
+        id_back_url = attachmentUrls[1];
+      } else if (!id_front_url && attachmentUrls[0] && attachmentUrls.length >= 2) {
+        id_front_url = attachmentUrls[0];
+        if (!id_back_url) id_back_url = attachmentUrls[1];
+      }
       return {
         id: o.id != null ? String(o.id) : undefined,
         full_name: String(o.full_name ?? o.name ?? "").trim(),
@@ -118,6 +200,18 @@ function normalizeGuarantors(raw: unknown[]): GuarantorRow[] {
           .filter((url): url is string => Boolean(url)),
         // Legacy fallback for older API responses
         document_url: readRawUrl(o, "document_url", "id_document_url", "national_id_url"),
+        id_front_preview_url:
+          frontDoc.preview_url ??
+          (id_front_url && !id_front_url.includes("/documents/") ? id_front_url : undefined),
+        id_front_url,
+        id_back_preview_url:
+          backDoc.preview_url ??
+          (id_back_url && !id_back_url.includes("/documents/") ? id_back_url : undefined),
+        id_back_url,
+        document_url:
+          readRawUrl(o, "document_url", "id_document_url", "national_id_url") ??
+          documentUrlFromDocumentId(o.photo_document_id) ??
+          documentUrlFromDocumentId(o.photo_with_customer_document_id),
       };
     })
     .filter((g) => g.full_name.length > 0);

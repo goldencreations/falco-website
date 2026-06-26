@@ -5,10 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { TzValidatedInput } from "@/components/forms/tz-validated-input";
-import {
-  MAX_CUSTOMER_REFERENCES,
-  type CustomerReferenceFormRow,
-} from "@/lib/customer-references";
+import { type CustomerReferenceFormRow } from "@/lib/customer-references";
 
 type Props = {
   value: CustomerReferenceFormRow[];
@@ -21,7 +18,6 @@ export function CustomerReferencesFields({ value, onChange }: Props) {
   };
 
   const addRow = () => {
-    if (value.length >= MAX_CUSTOMER_REFERENCES) return;
     onChange([...value, { name: "", phone: "", relationship: "", address: "" }]);
   };
 
@@ -35,7 +31,7 @@ export function CustomerReferencesFields({ value, onChange }: Props) {
 
   return (
     <div className="space-y-4">
-      {value.slice(0, MAX_CUSTOMER_REFERENCES).map((row, index) => (
+      {value.map((row, index) => (
         <div key={index} className="rounded-lg border border-border p-4">
           <div className="mb-3 flex items-center justify-between">
             <p className="text-sm font-semibold">Reference {index + 1}</p>
@@ -83,12 +79,10 @@ export function CustomerReferencesFields({ value, onChange }: Props) {
           </FieldGroup>
         </div>
       ))}
-      {value.length < MAX_CUSTOMER_REFERENCES ? (
-        <Button type="button" variant="outline" onClick={addRow}>
-          <Plus className="mr-2 h-4 w-4" />
-          Add reference
-        </Button>
-      ) : null}
+      <Button type="button" variant="outline" onClick={addRow}>
+        <Plus className="mr-2 h-4 w-4" />
+        Add reference
+      </Button>
     </div>
   );
 }

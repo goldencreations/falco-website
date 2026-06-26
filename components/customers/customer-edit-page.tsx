@@ -9,8 +9,10 @@ import { DashboardHeader } from "@/components/dashboard-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { adaptApiCustomerRowToCustomer, extractCustomerDetail } from "@/lib/customer-adapters";
+import { branchIdsMatch } from "@/lib/branch-scope";
 import {
  getCachedCustomerDetail,
+ invalidateCustomerDetailCache,
  setCachedCustomerDetail,
 } from "@/lib/customer-detail-cache";
 import { useSessionUser } from "@/lib/use-session-user";
@@ -43,9 +45,18 @@ export function CustomerEditPage() {
  let cancelled = false;
  const cached = getCachedCustomerDetail(customerId);
  if (cached) {
- setCustomer(cached.customer);
- setSourceRow(cached.row);
- setLoading(false);
+  const cachedBranchOk =
+   !user?.branch_id ||
+   user.role === "super_admin" ||
+   cached.row.branch_id == null ||
+   branchIdsMatch(String(cached.row.branch_id), user.branch_id);
+  if (cachedBranchOk) {
+   setCustomer(cached.customer);
+   setSourceRow(cached.row);
+   setLoading(false);
+  } else {
+   invalidateCustomerDetailCache(customerId);
+  }
  }
 
  const load = async () => {
@@ -70,6 +81,18 @@ export function CustomerEditPage() {
  setSourceRow(null);
  return;
  }
+ if (
+  user?.branch_id &&
+  user.role !== "super_admin" &&
+  row.branch_id != null &&
+  !branchIdsMatch(String(row.branch_id), user.branch_id)
+ ) {
+ setError("This customer belongs to another branch. You cannot edit them from your account.");
+ setCustomer(null);
+ setSourceRow(null);
+ invalidateCustomerDetailCache(customerId);
+ return;
+ }
  const nextCustomer = adaptApiCustomerRowToCustomer(row);
  setCustomer(nextCustomer);
  setSourceRow(row);
@@ -85,7 +108,7 @@ export function CustomerEditPage() {
  return () => {
  cancelled = true;
  };
- }, [customerId]);
+ }, [customerId, user?.branch_id, user?.role]);
 
  return (
  <>
@@ -99,7 +122,7 @@ export function CustomerEditPage() {
  <div className="space-y-1">
  <p className="text-sm font-semibold text-emerald-800">Customer Update Workspace</p>
  <p className="text-xs text-muted-foreground">
- Edit KYC, assignment, risk, payment, and attachment details in the same workspace style as customer creation.
+ Edit KYC, assignment, guarantors, collateral, risk, payment, and attachment details in the same workspace style as customer creation.
  </p>
  </div>
  <Button variant="outline" asChild>

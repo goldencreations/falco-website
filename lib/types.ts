@@ -119,6 +119,9 @@ export interface Customer {
  created_by: string;
  /** Primary relationship manager / assigned loan officer (defaults to creator for legacy rows). */
  assigned_loan_officer_id?: string;
+ /** Profile / passport photo URLs from API when available. */
+ passport_photo_url?: string | null;
+ passport_photo_preview_url?: string | null;
  created_at: string;
  updated_at: string;
  is_active: boolean;
