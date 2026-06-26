@@ -62,6 +62,26 @@ export function CustomerGuarantorPanel({ rows }: { rows: CustomerGuarantorRow[] 
                   <TableCell className="text-muted-foreground">Address</TableCell>
                   <TableCell>{row.address}</TableCell>
                 </TableRow>
+                {row.collateralType ? (
+                  <TableRow>
+                    <TableCell className="text-muted-foreground">Collateral type</TableCell>
+                    <TableCell>{row.collateralType}</TableCell>
+                  </TableRow>
+                ) : null}
+                {row.collateralDescription ? (
+                  <TableRow>
+                    <TableCell className="text-muted-foreground">Collateral description</TableCell>
+                    <TableCell>{row.collateralDescription}</TableCell>
+                  </TableRow>
+                ) : null}
+                {row.collateralEstimatedValue != null && row.collateralEstimatedValue > 0 ? (
+                  <TableRow>
+                    <TableCell className="text-muted-foreground">Collateral value</TableCell>
+                    <TableCell>
+                      TSh {row.collateralEstimatedValue.toLocaleString("en-TZ")}
+                    </TableCell>
+                  </TableRow>
+                ) : null}
               </TableBody>
             </Table>
 

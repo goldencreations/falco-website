@@ -76,6 +76,7 @@ import {
  fetchLinkedApplicationIds,
  linkedIdsNeedRefresh,
  uploadCollateralAndGuarantorFiles,
+ type GuarantorFileRow,
 } from "@/lib/application-linked-uploads";
 import { APPLICATION_DOCUMENTS_OPTIONAL } from "@/lib/application-workflow-config";
 import {
@@ -265,6 +266,10 @@ function NewApplicationPageContent() {
     phone: record.phone,
     idFront: pending?.[index]?.idFront ?? null,
     idBack: pending?.[index]?.idBack ?? null,
+    photo: pending?.[index]?.photo ?? null,
+    photoWithCustomer: pending?.[index]?.photoWithCustomer ?? null,
+    wardLetter: pending?.[index]?.wardLetter ?? null,
+    attachments: pending?.[index]?.attachments ?? [],
    }));
    setCustomerGuarantorRecords(records);
    setCustomerReferenceRecords(referenceRecords);
@@ -758,7 +763,15 @@ function NewApplicationPageContent() {
 
  const hasLinkedFiles =
   collaterals.some((c) => c.image) ||
-  guarantorFileRows.some((g) => g.idFront || g.idBack);
+  guarantorFileRows.some(
+   (g) =>
+    g.idFront ||
+    g.idBack ||
+    g.photo ||
+    g.photoWithCustomer ||
+    g.wardLetter ||
+    g.attachments.length > 0
+  );
 
  let linkedIds = extractLinkedApplicationIds(data);
  if (!linkedIds || (hasLinkedFiles && linkedIdsNeedRefresh(linkedIds, collaterals, guarantorFileRows))) {

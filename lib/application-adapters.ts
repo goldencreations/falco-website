@@ -79,6 +79,15 @@ function normalizeGuarantors(raw: unknown[]): GuarantorRow[] {
       const o = item as Record<string, unknown>;
       const frontDoc = extractDocumentField(o, "id_front_document");
       const backDoc = extractDocumentField(o, "id_back_document");
+      const photoDoc = extractDocumentField(o, "photo_document");
+      const photoWithCustomerDoc = extractDocumentField(o, "photo_with_customer_document");
+      const wardLetterDoc = extractDocumentField(o, "ward_letter_document");
+      const attachmentDocs = Array.isArray(o.attachments)
+        ? o.attachments
+            .filter((item) => item && typeof item === "object")
+            .map((item) => extractDocumentField(item as Record<string, unknown>, "document"))
+            .filter((doc) => doc.url || doc.preview_url)
+        : [];
       return {
         id: o.id != null ? String(o.id) : undefined,
         full_name: String(o.full_name ?? o.name ?? "").trim(),
@@ -86,12 +95,27 @@ function normalizeGuarantors(raw: unknown[]): GuarantorRow[] {
         relationship: o.relationship != null ? String(o.relationship).trim() : undefined,
         national_id: o.national_id != null ? String(o.national_id).trim() : undefined,
         address: o.address != null ? String(o.address).trim() : undefined,
+        collateral_type:
+          o.collateral_type != null ? String(o.collateral_type).trim() : undefined,
+        collateral_description:
+          o.collateral_description != null ? String(o.collateral_description).trim() : undefined,
+        collateral_estimated_value:
+          o.collateral_estimated_value != null ? Number(o.collateral_estimated_value) : undefined,
         // ID front — preview usable in <img> directly; url requires auth
         id_front_preview_url: frontDoc.preview_url,
         id_front_url: frontDoc.url,
         // ID back — same pattern
         id_back_preview_url: backDoc.preview_url,
         id_back_url: backDoc.url,
+        photo_preview_url: photoDoc.preview_url,
+        photo_url: photoDoc.url,
+        photo_with_customer_preview_url: photoWithCustomerDoc.preview_url,
+        photo_with_customer_url: photoWithCustomerDoc.url,
+        ward_letter_preview_url: wardLetterDoc.preview_url,
+        ward_letter_url: wardLetterDoc.url,
+        attachment_urls: attachmentDocs
+          .map((doc) => doc.url ?? doc.preview_url)
+          .filter((url): url is string => Boolean(url)),
         // Legacy fallback for older API responses
         document_url: readRawUrl(o, "document_url", "id_document_url", "national_id_url"),
       };
@@ -176,6 +200,9 @@ export type GuarantorRow = {
   relationship?: string;
   national_id?: string;
   address?: string;
+  collateral_type?: string;
+  collateral_description?: string;
+  collateral_estimated_value?: number;
   /** Direct <img> src for ID front — no auth required, expires ~15 min. */
   id_front_preview_url?: string;
   /** Authenticated download URL for ID front. */
@@ -184,6 +211,13 @@ export type GuarantorRow = {
   id_back_preview_url?: string;
   /** Authenticated download URL for ID back. */
   id_back_url?: string;
+  photo_preview_url?: string;
+  photo_url?: string;
+  photo_with_customer_preview_url?: string;
+  photo_with_customer_url?: string;
+  ward_letter_preview_url?: string;
+  ward_letter_url?: string;
+  attachment_urls?: string[];
   /** Legacy fallback: single document URL (older API). */
   document_url?: string;
 };

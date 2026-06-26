@@ -116,6 +116,9 @@ export type CustomerGuarantorRow = {
   phone: string;
   address: string;
   relationship: string;
+  collateralType?: string;
+  collateralDescription?: string;
+  collateralEstimatedValue?: number;
   documents: Array<{ name: string; url: string }>;
 };
 

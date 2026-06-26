@@ -214,6 +214,37 @@ export function CustomerAttachmentsDisplay({ attachments }: Props) {
                 previewUrl: g.id_back_preview_url ?? g.id_back_url,
               });
             }
+            if (g.photo_url || g.photo_preview_url) {
+              items.push({
+                key: `${g.id ?? g.full_name}-photo`,
+                title: `${g.full_name} — Photo`,
+                authUrl: g.photo_url ?? g.photo_preview_url ?? "",
+                previewUrl: g.photo_preview_url ?? g.photo_url,
+              });
+            }
+            if (g.photo_with_customer_url || g.photo_with_customer_preview_url) {
+              items.push({
+                key: `${g.id ?? g.full_name}-with-customer`,
+                title: `${g.full_name} — Photo with customer`,
+                authUrl: g.photo_with_customer_url ?? g.photo_with_customer_preview_url ?? "",
+                previewUrl: g.photo_with_customer_preview_url ?? g.photo_with_customer_url,
+              });
+            }
+            if (g.ward_letter_url || g.ward_letter_preview_url) {
+              items.push({
+                key: `${g.id ?? g.full_name}-ward-letter`,
+                title: `${g.full_name} — Ward letter`,
+                authUrl: g.ward_letter_url ?? g.ward_letter_preview_url ?? "",
+                previewUrl: g.ward_letter_preview_url ?? g.ward_letter_url,
+              });
+            }
+            for (const [attachmentIndex, url] of (g.attachment_urls ?? []).entries()) {
+              items.push({
+                key: `${g.id ?? g.full_name}-attachment-${attachmentIndex}`,
+                title: `${g.full_name} — Attachment ${attachmentIndex + 1}`,
+                authUrl: url,
+              });
+            }
             if (shouldShowGuarantorLegacyDocument(g) && g.document_url) {
               items.push({
                 key: `${g.id ?? g.full_name}-legacy`,

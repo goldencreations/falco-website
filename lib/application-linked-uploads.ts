@@ -20,6 +20,10 @@ export type GuarantorFileRow = {
   phone: string;
   idFront: File | null;
   idBack: File | null;
+  photo: File | null;
+  photoWithCustomer: File | null;
+  wardLetter: File | null;
+  attachments: File[];
 };
 
 function readId(value: unknown): string | null {
@@ -155,27 +159,31 @@ export async function uploadCollateralAndGuarantorFiles(
   for (let i = 0; i < guarantorRows.length; i++) {
     const guarantorId = linked.guarantorIds[i];
     const row = guarantorRows[i];
+    const needsFile = Boolean(
+      row.idFront ||
+        row.idBack ||
+        row.photo ||
+        row.photoWithCustomer ||
+        row.wardLetter ||
+        row.attachments.length > 0
+    );
     if (!guarantorId) {
-      const needsFile = Boolean(row.idFront || row.idBack);
       if (needsFile) {
         return {
           ok: false,
-          error: `Guarantor ID could not be uploaded — missing guarantor ID for ${row.name}. Save the application and try again.`,
+          error: `Guarantor documents could not be uploaded — missing guarantor ID for ${row.name}. Save the application and try again.`,
         };
       }
       continue;
     }
 
+    const base = `/api/applications/${encodeURIComponent(applicationId)}/guarantors/${encodeURIComponent(guarantorId)}`;
+
     if (row.idFront) {
       const label = `${row.name} ID front`;
       pending.push({
         label,
-        run: () =>
-          uploadLinkedFile(
-            `/api/applications/${encodeURIComponent(applicationId)}/guarantors/${encodeURIComponent(guarantorId)}/id-front`,
-            row.idFront!,
-            label
-          ),
+        run: () => uploadLinkedFile(`${base}/id-front`, row.idFront!, label),
       });
     }
 
@@ -183,12 +191,40 @@ export async function uploadCollateralAndGuarantorFiles(
       const label = `${row.name} ID back`;
       pending.push({
         label,
-        run: () =>
-          uploadLinkedFile(
-            `/api/applications/${encodeURIComponent(applicationId)}/guarantors/${encodeURIComponent(guarantorId)}/id-back`,
-            row.idBack!,
-            label
-          ),
+        run: () => uploadLinkedFile(`${base}/id-back`, row.idBack!, label),
+      });
+    }
+
+    if (row.photo) {
+      const label = `${row.name} photo`;
+      pending.push({
+        label,
+        run: () => uploadLinkedFile(`${base}/photo`, row.photo!, label),
+      });
+    }
+
+    if (row.photoWithCustomer) {
+      const label = `${row.name} photo with customer`;
+      pending.push({
+        label,
+        run: () => uploadLinkedFile(`${base}/photo-with-customer`, row.photoWithCustomer!, label),
+      });
+    }
+
+    if (row.wardLetter) {
+      const label = `${row.name} ward letter`;
+      pending.push({
+        label,
+        run: () => uploadLinkedFile(`${base}/ward-letter`, row.wardLetter!, label),
+      });
+    }
+
+    for (let j = 0; j < row.attachments.length; j++) {
+      const file = row.attachments[j];
+      const label = `${row.name} attachment ${j + 1}`;
+      pending.push({
+        label,
+        run: () => uploadLinkedFile(`${base}/attachments`, file, label),
       });
     }
   }

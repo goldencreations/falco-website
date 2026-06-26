@@ -272,8 +272,11 @@ export default function CustomerDetailPage() {
     name: g.full_name,
     nationalId: g.national_id ?? "—",
     phone: g.phone,
-    address: "—",
+    address: g.address ?? "—",
     relationship: g.relationship,
+    collateralType: g.collateral_type,
+    collateralDescription: g.collateral_description,
+    collateralEstimatedValue: g.collateral_estimated_value,
     documents: [] as { name: string; url: string }[],
    })) ?? [];
   return [...registered, ...applicationGuarantorRows];
