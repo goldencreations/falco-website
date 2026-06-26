@@ -269,6 +269,22 @@ export default function CustomerDetailPage() {
   () => buildCustomerGuarantorRows(customer?.guarantors, applicationsForFiles, sourceRow),
   [customer?.guarantors, applicationsForFiles, sourceRow]
  );
+ const guarantorRows = useMemo(() => {
+  const registered =
+   customer?.guarantors?.map((g) => ({
+    applicationNumber: "Customer registration",
+    name: g.full_name,
+    nationalId: g.national_id ?? "—",
+    phone: g.phone,
+    address: g.address ?? "—",
+    relationship: g.relationship,
+    collateralType: g.collateral_type,
+    collateralDescription: g.collateral_description,
+    collateralEstimatedValue: g.collateral_estimated_value,
+    documents: [] as { name: string; url: string }[],
+   })) ?? [];
+  return [...registered, ...applicationGuarantorRows];
+ }, [customer?.guarantors, applicationGuarantorRows]);
 
  const applyPortfolio = (body: CustomerPortfolioData) => {
  setCustomerLoans(body.loans ?? []);

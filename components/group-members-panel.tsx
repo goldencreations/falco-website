@@ -280,13 +280,14 @@ export function GroupMembersPanel({
  <TableHead>Role</TableHead>
  <TableHead className="text-right">Amount owed</TableHead>
  <TableHead className="text-right">Monthly income</TableHead>
- {!readOnly ? <TableHead className="text-right">Actions</TableHead> : null}
+ <TableHead className="text-right">Actions</TableHead>
  </TableRow>
  </TableHeader>
  <TableBody>
  {group.members.length === 0 ? (
  <TableRow>
  <TableCell
+ colSpan={7}
  colSpan={readOnly ? 7 : 8}
  className="py-8 text-center text-muted-foreground"
  >
@@ -345,13 +346,16 @@ export function GroupMembersPanel({
  <TableCell className="text-right">
  {member.monthlyIncome != null ? formatCurrency(member.monthlyIncome) : "—"}
  </TableCell>
- {!readOnly ? (
  <TableCell className="text-right">
  <div className="flex justify-end gap-1">
- <Button variant="ghost" size="sm" asChild>
- <Link href={`/customers/${member.customerId}`}>View</Link>
+ <Button
+ variant={readOnly ? "outline" : "ghost"}
+ size="sm"
+ asChild
+ >
+ <Link href={customerDetailHref(member.customerId)}>View</Link>
  </Button>
- {!isLeadershipMember(member.customerId, group) ? (
+ {!readOnly && !isLeadershipMember(member.customerId, group) ? (
  <Button
  type="button"
  variant="ghost"
@@ -372,7 +376,6 @@ export function GroupMembersPanel({
  ) : null}
  </div>
  </TableCell>
- ) : null}
  </TableRow>
  );
  })

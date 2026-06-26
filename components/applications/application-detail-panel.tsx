@@ -571,6 +571,36 @@ export function ApplicationDetailPanel({
                   {guarantors.map((g: GuarantorRow, i: number) => {
                     const frontDownloadUrl = g.id_front_url ? toProxyUrl(g.id_front_url) : null;
                     const backDownloadUrl = g.id_back_url ? toProxyUrl(g.id_back_url) : null;
+                    const photoDownloadUrl = g.photo_url ? toProxyUrl(g.photo_url) : null;
+                    const photoWithCustomerDownloadUrl = g.photo_with_customer_url
+                      ? toProxyUrl(g.photo_with_customer_url)
+                      : null;
+                    const wardLetterDownloadUrl = g.ward_letter_url ? toProxyUrl(g.ward_letter_url) : null;
+                    const renderDocBlock = (
+                      label: string,
+                      previewUrl?: string,
+                      authUrl?: string | null,
+                      alt?: string
+                    ) =>
+                      previewUrl || authUrl ? (
+                        <div className="border-t">
+                          <div className="flex items-center justify-between px-3 py-1.5 text-xs text-muted-foreground">
+                            <span>{label}</span>
+                            {authUrl ? (
+                              <Button type="button" variant="ghost" size="sm" className="h-6 px-2" asChild>
+                                <a href={authUrl} download aria-label={`Download ${label}`}>
+                                  <Download className="h-3 w-3" />
+                                </a>
+                              </Button>
+                            ) : null}
+                          </div>
+                          <DocumentPreview
+                            previewUrl={previewUrl}
+                            authUrl={authUrl ?? undefined}
+                            alt={alt ?? label}
+                          />
+                        </div>
+                      ) : null;
                     return (
                       <li key={g.id ?? i} className="overflow-hidden rounded-lg border">
                         <div className="space-y-1 px-3 py-2.5">
@@ -592,45 +622,54 @@ export function ApplicationDetailPanel({
                             {g.national_id ? <span>ID: {g.national_id}</span> : null}
                             {g.address ? <span>{g.address}</span> : null}
                           </div>
+                          {g.collateral_type || g.collateral_description || g.collateral_estimated_value ? (
+                            <div className="space-y-0.5 pt-1 text-xs text-muted-foreground">
+                              {g.collateral_type ? <p>Collateral: {g.collateral_type}</p> : null}
+                              {g.collateral_description ? <p>{g.collateral_description}</p> : null}
+                              {g.collateral_estimated_value != null && g.collateral_estimated_value > 0 ? (
+                                <p>Value: {formatCurrency(g.collateral_estimated_value)}</p>
+                              ) : null}
+                            </div>
+                          ) : null}
                         </div>
-                        {g.id_front_preview_url || frontDownloadUrl ? (
-                          <div className="border-t">
-                            <div className="flex items-center justify-between px-3 py-1.5 text-xs text-muted-foreground">
-                              <span>ID Front</span>
-                              {frontDownloadUrl ? (
-                                <Button type="button" variant="ghost" size="sm" className="h-6 px-2" asChild>
-                                  <a href={frontDownloadUrl} download aria-label="Download ID front">
-                                    <Download className="h-3 w-3" />
-                                  </a>
-                                </Button>
-                              ) : null}
-                            </div>
-                            <DocumentPreview
-                              previewUrl={g.id_front_preview_url}
-                              authUrl={g.id_front_url}
-                              alt={`${g.full_name} ID front`}
-                            />
-                          </div>
-                        ) : null}
-                        {g.id_back_preview_url || backDownloadUrl ? (
-                          <div className="border-t">
-                            <div className="flex items-center justify-between px-3 py-1.5 text-xs text-muted-foreground">
-                              <span>ID Back</span>
-                              {backDownloadUrl ? (
-                                <Button type="button" variant="ghost" size="sm" className="h-6 px-2" asChild>
-                                  <a href={backDownloadUrl} download aria-label="Download ID back">
-                                    <Download className="h-3 w-3" />
-                                  </a>
-                                </Button>
-                              ) : null}
-                            </div>
-                            <DocumentPreview
-                              previewUrl={g.id_back_preview_url}
-                              authUrl={g.id_back_url}
-                              alt={`${g.full_name} ID back`}
-                            />
-                          </div>
-                        ) : null}
+                        {renderDocBlock(
+                          "ID Front",
+                          g.id_front_preview_url,
+                          frontDownloadUrl,
+                          `${g.full_name} ID front`
+                        )}
+                        {renderDocBlock(
+                          "ID Back",
+                          g.id_back_preview_url,
+                          backDownloadUrl,
+                          `${g.full_name} ID back`
+                        )}
+                        {renderDocBlock(
+                          "Guarantor photo",
+                          g.photo_preview_url,
+                          photoDownloadUrl,
+                          `${g.full_name} photo`
+                        )}
+                        {renderDocBlock(
+                          "Photo with customer",
+                          g.photo_with_customer_preview_url,
+                          photoWithCustomerDownloadUrl,
+                          `${g.full_name} with customer`
+                        )}
+                        {renderDocBlock(
+                          "Ward letter",
+                          g.ward_letter_preview_url,
+                          wardLetterDownloadUrl,
+                          `${g.full_name} ward letter`
+                        )}
+                        {(g.attachment_urls ?? []).map((url, attachmentIndex) =>
+                          renderDocBlock(
+                            `Attachment ${attachmentIndex + 1}`,
+                            undefined,
+                            toProxyUrl(url),
+                            `${g.full_name} attachment ${attachmentIndex + 1}`
+                          )
+                        )}
                         {shouldShowGuarantorLegacyDocument(g) ? (
                           <DocumentPreview authUrl={g.document_url} alt={`${g.full_name} document`} />
                         ) : null}

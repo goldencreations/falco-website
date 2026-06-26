@@ -9,7 +9,16 @@ export type ApplicationFormInput = {
  term_days: number;
  purpose: string;
  collaterals: Array<{ type: string; description: string; estimated_value: number }>;
- guarantors: Array<{ full_name: string; phone: string; relationship: string; national_id?: string }>;
+ guarantors: Array<{
+  full_name: string;
+  phone: string;
+  relationship: string;
+  national_id?: string;
+  address?: string;
+  collateral_type?: string;
+  collateral_description?: string;
+  collateral_estimated_value?: number;
+ }>;
  references: Array<{ full_name: string; relationship: string; phone: string }>;
  location?: { latitude: string; longitude: string; captured_at: string };
 };
@@ -46,6 +55,12 @@ export function mapApplicationFormToFalcoBody(input: ApplicationFormInput): Reco
  relationship: g.relationship.trim(),
  };
  if (g.national_id?.trim()) row.national_id = g.national_id.trim();
+ if (g.address?.trim()) row.address = g.address.trim();
+ if (g.collateral_type?.trim()) row.collateral_type = g.collateral_type.trim();
+ if (g.collateral_description?.trim()) row.collateral_description = g.collateral_description.trim();
+ if (g.collateral_estimated_value != null && g.collateral_estimated_value > 0) {
+ row.collateral_estimated_value = g.collateral_estimated_value;
+ }
  return row;
  });
 

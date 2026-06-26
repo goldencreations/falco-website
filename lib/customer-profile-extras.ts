@@ -146,6 +146,10 @@ export type CustomerGuarantorRow = {
   nationalId: string;
   phone: string;
   relationship: string;
+  collateralType?: string;
+  collateralDescription?: string;
+  collateralEstimatedValue?: number;
+  documents: Array<{ name: string; url: string }>;
   documents: CustomerGuarantorDocument[];
 };
 

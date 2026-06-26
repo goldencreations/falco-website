@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { Input } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
+import { Textarea } from "@/components/ui/textarea";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import {
   Select,
@@ -10,8 +12,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { TzValidatedInput } from "@/components/forms/tz-validated-input";
-import { CachedMediaPreview } from "@/components/media/cached-media-preview";
 import {
   MAX_CUSTOMER_GUARANTORS,
   type CustomerGuarantorFormRow,
@@ -22,6 +22,29 @@ type Props = {
   onChange: (rows: CustomerGuarantorFormRow[]) => void;
 };
 
+function FileField({
+  label,
+  accept,
+  file,
+  onChange,
+}: {
+  label: string;
+  accept: string;
+  file: File | null;
+  onChange: (file: File | null) => void;
+}) {
+  return (
+    <Field>
+      <FieldLabel>{label}</FieldLabel>
+      <Input
+        type="file"
+        accept={accept}
+        onChange={(e) => onChange(e.target.files?.[0] ?? null)}
+      />
+      {file ? (
+        <p className="mt-1 truncate text-xs text-muted-foreground">{file.name}</p>
+      ) : null}
+    </Field>
 function GuarantorIdFilePreview({ file, label }: { file: File; label: string }) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const isImage = file.type.startsWith("image/");
@@ -85,10 +108,27 @@ export function CustomerGuarantorsFields({ value, onChange }: Props) {
   const updateRow = (
     index: number,
     key: keyof CustomerGuarantorFormRow,
-    next: string | File | null
+    next: string | File | null | File[]
   ) => {
+    onChange(value.map((row, i) => (i === index ? { ...row, [key]: next } : row)));
+  };
+
+  const addAttachments = (index: number, files: FileList | null) => {
+    if (!files?.length) return;
     onChange(
-      value.map((row, i) => (i === index ? { ...row, [key]: next } : row))
+      value.map((row, i) =>
+        i === index ? { ...row, attachments: [...row.attachments, ...Array.from(files)] } : row
+      )
+    );
+  };
+
+  const removeAttachment = (rowIndex: number, fileIndex: number) => {
+    onChange(
+      value.map((row, i) =>
+        i === rowIndex
+          ? { ...row, attachments: row.attachments.filter((_, j) => j !== fileIndex) }
+          : row
+      )
     );
   };
 
@@ -155,13 +195,25 @@ export function CustomerGuarantorsFields({ value, onChange }: Props) {
                 />
               </Field>
             ) : null}
+            <Field>
+              <FieldLabel>Address</FieldLabel>
+              <Textarea
+                placeholder="Guarantor physical address"
+                value={row.address}
+                onChange={(e) => updateRow(index, "address", e.target.value)}
+                rows={2}
+              />
+            </Field>
+
+            <Separator />
+            <p className="text-sm font-medium">Guarantor collateral</p>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field>
-                <FieldLabel>Guarantor ID front</FieldLabel>
+                <FieldLabel>Collateral type</FieldLabel>
                 <Input
-                  type="file"
-                  accept="image/*,.pdf"
-                  onChange={(e) => updateRow(index, "idFront", e.target.files?.[0] ?? null)}
+                  placeholder="e.g., Motorcycle, land title"
+                  value={row.collateralType}
+                  onChange={(e) => updateRow(index, "collateralType", e.target.value)}
                 />
                 {row.idFront ? (
                   <GuarantorIdFilePreview file={row.idFront} label="Guarantor ID front" />
@@ -174,11 +226,11 @@ export function CustomerGuarantorsFields({ value, onChange }: Props) {
                 ) : null}
               </Field>
               <Field>
-                <FieldLabel>Guarantor ID back</FieldLabel>
-                <Input
-                  type="file"
-                  accept="image/*,.pdf"
-                  onChange={(e) => updateRow(index, "idBack", e.target.files?.[0] ?? null)}
+                <FieldLabel>Estimated value (TZS)</FieldLabel>
+                <MoneyInput
+                  placeholder="e.g., 5,000,000"
+                  value={row.collateralEstimatedValue}
+                  onValueChange={(v) => updateRow(index, "collateralEstimatedValue", v)}
                 />
                 {row.idBack ? (
                   <GuarantorIdFilePreview file={row.idBack} label="Guarantor ID back" />
@@ -191,6 +243,86 @@ export function CustomerGuarantorsFields({ value, onChange }: Props) {
                 ) : null}
               </Field>
             </div>
+            <Field>
+              <FieldLabel>Collateral description</FieldLabel>
+              <Textarea
+                placeholder="Describe the collateral offered by this guarantor"
+                value={row.collateralDescription}
+                onChange={(e) => updateRow(index, "collateralDescription", e.target.value)}
+                rows={2}
+              />
+            </Field>
+
+            <Separator />
+            <p className="text-sm font-medium">Identity documents</p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FileField
+                label="Guarantor ID front"
+                accept="image/*,.pdf"
+                file={row.idFront}
+                onChange={(file) => updateRow(index, "idFront", file)}
+              />
+              <FileField
+                label="Guarantor ID back"
+                accept="image/*,.pdf"
+                file={row.idBack}
+                onChange={(file) => updateRow(index, "idBack", file)}
+              />
+            </div>
+
+            <Separator />
+            <p className="text-sm font-medium">Photos & supporting documents</p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FileField
+                label="Guarantor photo"
+                accept="image/*"
+                file={row.photo}
+                onChange={(file) => updateRow(index, "photo", file)}
+              />
+              <FileField
+                label="Photo with customer"
+                accept="image/*"
+                file={row.photoWithCustomer}
+                onChange={(file) => updateRow(index, "photoWithCustomer", file)}
+              />
+              <FileField
+                label="Ward letter"
+                accept="image/*,.pdf"
+                file={row.wardLetter}
+                onChange={(file) => updateRow(index, "wardLetter", file)}
+              />
+            </div>
+
+            <Field>
+              <FieldLabel>Additional attachments</FieldLabel>
+              <Input
+                type="file"
+                accept="image/*,.pdf"
+                multiple
+                onChange={(e) => addAttachments(index, e.target.files)}
+              />
+              {row.attachments.length > 0 ? (
+                <ul className="mt-2 space-y-1">
+                  {row.attachments.map((file, fileIndex) => (
+                    <li
+                      key={`${file.name}-${fileIndex}`}
+                      className="flex items-center justify-between gap-2 rounded-md border px-2 py-1 text-xs"
+                    >
+                      <span className="truncate text-muted-foreground">{file.name}</span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 shrink-0"
+                        onClick={() => removeAttachment(index, fileIndex)}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </Field>
           </FieldGroup>
         </div>
       ))}

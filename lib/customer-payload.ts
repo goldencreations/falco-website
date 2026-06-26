@@ -187,6 +187,30 @@ export function mapFormPayloadToCustomerApi(input: Record<string, unknown>): Rec
  const guarantors = Array.isArray(input.guarantors)
   ? (input.guarantors as Array<Record<string, unknown>>)
       .map((row) => {
+        const record: Record<string, unknown> = {
+          full_name: String(row.full_name ?? row.name ?? "").trim(),
+          phone:
+            String(row.phone ?? row.phone_number ?? "").replace(/\D/g, "") ||
+            String(row.phone ?? "").trim(),
+          relationship: String(row.relationship ?? "").trim(),
+        };
+        const national_id = row.national_id != null ? String(row.national_id).trim() : "";
+        if (national_id) record.national_id = national_id;
+        const address = row.address != null ? String(row.address).trim() : "";
+        if (address) record.address = address;
+        const collateral_type =
+          row.collateral_type != null ? String(row.collateral_type).trim() : "";
+        if (collateral_type) record.collateral_type = collateral_type;
+        const collateral_description =
+          row.collateral_description != null ? String(row.collateral_description).trim() : "";
+        if (collateral_description) record.collateral_description = collateral_description;
+        if (row.collateral_estimated_value != null && row.collateral_estimated_value !== "") {
+          const value = Number(row.collateral_estimated_value);
+          if (Number.isFinite(value) && value > 0) record.collateral_estimated_value = value;
+        }
+        return record;
+      })
+      .filter((row) => row.full_name && row.phone && row.relationship)
         const full_name = String(row.full_name ?? row.name ?? "").trim();
         const phone =
           String(row.phone ?? row.phone_number ?? "").replace(/\D/g, "") ||
