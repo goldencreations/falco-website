@@ -137,6 +137,17 @@ export function normalizeGuarantors(raw: unknown[]): GuarantorRow[] {
             .map((item) => extractDocumentField(item as Record<string, unknown>, "document"))
             .filter((doc) => doc.url || doc.preview_url)
         : [];
+      const id_front_url =
+        frontDoc.url ??
+        readRawUrl(o, "id_front_url") ??
+        documentUrlFromDocumentId(o.id_front_document_id);
+      const id_back_url =
+        backDoc.url ??
+        readRawUrl(o, "id_back_url") ??
+        documentUrlFromDocumentId(o.id_back_document_id);
+      const flatFrontPreview = readRawUrl(o, "id_front_preview_url");
+      const flatBackPreview = readRawUrl(o, "id_back_preview_url");
+
       return {
         id: o.id != null ? String(o.id) : undefined,
         full_name: String(o.full_name ?? o.name ?? "").trim(),
@@ -150,12 +161,16 @@ export function normalizeGuarantors(raw: unknown[]): GuarantorRow[] {
           o.collateral_description != null ? String(o.collateral_description).trim() : undefined,
         collateral_estimated_value:
           o.collateral_estimated_value != null ? Number(o.collateral_estimated_value) : undefined,
-        // ID front — preview usable in <img> directly; url requires auth
-        id_front_preview_url: frontDoc.preview_url,
-        id_front_url: frontDoc.url,
-        // ID back — same pattern
-        id_back_preview_url: backDoc.preview_url,
-        id_back_url: backDoc.url,
+        id_front_preview_url:
+          frontDoc.preview_url ??
+          flatFrontPreview ??
+          (id_front_url && !id_front_url.includes("/documents/") ? id_front_url : undefined),
+        id_front_url,
+        id_back_preview_url:
+          backDoc.preview_url ??
+          flatBackPreview ??
+          (id_back_url && !id_back_url.includes("/documents/") ? id_back_url : undefined),
+        id_back_url,
         photo_preview_url: photoDoc.preview_url,
         photo_url: photoDoc.url,
         photo_with_customer_preview_url: photoWithCustomerDoc.preview_url,
@@ -165,16 +180,6 @@ export function normalizeGuarantors(raw: unknown[]): GuarantorRow[] {
         attachment_urls: attachmentDocs
           .map((doc) => doc.url ?? doc.preview_url)
           .filter((url): url is string => Boolean(url)),
-        // Legacy fallback for older API responses
-        document_url: readRawUrl(o, "document_url", "id_document_url", "national_id_url"),
-        id_front_preview_url:
-          frontDoc.preview_url ??
-          (id_front_url && !id_front_url.includes("/documents/") ? id_front_url : undefined),
-        id_front_url,
-        id_back_preview_url:
-          backDoc.preview_url ??
-          (id_back_url && !id_back_url.includes("/documents/") ? id_back_url : undefined),
-        id_back_url,
         document_url:
           readRawUrl(o, "document_url", "id_document_url", "national_id_url") ??
           documentUrlFromDocumentId(o.photo_document_id) ??
