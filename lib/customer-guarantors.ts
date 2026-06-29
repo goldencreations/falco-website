@@ -1,7 +1,5 @@
 import type { GuarantorFileRow } from "@/lib/application-linked-uploads";
 import { parseMoneyInput } from "@/lib/money-input";
-import { normalizeGuarantors } from "@/lib/application-adapters";
-import { parseCustomerMetadata } from "@/lib/customer-location";
 
 export const MAX_CUSTOMER_GUARANTORS = 2;
 
@@ -14,16 +12,6 @@ export type CustomerGuarantorRecord = {
   collateral_type?: string;
   collateral_description?: string;
   collateral_estimated_value?: number;
-};
-
-export type CustomerGuarantorApiRecord = CustomerGuarantorRecord & {
-  id?: string;
-  id_front_document_id?: string;
-  id_back_document_id?: string;
-  id_front_url?: string;
-  id_back_url?: string;
-  id_front_preview_url?: string;
-  id_back_preview_url?: string;
 };
 
 export type CustomerGuarantorFormRow = {
@@ -43,12 +31,6 @@ export type CustomerGuarantorFormRow = {
   photoWithCustomer: File | null;
   wardLetter: File | null;
   attachments: File[];
-  idFrontDocumentId?: string;
-  idBackDocumentId?: string;
-  existingIdFrontUrl?: string;
-  existingIdFrontPreviewUrl?: string;
-  existingIdBackUrl?: string;
-  existingIdBackPreviewUrl?: string;
 };
 
 export function emptyCustomerGuarantorRow(): CustomerGuarantorFormRow {
@@ -387,21 +369,6 @@ export function parseCustomerGuarantorApiRecordsFromRow(
     const national_id = String(o.national_id ?? o.nationalId ?? "").trim();
     if (national_id) record.national_id = national_id;
     appendOptionalGuarantorFields(record, o);
-
-    const id_front_document_id = String(o.id_front_document_id ?? "").trim();
-    const id_back_document_id = String(o.id_back_document_id ?? "").trim();
-    if (id_front_document_id) record.id_front_document_id = id_front_document_id;
-    if (id_back_document_id) record.id_back_document_id = id_back_document_id;
-
-    if (normalized?.id_front_url) record.id_front_url = normalized.id_front_url;
-    if (normalized?.id_back_url) record.id_back_url = normalized.id_back_url;
-    if (normalized?.id_front_preview_url) {
-      record.id_front_preview_url = normalized.id_front_preview_url;
-    }
-    if (normalized?.id_back_preview_url) {
-      record.id_back_preview_url = normalized.id_back_preview_url;
-    }
-
     out.push(record);
     if (out.length >= MAX_CUSTOMER_GUARANTORS) break;
   }
