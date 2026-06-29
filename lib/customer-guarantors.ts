@@ -1,4 +1,5 @@
 import type { GuarantorFileRow } from "@/lib/application-linked-uploads";
+import { parseCustomerMetadata } from "@/lib/customer-location";
 import { parseMoneyInput } from "@/lib/money-input";
 
 export const MAX_CUSTOMER_GUARANTORS = 2;
@@ -12,6 +13,16 @@ export type CustomerGuarantorRecord = {
   collateral_type?: string;
   collateral_description?: string;
   collateral_estimated_value?: number;
+};
+
+export type CustomerGuarantorApiRecord = CustomerGuarantorRecord & {
+  id?: string;
+  id_front_document_id?: string;
+  id_back_document_id?: string;
+  id_front_url?: string;
+  id_front_preview_url?: string;
+  id_back_url?: string;
+  id_back_preview_url?: string;
 };
 
 export type CustomerGuarantorFormRow = {
@@ -60,6 +71,22 @@ export function defaultCustomerGuarantorForm(): CustomerGuarantorFormRow[] {
 function normalizePhone(phone: string): string {
   const digits = phone.replace(/\D/g, "");
   return digits || phone.trim();
+}
+
+function readGuarantorDocumentField(
+  row: Record<string, unknown>,
+  key: string
+): { url?: string; preview_url?: string } {
+  const doc = row[key];
+  if (!doc || typeof doc !== "object") return {};
+  const d = doc as Record<string, unknown>;
+  return {
+    url: typeof d.url === "string" && d.url.trim() ? d.url.trim() : undefined,
+    preview_url:
+      typeof d.preview_url === "string" && d.preview_url.trim()
+        ? d.preview_url.trim()
+        : undefined,
+  };
 }
 
 function resolveRelationship(row: CustomerGuarantorFormRow): string {
@@ -362,12 +389,24 @@ export function parseCustomerGuarantorApiRecordsFromRow(
     const relationship = String(o.relationship ?? "").trim();
     if (!full_name || !phone || !relationship) continue;
 
-    const normalized = normalizeGuarantors([o])[0];
     const record: CustomerGuarantorApiRecord = { full_name, phone, relationship };
     const id = String(o.id ?? "").trim();
     if (id) record.id = id;
     const national_id = String(o.national_id ?? o.nationalId ?? "").trim();
     if (national_id) record.national_id = national_id;
+
+    const frontId = String(o.id_front_document_id ?? "").trim();
+    const backId = String(o.id_back_document_id ?? "").trim();
+    if (frontId) record.id_front_document_id = frontId;
+    if (backId) record.id_back_document_id = backId;
+
+    const frontDoc = readGuarantorDocumentField(o, "id_front_document");
+    const backDoc = readGuarantorDocumentField(o, "id_back_document");
+    if (frontDoc.url) record.id_front_url = frontDoc.url;
+    if (frontDoc.preview_url) record.id_front_preview_url = frontDoc.preview_url;
+    if (backDoc.url) record.id_back_url = backDoc.url;
+    if (backDoc.preview_url) record.id_back_preview_url = backDoc.preview_url;
+
     appendOptionalGuarantorFields(record, o);
     out.push(record);
     if (out.length >= MAX_CUSTOMER_GUARANTORS) break;
