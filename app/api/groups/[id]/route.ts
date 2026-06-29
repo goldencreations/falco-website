@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireApiUser } from "@/lib/authorization";
+import {
+ attachEnrichedMembersToGroupPayload,
+ extractGroupDetail,
+} from "@/lib/group-adapters";
 import { falcoServerFetch } from "@/lib/server-falco";
+import { enrichGroupDetailFromRequest } from "@/lib/vikundi-collection-data";
 
 /** Proxies `GET /groups/{group}` and `PATCH /groups/{group}`. */
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -16,6 +21,13 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
  { status: res.error.status }
  );
  }
+
+ const group = extractGroupDetail(res.data);
+ if (group) {
+ const enriched = await enrichGroupDetailFromRequest(request, group);
+ return NextResponse.json(attachEnrichedMembersToGroupPayload(res.data, enriched.members));
+ }
+
  return NextResponse.json(res.data);
 }
 

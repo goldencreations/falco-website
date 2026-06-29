@@ -1,10 +1,9 @@
-import { extractGroupDetail, extractGroupsList } from "@/lib/group-adapters";
+import { extractGroupDetail, extractGroupsList, enrichGroupMembersWithCustomers } from "@/lib/group-adapters";
 import { extractLeadsList } from "@/lib/lead-adapters";
 import { extractLoansList } from "@/lib/loan-adapters";
 import { adaptCollectionQueueRow, extractPaginatedData } from "@/lib/collection-adapters";
 import {
   adaptApiCustomerRowToCustomer,
-  customerRegistrationDisplayName,
   customerRegistrationDisplayNameFromRow,
   extractCustomerDetail,
   extractCustomersList,
@@ -49,36 +48,19 @@ export async function hydrateCustomersForMemberIds(
   return Array.from(byId.values());
 }
 
-export function enrichGroupMembersWithCustomers(
-  group: GroupDetailView,
-  customers: Customer[]
-): GroupDetailView {
-  const byId = new Map(customers.map((customer) => [customer.id, customer]));
-  const byNumber = new Map(
-    customers
-      .filter((customer) => customer.customer_number?.trim())
-      .map((customer) => [customer.customer_number.trim(), customer])
-  );
-
-  return {
-    ...group,
-    members: group.members.map((member) => {
-      const customer =
-        byId.get(member.customerId) ??
-        (member.customerNumber ? byNumber.get(member.customerNumber.trim()) : undefined);
-      const registrationName = customer ? customerRegistrationDisplayName(customer) : "";
-      return {
-        ...member,
-        customerName: registrationName || member.customerName,
-        customerNumber: member.customerNumber || customer?.customer_number || "",
-        phone: member.phone || customer?.phone_primary || "",
-        monthlyIncome: member.monthlyIncome ?? customer?.monthly_income,
-        nationalId: member.nationalId || customer?.national_id,
-        riskGrade: member.riskGrade || customer?.risk_grade,
-      };
-    }),
-  };
+export async function enrichGroupDetailFromRequest(
+  request: Request,
+  group: GroupDetailView
+): Promise<GroupDetailView> {
+  const memberIds = [
+    ...memberIdsForGroup(group),
+    ...group.members.map((member) => member.customerId),
+  ];
+  const customers = await hydrateCustomersForMemberIds(request, [], [...memberIds]);
+  return enrichGroupMembersWithCustomers(group, customers);
 }
+
+export { enrichGroupMembersWithCustomers } from "@/lib/group-adapters";
 
 export async function loadVikundiCollectionSourceData(
   request: Request,
@@ -132,5 +114,6 @@ export async function loadVikundiGroupDetail(request: Request, groupId: string) 
   if (!res.ok) return { ok: false as const, error: res.error };
   const group = extractGroupDetail(res.data);
   if (!group) return { ok: false as const, error: { status: 404, message: "Group not found" } };
-  return { ok: true as const, group };
+  const enriched = await enrichGroupDetailFromRequest(request, group);
+  return { ok: true as const, group: enriched };
 }

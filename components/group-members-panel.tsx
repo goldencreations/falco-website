@@ -46,6 +46,8 @@ type Props = {
  /** Loan officers: view members only (no assign/remove). */
  readOnly?: boolean;
  customerDetailHref?: (customerId: string) => string;
+ /** When set, View / member name links use this instead of `customerDetailHref`. */
+ memberDetailHref?: (customerId: string) => string;
 };
 
 export function GroupMembersPanel({
@@ -55,7 +57,9 @@ export function GroupMembersPanel({
  memberOutstanding = null,
  readOnly = false,
  customerDetailHref = (id) => `/customers/${id}`,
+ memberDetailHref,
 }: Props) {
+ const memberHref = memberDetailHref ?? customerDetailHref;
  const [searchQuery, setSearchQuery] = useState("");
  const [searchResults, setSearchResults] = useState<Customer[]>([]);
  const [searching, setSearching] = useState(false);
@@ -305,7 +309,7 @@ export function GroupMembersPanel({
  <TableCell>
  {readOnly ? (
  <Link
- href={customerDetailHref(member.customerId)}
+ href={memberHref(member.customerId)}
  className="font-medium text-primary hover:underline"
  >
  {member.customerName}
@@ -352,7 +356,7 @@ export function GroupMembersPanel({
  size="sm"
  asChild
  >
- <Link href={customerDetailHref(member.customerId)}>View</Link>
+ <Link href={memberHref(member.customerId)}>View</Link>
  </Button>
  {!readOnly && !isLeadershipMember(member.customerId, group) ? (
  <Button
