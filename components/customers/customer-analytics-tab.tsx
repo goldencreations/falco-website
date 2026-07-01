@@ -2,6 +2,7 @@
 
 import {
   Activity,
+  AlertTriangle,
   CheckCircle2,
   FileText,
   PieChart,
@@ -73,6 +74,11 @@ export function CustomerAnalyticsTab({
   risk,
   portfolioLoading,
 }: Props) {
+  const totalPenaltyOutstanding = customerLoans.reduce(
+    (sum, loan) => sum + (loan.penalty_outstanding ?? loan.penalty ?? 0),
+    0
+  );
+
   if (portfolioLoading) {
     return (
       <div className="grid gap-6 lg:grid-cols-2">
@@ -89,6 +95,21 @@ export function CustomerAnalyticsTab({
 
   return (
     <div className="space-y-6">
+      <Card className="border-red-200 bg-red-50/60">
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-base text-red-900">
+            <AlertTriangle className="h-5 w-5 text-red-600" />
+            Penalty owed
+          </CardTitle>
+          <CardDescription>Currently unpaid penalties on this customer&apos;s loans</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className="text-2xl font-bold text-red-700">
+            {formatCurrency(totalPenaltyOutstanding)}
+          </p>
+        </CardContent>
+      </Card>
+
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
@@ -356,6 +377,12 @@ export function CustomerAnalyticsTab({
                   <span className="text-muted-foreground">Late Payments</span>
                   <span className="font-semibold text-amber-600">
                     {customerPayments.length - onTimePayments}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Penalty Owed</span>
+                  <span className="font-semibold text-red-600">
+                    {formatCurrency(totalPenaltyOutstanding)}
                   </span>
                 </div>
                 <div className="flex justify-between">

@@ -161,10 +161,10 @@ export function ApproveHireDialog({ open, onOpenChange, request, branchName, onR
  autoComplete="new-password"
  value={temporaryPassword}
  onChange={(e) => setTemporaryPassword(e.target.value)}
- placeholder="Leave blank for server-generated password"
+ placeholder="Leave blank to generate a password"
  />
  <p className="text-xs text-muted-foreground">
- If empty, the LMS may generate a password and return it after approval.
+ If empty, a temporary password may be created after approval.
  </p>
  </div>
  {temporaryPassword ? (

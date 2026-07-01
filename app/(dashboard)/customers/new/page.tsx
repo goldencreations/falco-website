@@ -817,7 +817,7 @@ function NewCustomerPageInner() {
  <>
  <DashboardHeader
  title="Create Customer"
- description="Capture complete customer details aligned with the customers database table."
+ description="Capture complete customer details for onboarding."
  />
  {!sessionLoaded ? (
  <main className="flex-1 p-4 lg:p-6">

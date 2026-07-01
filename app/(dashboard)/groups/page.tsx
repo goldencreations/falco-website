@@ -123,10 +123,10 @@ export default function GroupsPage() {
  </Card>
  <Card>
  <CardHeader className="pb-2">
- <CardTitle className="text-sm text-muted-foreground">Data source</CardTitle>
+ <CardTitle className="text-sm text-muted-foreground">Group records</CardTitle>
  </CardHeader>
  <CardContent>
- <p className="text-sm text-muted-foreground">Live LMS groups API</p>
+ <p className="text-sm text-muted-foreground">Current saved groups</p>
  </CardContent>
  </Card>
  </div>

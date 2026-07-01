@@ -76,7 +76,7 @@ export function CustomerEditPage() {
  }
  const row = extractCustomerDetail(body);
  if (!row) {
- setError("Unexpected response from server.");
+ setError("Customer details could not be loaded. Please try again.");
  setCustomer(null);
  setSourceRow(null);
  return;

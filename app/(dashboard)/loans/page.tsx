@@ -185,6 +185,10 @@ export default function LoansPage() {
  });
 
  const totalOutstanding = visibleLoans.reduce((sum, l) => sum + l.total_outstanding, 0);
+ const totalPenaltyOutstanding = visibleLoans.reduce(
+ (sum, l) => sum + (l.penalty_outstanding ?? l.penalty ?? 0),
+ 0
+ );
  const totalPrincipal = visibleLoans.reduce((sum, l) => sum + l.principal_amount, 0);
  const activeLoans = visibleLoans.filter((l) => l.status === "active").length;
  const inArrearsLoans = visibleLoans.filter((l) => l.status === "in_arrears").length;
@@ -311,6 +315,7 @@ export default function LoansPage() {
  );
  const interestCollected = viewPaymentsCompleted.reduce((sum, p) => sum + p.interest_allocated, 0);
  const feeCollected = viewPaymentsCompleted.reduce((sum, p) => sum + p.fees_allocated, 0);
+ const penaltyCollected = viewPaymentsCompleted.reduce((sum, p) => sum + p.penalty_allocated, 0);
  const disbursementChartData = displayLoan
  ? [
  { name: "Disbursed", amount: displayLoan.principal_amount },
@@ -332,7 +337,7 @@ export default function LoansPage() {
  ? "Active loans for customers assigned to you in your branch. Open a row for schedule, payments, and collections."
  : isManagerView
  ? "Active loans in your branch. Open a row for schedule, payments, and collections."
- : "Loans from the Falco API. Open a row for schedule, payments, and collections."
+ : "Open a row for schedules, payments, and collections."
  }
  />
  <main className="flex-1 overflow-auto p-4 lg:p-6">
@@ -364,6 +369,11 @@ export default function LoansPage() {
  <div className="rounded-lg border border-emerald-200/70 bg-emerald-100/60 p-3 ">
  <p className="text-[11px] text-muted-foreground">Outstanding</p>
  <p className="text-sm font-semibold">{formatCurrency(totalOutstanding)}</p>
+ {totalPenaltyOutstanding > 0 ? (
+ <p className="text-[11px] text-destructive">
+ Penalty {formatCurrency(totalPenaltyOutstanding)}
+ </p>
+ ) : null}
  </div>
  </div>
  <p className="text-xs text-muted-foreground">
@@ -390,6 +400,11 @@ export default function LoansPage() {
  </CardHeader>
  <CardContent>
  <div className="text-2xl font-bold">{formatCurrency(totalOutstanding)}</div>
+ {totalPenaltyOutstanding > 0 ? (
+ <p className="text-sm text-destructive">
+ Penalty {formatCurrency(totalPenaltyOutstanding)}
+ </p>
+ ) : null}
  </CardContent>
  </Card>
  <Card>
@@ -450,6 +465,7 @@ export default function LoansPage() {
  <TableHead>Product</TableHead>
  <TableHead className="text-right">Principal</TableHead>
  <TableHead className="text-right">Outstanding</TableHead>
+ <TableHead className="text-right">Penalty</TableHead>
  <TableHead>Progress</TableHead>
  <TableHead>Status</TableHead>
  <TableHead>Risk</TableHead>
@@ -460,13 +476,13 @@ export default function LoansPage() {
  <TableBody>
  {listLoading ? (
  <TableRow>
- <TableCell colSpan={10} className="py-10 text-center text-muted-foreground">
+ <TableCell colSpan={11} className="py-10 text-center text-muted-foreground">
  <Loader2 className="mx-auto h-6 w-6 animate-spin" aria-label="Loading loans" />
  </TableCell>
  </TableRow>
  ) : filteredLoans.length === 0 ? (
  <TableRow>
- <TableCell colSpan={10} className="py-8 text-center text-muted-foreground">
+ <TableCell colSpan={11} className="py-8 text-center text-muted-foreground">
  No loans found
  </TableCell>
  </TableRow>
@@ -490,6 +506,22 @@ export default function LoansPage() {
  <TableCell>{loanProductLabel(loan)}</TableCell>
  <TableCell className="text-right">{formatCurrency(loan.principal_amount)}</TableCell>
  <TableCell className="text-right font-medium">{formatCurrency(loan.total_outstanding)}</TableCell>
+ <TableCell className="text-right">
+ {(loan.penalty_outstanding ?? loan.penalty ?? 0) > 0 ? (
+ <div>
+ <p className="font-medium text-destructive">
+ {formatCurrency(loan.penalty_outstanding ?? loan.penalty ?? 0)}
+ </p>
+ {loan.daily_penalty_rate ? (
+ <p className="text-xs text-muted-foreground">
+ {formatCurrency(loan.daily_penalty_rate)}/day
+ </p>
+ ) : null}
+ </div>
+ ) : (
+ <span className="text-muted-foreground">—</span>
+ )}
+ </TableCell>
  <TableCell>
  <div className="w-24">
  <Progress value={Math.min(100, paidPercent)} className="h-2" />
@@ -555,10 +587,10 @@ export default function LoansPage() {
  {detailLoading ? (
  <span className="flex items-center gap-2 text-muted-foreground">
  <Loader2 className="h-4 w-4 animate-spin" />
- Loading schedule, payments, and customer from API…
+ Loading schedule, payments, and customer details…
  </span>
  ) : (
- "Customer, balances, repayment schedule, and payments from the backend."
+ "Customer, balances, repayment schedule, and payment history."
  )}
  </DialogDescription>
  </DialogHeader>
@@ -656,6 +688,18 @@ export default function LoansPage() {
  <p className="text-xs text-muted-foreground">Outstanding Balance</p>
  <p className="text-lg font-semibold">{formatCurrency(displayLoan.total_outstanding)}</p>
  </div>
+ <div className="rounded-lg border border-red-200/70 bg-red-50 p-3 ">
+ <p className="text-xs text-muted-foreground">Outstanding penalty</p>
+ <p className="text-lg font-semibold text-destructive">
+ {formatCurrency(displayLoan.penalty_outstanding ?? displayLoan.penalty ?? 0)}
+ </p>
+ </div>
+ <div className="rounded-lg border border-amber-200/70 bg-amber-50 p-3 ">
+ <p className="text-xs text-muted-foreground">Daily late penalty</p>
+ <p className="text-lg font-semibold">
+ {formatCurrency(displayLoan.daily_penalty_rate ?? 0)}/day
+ </p>
+ </div>
  </div>
  </CardContent>
  </Card>
@@ -673,6 +717,10 @@ export default function LoansPage() {
  <p className="flex justify-between">
  <span className="text-muted-foreground">Interest collected</span>
  <span className="font-medium">{formatCurrency(interestCollected)}</span>
+ </p>
+ <p className="flex justify-between">
+ <span className="text-muted-foreground">Penalty collected</span>
+ <span className="font-medium">{formatCurrency(penaltyCollected)}</span>
  </p>
  <p className="flex justify-between">
  <span className="text-muted-foreground">Fee collected</span>
@@ -724,6 +772,97 @@ export default function LoansPage() {
  </CardContent>
  </Card>
  </div>
+
+ <Card className="border-emerald-200/60 bg-gradient-to-br from-emerald-50/55 to-background ">
+ <CardHeader className="pb-2">
+ <CardTitle className="text-base">Repayment Schedule</CardTitle>
+ </CardHeader>
+ <CardContent className="p-0">
+ {viewSchedule.length === 0 ? (
+ <p className="px-4 py-6 text-sm text-muted-foreground">No schedule rows found.</p>
+ ) : (
+ <div className="overflow-x-auto">
+ <Table>
+ <TableHeader>
+ <TableRow>
+ <TableHead>Due date</TableHead>
+ <TableHead className="text-right">Days overdue</TableHead>
+ <TableHead className="text-right">Penalty</TableHead>
+ <TableHead className="text-right">Penalty paid</TableHead>
+ <TableHead className="text-right">Penalty left</TableHead>
+ <TableHead className="text-right">Balance due</TableHead>
+ </TableRow>
+ </TableHeader>
+ <TableBody>
+ {viewSchedule.map((row) => (
+ <TableRow
+ key={row.id}
+ className={row.days_overdue > 0 ? "bg-red-50/70 hover:bg-red-50" : undefined}
+ >
+ <TableCell className="text-sm">{formatDate(row.due_date)}</TableCell>
+ <TableCell className="text-right">
+ {row.days_overdue > 0 ? (
+ <span className="font-medium text-destructive">{row.days_overdue}</span>
+ ) : (
+ <span className="text-muted-foreground">0</span>
+ )}
+ </TableCell>
+ <TableCell className="text-right">{formatCurrency(row.penalty_due)}</TableCell>
+ <TableCell className="text-right">{formatCurrency(row.penalty_paid)}</TableCell>
+ <TableCell className="text-right">{formatCurrency(row.penalty_outstanding)}</TableCell>
+ <TableCell className="text-right font-medium">
+ {formatCurrency(row.balance_due || row.balance)}
+ </TableCell>
+ </TableRow>
+ ))}
+ </TableBody>
+ </Table>
+ </div>
+ )}
+ </CardContent>
+ </Card>
+
+ <Card className="border-emerald-200/60 bg-gradient-to-br from-emerald-50/55 to-background ">
+ <CardHeader className="pb-2">
+ <CardTitle className="text-base">Payment Allocation</CardTitle>
+ </CardHeader>
+ <CardContent className="p-0">
+ {viewPaymentsCompleted.length === 0 ? (
+ <p className="px-4 py-6 text-sm text-muted-foreground">No completed payments yet.</p>
+ ) : (
+ <div className="overflow-x-auto">
+ <Table>
+ <TableHeader>
+ <TableRow>
+ <TableHead>Date</TableHead>
+ <TableHead>Reference</TableHead>
+ <TableHead className="text-right">Amount</TableHead>
+ <TableHead className="text-right">Penalty paid</TableHead>
+ <TableHead className="text-right">Fees</TableHead>
+ <TableHead className="text-right">Interest</TableHead>
+ <TableHead className="text-right">Principal</TableHead>
+ </TableRow>
+ </TableHeader>
+ <TableBody>
+ {viewPaymentsCompleted.slice(0, 8).map((payment) => (
+ <TableRow key={payment.id}>
+ <TableCell className="text-sm">{formatDate(payment.payment_date)}</TableCell>
+ <TableCell className="font-mono text-xs">
+ {payment.reference_number || payment.payment_number}
+ </TableCell>
+ <TableCell className="text-right font-medium">{formatCurrency(payment.amount)}</TableCell>
+ <TableCell className="text-right">{formatCurrency(payment.penalty_allocated)}</TableCell>
+ <TableCell className="text-right">{formatCurrency(payment.fees_allocated)}</TableCell>
+ <TableCell className="text-right">{formatCurrency(payment.interest_allocated)}</TableCell>
+ <TableCell className="text-right">{formatCurrency(payment.principal_allocated)}</TableCell>
+ </TableRow>
+ ))}
+ </TableBody>
+ </Table>
+ </div>
+ )}
+ </CardContent>
+ </Card>
  </div>
  </ScrollArea>
  </>

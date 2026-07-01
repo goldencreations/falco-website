@@ -380,7 +380,7 @@ export default function LoanCalculatorPage() {
     <>
       <DashboardHeader
         title="Loan Calculator"
-        description="Product-backed previews and manual simulations via POST /calculator/preview"
+        description="Preview loan amounts, repayment terms, and charges before applying."
       />
       <main className="flex-1 overflow-auto p-4 lg:p-6">
         <div className="mx-auto max-w-6xl space-y-6">

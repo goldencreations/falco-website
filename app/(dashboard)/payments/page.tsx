@@ -242,7 +242,7 @@ export default function PaymentsPage() {
  useEffect(() => {
  if (!preselectedLoan) return;
  setSelectedLoan(preselectedLoan.id);
- if (!paymentAmount) setPaymentAmount(String(Math.round(preselectedLoan.installment_amount)));
+ if (!paymentAmount) setPaymentAmount(String(Math.round(preselectedLoan.total_outstanding)));
  if (openPaymentForm === "1") setIsDialogOpen(true);
  }, [preselectedLoan, openPaymentForm, paymentAmount]);
 
@@ -250,6 +250,11 @@ export default function PaymentsPage() {
  if (!selectedLoan || !paymentAmount) return;
  const amount = Number(paymentAmount);
  if (!Number.isFinite(amount) || amount <= 0) return;
+ const maxPayable = selectedLoanDetails?.total_outstanding ?? 0;
+ if (maxPayable > 0 && amount > maxPayable) {
+ setError(`Payment cannot be more than ${formatCurrency(maxPayable)}.`);
+ return;
+ }
 
  setActionLoading(true);
  setError(null);
@@ -309,7 +314,7 @@ export default function PaymentsPage() {
  {loading ? (
  <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
  <Loader2 className="h-5 w-5 animate-spin" />
- Loading payments from server…
+ Loading payments…
  </div>
  ) : (
  <>
@@ -355,7 +360,7 @@ export default function PaymentsPage() {
  <CardTitle className="flex items-center justify-between gap-2">
  <span className="flex items-center gap-2">
  <Scale className="h-5 w-5" />
- Payment Reconciliation (from server)
+ Payment Reconciliation
  </span>
  <Button variant="link" size="sm" className="h-auto px-0" asChild>
  <Link href={reconciliationHref}>
@@ -375,8 +380,8 @@ export default function PaymentsPage() {
  ))}
  </CardContent>
  <p className="px-6 pb-4 text-xs text-muted-foreground">
- Gateway/webhook payments appear here automatically when the backend confirms them. Manual
- collections are tagged for review until reconciled.
+ Online payments appear here after confirmation. Manual collections are tagged for review until
+ reconciled.
  </p>
  </Card>
 
@@ -455,9 +460,15 @@ export default function PaymentsPage() {
  type="number"
  className="h-9"
  placeholder="Enter amount"
+ max={selectedLoanDetails?.total_outstanding}
  value={paymentAmount}
  onChange={(e) => setPaymentAmount(e.target.value)}
  />
+ {selectedLoanDetails ? (
+ <p className="text-xs text-muted-foreground">
+ Maximum payable: {formatCurrency(selectedLoanDetails.total_outstanding)}
+ </p>
+ ) : null}
  </Field>
  <Field>
  <FieldLabel>Payment Method</FieldLabel>
@@ -619,6 +630,7 @@ export default function PaymentsPage() {
  <TableCell className="font-mono text-xs">{payment.reference_number || "—"}</TableCell>
  <TableCell>
  <div className="space-y-0.5 text-xs">
+ <p>Penalty: {formatCurrency(payment.penalty_allocated)}</p>
  <p>P: {formatCurrency(payment.principal_allocated)}</p>
  <p>I: {formatCurrency(payment.interest_allocated)}</p>
  <p>F: {formatCurrency(payment.fees_allocated)}</p>

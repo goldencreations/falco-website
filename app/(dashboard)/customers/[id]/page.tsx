@@ -325,7 +325,7 @@ export default function CustomerDetailPage() {
 
  const row = extractCustomerDetail(customerBody);
  if (!row) {
- setLoadError("Unexpected response from server.");
+ setLoadError("Customer details could not be loaded. Please try again.");
  setCustomer(null);
  setSourceRow(null);
  return;
@@ -1226,7 +1226,7 @@ export default function CustomerDetailPage() {
  <AlertDialogHeader>
  <AlertDialogTitle>Blacklist this customer?</AlertDialogTitle>
  <AlertDialogDescription>
- This flags the customer in the LMS. You can add an internal reason below (stored with the record when supported).
+ This marks the customer as blacklisted. You can add an internal reason below.
  </AlertDialogDescription>
  </AlertDialogHeader>
  <div className="space-y-2 py-2">

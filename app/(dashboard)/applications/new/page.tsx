@@ -7,8 +7,6 @@ import {
  Search,
  Upload,
  Send,
- Plus,
- Trash2,
 } from "lucide-react";
 import Link from "next/link";
 import { DashboardHeader } from "@/components/dashboard-header";
@@ -223,10 +221,6 @@ function NewApplicationPageContent() {
  const [groupSelectError, setGroupSelectError] = useState("");
  const [editLoading, setEditLoading] = useState(Boolean(editId));
  const [editingApplicationId, setEditingApplicationId] = useState<string | null>(editId);
-
- const [collaterals, setCollaterals] = useState([
- { type: "", description: "", value: "", image: null as File | null },
- ]);
 
  const [customerGuarantorRecords, setCustomerGuarantorRecords] = useState<CustomerGuarantorRecord[]>(
   []
@@ -641,18 +635,6 @@ function NewApplicationPageContent() {
  };
  }, [selectedCustomer, selectedProduct, amount, termDays, loanDetails, combinedIncome]);
 
- const updateCollateral = (
- index: number,
- key: "type" | "description" | "value" | "image",
- value: string | File | null
- ) => {
- setCollaterals((prev) =>
- prev.map((collateral, i) =>
- i === index ? { ...collateral, [key]: value } : collateral
- )
- );
- };
-
  const handleSubmit = async (isDraft: boolean) => {
  debugApplicationCreate("handleSubmit — start", {
   isDraft,
@@ -685,14 +667,6 @@ function NewApplicationPageContent() {
  return;
  }
 
- const collateralsPayload = collaterals
- .filter((c) => c.type.trim())
- .map((c) => ({
- type: c.type.trim(),
- description: c.description.trim() || c.type.trim(),
- estimated_value: c.value ? parseMoneyInput(c.value) : 0,
- }));
-
  const guarantorsPayload = customerGuarantorsToApplicationPayload(customerGuarantorRecords);
 
  const referencesPayload = customerReferencesToApplicationPayload(customerReferenceRecords);
@@ -720,7 +694,7 @@ function NewApplicationPageContent() {
  requested_amount: amount,
  term_days: termDays,
  purpose: formData.purpose.trim() || "Working capital",
- collaterals: collateralsPayload,
+ collaterals: [],
  guarantors: guarantorsPayload,
  references: referencesPayload,
  location,
@@ -778,7 +752,6 @@ function NewApplicationPageContent() {
  (effectiveRole === "loan_officer" && user?.id ? user.id : undefined);
 
  const hasLinkedFiles =
-  collaterals.some((c) => c.image) ||
   guarantorFileRows.some(
    (g) =>
     g.idFront ||
@@ -787,10 +760,10 @@ function NewApplicationPageContent() {
     g.photoWithCustomer ||
     g.wardLetter ||
     g.attachments.length > 0
-  );
+ );
 
  let linkedIds = extractLinkedApplicationIds(data);
- if (!linkedIds || (hasLinkedFiles && linkedIdsNeedRefresh(linkedIds, collaterals, guarantorFileRows))) {
+ if (!linkedIds || (hasLinkedFiles && linkedIdsNeedRefresh(linkedIds, [], guarantorFileRows))) {
   linkedIds = (await fetchLinkedApplicationIds(applicationId)) ?? linkedIds;
  }
  debugApplicationCreate("handleSubmit — linked IDs", linkedIds);
@@ -808,7 +781,7 @@ function NewApplicationPageContent() {
 
  const linkedUploadPromise =
   linkedIds && hasLinkedFiles
-   ? uploadCollateralAndGuarantorFiles(applicationId, linkedIds, collaterals, guarantorFileRows)
+   ? uploadCollateralAndGuarantorFiles(applicationId, linkedIds, [], guarantorFileRows)
    : Promise.resolve({ ok: true as const });
 
  const [assign, linkedUpload] = await Promise.all([assignPromise, linkedUploadPromise]);
@@ -1253,100 +1226,6 @@ onValueChange={(value) => {
  />
  </Field>
  </FieldGroup>
- </CardContent>
- </Card>
-
- {/* Collateral */}
- <Card>
- <CardHeader>
- <CardTitle>Collateral Information</CardTitle>
- <CardDescription>Add one or more collaterals and images</CardDescription>
- </CardHeader>
- <CardContent className="space-y-4">
- {collaterals.map((collateral, index) => (
- <div key={index} className="rounded-lg border border-border p-4">
- <div className="mb-3 flex items-center justify-between">
- <p className="text-sm font-semibold">Collateral {index + 1}</p>
- {collaterals.length > 1 && (
- <Button
- variant="ghost"
- size="icon"
- onClick={() =>
- setCollaterals((prev) => prev.filter((_, i) => i !== index))
- }
- >
- <Trash2 className="h-4 w-4" />
- </Button>
- )}
- </div>
- <FieldGroup>
- <div className="grid gap-4 sm:grid-cols-2">
- <Field>
- <FieldLabel>Collateral Type</FieldLabel>
- <Input
- placeholder="e.g., Motorcycle, TV, Land title"
- value={collateral.type}
- onChange={(e) => updateCollateral(index, "type", e.target.value)}
- />
- </Field>
- <Field>
- <FieldLabel>Estimated Value (TZS)</FieldLabel>
- <MoneyInput
- placeholder="e.g., 5,000,000"
- value={collateral.value}
- onValueChange={(value) => updateCollateral(index, "value", value)}
- />
- </Field>
- </div>
- <Field>
- <FieldLabel>Description</FieldLabel>
- <Textarea
- placeholder="Describe the collateral..."
- value={collateral.description}
- onChange={(e) =>
- updateCollateral(index, "description", e.target.value)
- }
- rows={2}
- />
- </Field>
-              <Field>
-                <FieldLabel>Collateral Image Attachment</FieldLabel>
-                <Input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) =>
-                    updateCollateral(index, "image", e.target.files?.[0] ?? null)
-                  }
-                />
-                {collateral.image && (
-                  <div className="mt-2 overflow-hidden rounded-md border border-border">
-                    <img
-                      src={URL.createObjectURL(collateral.image)}
-                      alt="Collateral preview"
-                      className="max-h-48 w-full object-contain"
-                    />
-                    <p className="border-t border-border bg-muted px-2 py-1 text-xs text-muted-foreground truncate">
-                      {collateral.image.name}
-                    </p>
-                  </div>
-                )}
-              </Field>
- </FieldGroup>
- </div>
- ))}
- <Button
- type="button"
- variant="outline"
- onClick={() =>
- setCollaterals((prev) => [
- ...prev,
- { type: "", description: "", value: "", image: null },
- ])
- }
- >
- <Plus className="mr-2 h-4 w-4" />
- Add Collateral
- </Button>
  </CardContent>
  </Card>
 

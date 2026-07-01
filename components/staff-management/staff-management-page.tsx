@@ -143,7 +143,7 @@ function StaffManagementPageInner() {
  toast.error(
  formatApiResponseError(
  data,
- "Cannot reach the Falco API. Check your internet connection and FALCO_API_BASE_URL, then restart the app."
+ "Cannot reach staff records. Check your connection and try again."
  )
  );
  }
@@ -305,7 +305,7 @@ function StaffManagementPageInner() {
  : res.status === 503
  ? formatApiResponseError(
  data,
- "Cannot reach the Falco API. Open /api/health in the browser to test connectivity, then restart npm start."
+ "Cannot reach staff records. Check your connection and try again."
  )
  : formatApiResponseError(data, "Could not create staff member.");
  setCreateFormError(msg);
@@ -316,11 +316,11 @@ function StaffManagementPageInner() {
  return;
  }
  if (!data.user) {
- setCreateFormError("Server did not return the new user. Check API logs.");
+ setCreateFormError("The staff member was not returned after saving. Please try again.");
  return;
  }
 
- toast.success("Staff member created (POST /users).");
+ toast.success("Staff member created.");
  closeCreate();
  await Promise.all([refreshDirectory(), refreshBranchAssignments()]);
  } catch {

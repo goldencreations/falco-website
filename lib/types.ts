@@ -275,6 +275,10 @@ export interface Loan {
  principal_outstanding: number;
  interest_outstanding: number;
  fees_outstanding: number;
+ penalty_amount?: number;
+ penalty_outstanding?: number;
+ penalty?: number;
+ daily_penalty_rate?: number;
  total_outstanding: number;
  
  // Paid
@@ -325,14 +329,19 @@ export interface RepaymentSchedule {
  principal_due: number;
  interest_due: number;
  fees_due: number;
+ penalty_due: number;
  total_due: number;
  
  principal_paid: number;
  interest_paid: number;
  fees_paid: number;
+ penalty_paid: number;
  total_paid: number;
  
  balance: number;
+ balance_due: number;
+ penalty_outstanding: number;
+ penalty_accrued_through: string | null;
  is_paid: boolean;
  paid_date?: string;
  days_overdue: number;

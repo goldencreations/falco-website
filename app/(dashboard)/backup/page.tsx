@@ -476,7 +476,7 @@ export default function BackupPage() {
  <div className="flex items-center justify-between rounded-lg border p-3">
  <div>
  <p className="text-sm font-medium">Schedule enabled</p>
- <p className="text-xs text-muted-foreground">Maps to PATCH /backups/schedule</p>
+ <p className="text-xs text-muted-foreground">Turn automatic backup creation on or off.</p>
  </div>
  <Button
  type="button"
@@ -560,7 +560,7 @@ export default function BackupPage() {
  <CardHeader>
  <CardTitle>Export Center</CardTitle>
  <CardDescription>
- Exports all backup point metadata as CSV via <span className="font-mono">GET /backups/export?format=csv</span>.
+ Download a CSV summary of available backup points.
  </CardDescription>
  </CardHeader>
  <CardContent>
@@ -575,7 +575,7 @@ export default function BackupPage() {
  <CardHeader>
  <CardTitle>Available Backup Points</CardTitle>
  <CardDescription>
- Restore runs a simulation only (POST /backups/restore). Download saves JSON metadata per point (V1).
+ Review available backup points, download details, or run a restore check.
  </CardDescription>
  </CardHeader>
  <CardContent className="p-0">
@@ -659,8 +659,7 @@ export default function BackupPage() {
  <DialogHeader>
  <DialogTitle>Simulate Restore</DialogTitle>
  <DialogDescription>
- Recovery point: {selectedPoint?.id}. POST /backups/restore records a simulation only — no live data is
- overwritten in V1.
+ Recovery point: {selectedPoint?.id}. This checks the restore process without changing live data.
  </DialogDescription>
  </DialogHeader>
  <div className="space-y-2">

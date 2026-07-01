@@ -584,7 +584,7 @@ export default function StaffTeamPage() {
  Assign loan officer to customer
  </CardTitle>
  <CardDescription>
- Assign a branch customer to a loan officer. Saves to the LMS as the customer&apos;s relationship manager.
+ Assign a branch customer to the loan officer who will manage the relationship.
  </CardDescription>
  </CardHeader>
  <CardContent className="space-y-4">
