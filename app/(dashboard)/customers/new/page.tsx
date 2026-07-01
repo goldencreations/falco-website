@@ -1449,10 +1449,7 @@ function NewCustomerPageInner() {
  <CardHeader>
  <CardTitle>Guarantors</CardTitle>
  <CardDescription>
- Register up to two guarantors for this customer. ID front and back scans upload to{" "}
- <code className="text-xs">id_front_document_id</code> /{" "}
- <code className="text-xs">id_back_document_id</code> on the customer profile (per Falco{" "}
- <code className="text-xs">POST /customers</code> guarantors).
+ Add up to two guarantors and attach their ID photos or supporting documents.
  </CardDescription>
  </CardHeader>
  <CardContent>
@@ -1468,9 +1465,7 @@ function NewCustomerPageInner() {
  <CardHeader>
  <CardTitle>Collateral</CardTitle>
  <CardDescription>
- Optional collateral registered on this customer profile. Type, value, and description are sent
- with customer registration per Falco <code className="text-xs">POST /customers</code>{" "}
- <code className="text-xs">collateral</code>.
+ Add any collateral the customer or guarantor has offered, including photos when available.
  </CardDescription>
  </CardHeader>
  <CardContent>
@@ -1486,9 +1481,7 @@ function NewCustomerPageInner() {
  <CardHeader>
  <CardTitle>References</CardTitle>
  <CardDescription>
- Add friends or family contacts reachable if the customer is unavailable. References are saved on
- the customer profile and sent automatically with loan applications per Falco{" "}
- <code className="text-xs">POST /applications</code>.
+ Add friends or family contacts who can be reached if the customer is unavailable.
  </CardDescription>
  </CardHeader>
  <CardContent>
