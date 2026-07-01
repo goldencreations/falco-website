@@ -169,7 +169,7 @@ export default function CustomersPage() {
  {loadError}
  </div>
  ) : null}
- <div className="rounded-2xl border border-emerald-100 bg-gradient-to-r from-emerald-50 via-background to-background p-4 sm:p-5">
+ <div className="p-4 sm:p-5">
  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
  <div>
  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">

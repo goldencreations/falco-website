@@ -401,6 +401,22 @@ function NewApplicationPageContent() {
  }
  setSelectedGroup(group);
  setSelectedCustomer(chairperson);
+ setFormData((prev) => ({
+ ...prev,
+ latitude:
+ group.meeting_latitude != null && Number.isFinite(group.meeting_latitude)
+ ? group.meeting_latitude.toFixed(6)
+ : "",
+ longitude:
+ group.meeting_longitude != null && Number.isFinite(group.meeting_longitude)
+ ? group.meeting_longitude.toFixed(6)
+ : "",
+ locationLabel: group.meeting_location
+ ? `Group meeting location: ${group.meeting_location}`
+ : group.village_or_street
+ ? `Group meeting location: ${group.village_or_street}`
+ : "",
+ }));
  setCustomerSearch("");
  } finally {
  setGroupSelectLoading(false);
@@ -1336,6 +1352,7 @@ onValueChange={(value) => {
 
  <ApplicationCustomerLocationSection
  customer={selectedCustomer}
+ group={isGroupMode ? selectedGroup : null}
  value={{
  latitude: formData.latitude,
  longitude: formData.longitude,

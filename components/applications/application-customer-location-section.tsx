@@ -20,7 +20,7 @@ import {
 } from "@/lib/application-location-sources";
 import { extractLeadsList } from "@/lib/lead-adapters";
 import { leadMapDirectionsUrl, leadMapEmbedUrl } from "@/lib/lead-map";
-import type { Customer } from "@/lib/types";
+import type { Customer, LoanGroup } from "@/lib/types";
 
 type LocationValue = {
   latitude: string;
@@ -30,16 +30,33 @@ type LocationValue = {
 
 type Props = {
   customer: Customer | null;
+  group?: LoanGroup | null;
   value: LocationValue;
   onChange: (value: LocationValue) => void;
 };
 
-export function ApplicationCustomerLocationSection({ customer, value, onChange }: Props) {
+function buildGroupLocationSource(group: LoanGroup | null | undefined): ApplicationLocationSource | null {
+  if (!group) return null;
+  const lat = group.meeting_latitude;
+  const lng = group.meeting_longitude;
+  if (lat == null || lng == null || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return {
+    id: `group-${group.id}-meeting`,
+    kind: "group_meeting",
+    label: "Group meeting location",
+    subtitle: group.meeting_location || group.village_or_street || group.group_name,
+    latitude: lat.toFixed(6),
+    longitude: lng.toFixed(6),
+  };
+}
+
+export function ApplicationCustomerLocationSection({ customer, group, value, onChange }: Props) {
   const [leadsLoading, setLeadsLoading] = useState(false);
   const [leadsError, setLeadsError] = useState("");
   const [leadRows, setLeadRows] = useState<ReturnType<typeof extractLeadsList>>([]);
   const [isLocating, setIsLocating] = useState(false);
   const [selectedSourceId, setSelectedSourceId] = useState("");
+  const isGroupLocation = Boolean(group);
 
   const loadLeadsForCustomer = useCallback(async (cust: Customer) => {
     setLeadsLoading(true);
@@ -89,10 +106,12 @@ export function ApplicationCustomerLocationSection({ customer, value, onChange }
     void loadLeadsForCustomer(customer);
   }, [customer, loadLeadsForCustomer]);
 
-  const locationSources = useMemo(
-    () => (customer ? buildApplicationLocationSources(customer, leadRows) : []),
-    [customer, leadRows]
-  );
+  const groupLocationSource = useMemo(() => buildGroupLocationSource(group), [group]);
+
+  const locationSources = useMemo(() => {
+    if (group) return groupLocationSource ? [groupLocationSource] : [];
+    return customer ? buildApplicationLocationSources(customer, leadRows) : [];
+  }, [customer, group, groupLocationSource, leadRows]);
 
   const applySource = useCallback(
     (source: ApplicationLocationSource) => {
@@ -107,11 +126,27 @@ export function ApplicationCustomerLocationSection({ customer, value, onChange }
   );
 
   useEffect(() => {
-    if (!customer || value.latitude || value.longitude) return;
-    const defaultSource = defaultApplicationLocationSource(locationSources);
+    if ((!customer && !group) || value.latitude || value.longitude) return;
+    const defaultSource = group
+      ? groupLocationSource
+      : defaultApplicationLocationSource(locationSources);
     if (!defaultSource) return;
     applySource(defaultSource);
-  }, [customer, locationSources, value.latitude, value.longitude, applySource]);
+  }, [customer, group, groupLocationSource, locationSources, value.latitude, value.longitude, applySource]);
+
+  useEffect(() => {
+    if (!group) return;
+    if (!groupLocationSource) {
+      setSelectedSourceId("");
+      return;
+    }
+    if (
+      value.latitude === groupLocationSource.latitude &&
+      value.longitude === groupLocationSource.longitude
+    ) {
+      setSelectedSourceId(groupLocationSource.id);
+    }
+  }, [group, groupLocationSource, value.latitude, value.longitude]);
 
   const setBrowserLocation = () => {
     if (!navigator.geolocation) return;
@@ -149,20 +184,24 @@ export function ApplicationCustomerLocationSection({ customer, value, onChange }
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Customer Location</CardTitle>
+        <CardTitle>{isGroupLocation ? "Group Location" : "Customer Location"}</CardTitle>
         <CardDescription>
-          Choose a saved customer location, use a lead location, or capture the current GPS position.
+          {isGroupLocation
+            ? "Use the selected group's meeting location, or capture the current GPS position."
+            : "Choose a saved customer location, use a lead location, or capture the current GPS position."}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {!customer ? (
+        {!customer && !group ? (
           <p className="rounded-md border border-dashed bg-muted/30 px-3 py-4 text-sm text-muted-foreground">
             Select a customer first to load lead locations and profile pins.
           </p>
         ) : (
           <>
             <div className="space-y-2">
-              <FieldLabel>Use location from lead or customer profile</FieldLabel>
+              <FieldLabel>
+                {isGroupLocation ? "Use group meeting location" : "Use location from lead or customer profile"}
+              </FieldLabel>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <Select
                   value={selectedSourceId || undefined}
@@ -175,7 +214,9 @@ export function ApplicationCustomerLocationSection({ customer, value, onChange }
                   <SelectTrigger className="w-full sm:flex-1">
                     <SelectValue
                       placeholder={
-                        leadsLoading
+                        isGroupLocation && !groupLocationSource
+                          ? "No group meeting pin found"
+                          : leadsLoading
                           ? "Loading lead locations…"
                           : locationSources.length
                             ? "Choose saved location"
@@ -191,20 +232,30 @@ export function ApplicationCustomerLocationSection({ customer, value, onChange }
                     ))}
                   </SelectContent>
                 </Select>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0"
-                  disabled={!customer || leadsLoading}
-                  onClick={() => customer && void loadLeadsForCustomer(customer)}
-                >
-                  <RefreshCcw className="mr-1.5 h-3.5 w-3.5" />
-                  Refresh leads
-                </Button>
+                {!isGroupLocation ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0"
+                    disabled={!customer || leadsLoading}
+                    onClick={() => customer && void loadLeadsForCustomer(customer)}
+                  >
+                    <RefreshCcw className="mr-1.5 h-3.5 w-3.5" />
+                    Refresh leads
+                  </Button>
+                ) : null}
               </div>
               {leadsError ? (
                 <p className="text-xs text-destructive">{leadsError}</p>
+              ) : isGroupLocation && groupLocationSource ? (
+                <p className="text-xs text-muted-foreground">
+                  Meeting pin found for {group?.group_name}. It will be used for this application.
+                </p>
+              ) : isGroupLocation ? (
+                <p className="text-xs text-muted-foreground">
+                  No meeting map pin is saved for this group. Use browser location or enter latitude and longitude.
+                </p>
               ) : locationSources.length > 0 ? (
                 <p className="text-xs text-muted-foreground">
                   {locationSources.filter((s) => s.kind === "lead").length} lead location(s) and{" "}

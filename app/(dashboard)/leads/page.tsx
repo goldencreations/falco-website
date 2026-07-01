@@ -597,7 +597,7 @@ export default function LeadsPage() {
  />
   <main className="flex min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-4 pb-10 lg:p-6">
       <div className="mx-auto w-full max-w-7xl space-y-6">
- <div className="rounded-2xl border border-emerald-100 bg-gradient-to-r from-emerald-50 via-background to-background p-4 sm:p-5">
+ <div className="p-4 sm:p-5">
  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
  <div>
  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">

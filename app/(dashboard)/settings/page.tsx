@@ -324,8 +324,7 @@ export default function SettingsPage() {
  {copy.accountPrefs}
  </h2>
  <p className="mt-1 text-sm text-muted-foreground">
- Password and language use <span className="font-mono">/settings/profile/*</span>. Organization
- policies require elevated permissions.
+ Manage your password, language, and account preferences from one place.
  </p>
  </div>
  <Badge className="w-fit border-emerald-500/30 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/15">
@@ -354,7 +353,7 @@ export default function SettingsPage() {
  <UserRound className="h-4 w-4 text-emerald-700" />
  {L("Profile")}
  </CardTitle>
- <CardDescription>From GET /settings/profile — branch list is scoped to your access.</CardDescription>
+ <CardDescription>Your account details and branch assignment.</CardDescription>
  </CardHeader>
  <CardContent className="space-y-4">
  <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-4">
@@ -419,7 +418,7 @@ export default function SettingsPage() {
  {copy.passwordSection}
  </CardTitle>
  <CardDescription>
- PATCH /settings/profile/password — available to every authenticated role.
+ Keep your account secure by updating your password regularly.
  </CardDescription>
  </CardHeader>
  <CardContent className="space-y-4">
@@ -485,7 +484,7 @@ export default function SettingsPage() {
  {copy.languageSection}
  </CardTitle>
  <CardDescription>
- PATCH /settings/profile/preferences — stored in your user metadata (all roles).
+ Choose your language and personal notification preferences.
  </CardDescription>
  </CardHeader>
  <CardContent className="space-y-4">
@@ -590,7 +589,7 @@ export default function SettingsPage() {
  <CardTitle>Organization security</CardTitle>
  <CardDescription>
  {canManageOrg
- ? "PATCH /settings/organization — super admin only (settings.manage)."
+ ? "Manage security rules that apply across the organization."
  : "Read-only — your role can view but not change organization policies."}
  </CardDescription>
  </CardHeader>
