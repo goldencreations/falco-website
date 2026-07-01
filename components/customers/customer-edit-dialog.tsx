@@ -561,7 +561,7 @@ export function CustomerEditDialog({
  }
  const row = extractCustomerDetail(body);
  if (!row) {
- setError("Unexpected response from server.");
+ setError("Customer details could not be updated. Please try again.");
  return;
  }
  savedRow = row;
@@ -651,16 +651,14 @@ export function CustomerEditDialog({
  <div className="space-y-2">
  <h2 className="text-xl font-semibold tracking-tight">Edit customer</h2>
  <p className="text-sm text-muted-foreground">
- Update KYC, assignment, guarantors, collateral, and attachment details. Changes are saved to the LMS via{" "}
- <span className="font-mono text-xs">PATCH /customers/{"{id}"}</span>.
+ Update KYC, assignment, guarantors, collateral, and attachment details.
  </p>
  </div>
  ) : (
  <DialogHeader>
  <DialogTitle>Edit customer</DialogTitle>
  <DialogDescription>
- Update KYC, assignment, guarantors, collateral, and attachment details. Changes are saved to the LMS via{" "}
- <span className="font-mono text-xs">PATCH /customers/{"{id}"}</span>.
+ Update KYC, assignment, guarantors, collateral, and attachment details.
  </DialogDescription>
  </DialogHeader>
  );
@@ -1082,8 +1080,7 @@ export function CustomerEditDialog({
  <div className="space-y-1">
  <p className="text-sm font-semibold">Collateral</p>
  <p className="text-xs text-muted-foreground">
-  Optional collateral on this customer profile. Type, value, and description are saved via{" "}
-  <span className="font-mono text-[11px]">PATCH /customers/{"{id}"}</span> collateral.
+  Optional collateral on this customer profile. Add the type, value, and description.
  </p>
  </div>
  <CustomerCollateralFields value={collateral} onChange={setCollateral} />

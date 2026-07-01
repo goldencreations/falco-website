@@ -206,8 +206,8 @@ export default function ReconciliationPage() {
  title="Payment Reconciliation"
  description={
  isOfficerView
- ? "Reconciliation summary for payments on loans in your assigned portfolio (GET /payments/reconciliation-summary)."
- : "Branch-scoped payment reconciliation from the Falco API — matched, underpaid, overpaid, manual review, and unmatched."
+ ? "Review payments on loans in your assigned portfolio."
+ : "Review payment matches, exceptions, and manual collections."
  }
  />
  <main className="flex-1 overflow-auto p-4 lg:p-6">
@@ -245,8 +245,7 @@ export default function ReconciliationPage() {
  Reconciliation summary
  </CardTitle>
  <CardDescription>
- Counts from <span className="font-mono text-xs">GET /payments/reconciliation-summary</span>
- {isOfficerView ? " (portfolio-filtered on this page)" : ""}.
+ Overview of payment matching status{isOfficerView ? " for your assigned portfolio" : ""}.
  </CardDescription>
  </CardHeader>
  <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
@@ -311,7 +310,7 @@ export default function ReconciliationPage() {
  <TableHead>Loan / Customer</TableHead>
  <TableHead className="text-right">Amount</TableHead>
  <TableHead>Date</TableHead>
- <TableHead>Reconciliation</TableHead>
+ <TableHead className="w-[280px]">Reconciliation</TableHead>
  <TableHead className="text-right">Action</TableHead>
  </TableRow>
  </TableHeader>
@@ -330,13 +329,15 @@ export default function ReconciliationPage() {
  </TableCell>
  <TableCell className="text-right font-medium">{formatCurrency(payment.amount)}</TableCell>
  <TableCell className="text-sm">{formatDateTime(payment.payment_date)}</TableCell>
- <TableCell>
+ <TableCell className="max-w-[280px] align-top">
  <Badge variant={recon.variant} className="gap-1">
  <ReconIcon className="h-3 w-3" />
  {recon.label}
  </Badge>
  {payment.reconciliation_note ? (
- <p className="mt-1 max-w-[220px] text-xs text-muted-foreground">{payment.reconciliation_note}</p>
+ <p className="mt-1 max-w-[260px] whitespace-normal break-words text-xs leading-relaxed text-muted-foreground">
+ {payment.reconciliation_note}
+ </p>
  ) : null}
  </TableCell>
  <TableCell className="text-right">
@@ -354,9 +355,8 @@ export default function ReconciliationPage() {
  </Card>
 
  <p className="text-xs text-muted-foreground">
- Gateway and webhook payments appear as matched when the backend confirms them. Manual field collections
- are tagged for review until reconciled. Recording new payments uses the Payments page and does not alter
- reconciliation metadata unless the LMS assigns it on create.
+ Online payments appear as matched after confirmation. Manual field collections stay in review until they
+ are reconciled. New payments are recorded from the Payments page.
  </p>
  </div>
  </main>

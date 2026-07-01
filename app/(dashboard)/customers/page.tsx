@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
  Plus,
@@ -42,6 +42,7 @@ import { extractCustomersList } from "@/lib/customer-adapters";
 import { useTranslations } from "@/lib/i18n/use-translations";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import { formatApiResponseError } from "@/lib/falco-api";
+import { extractLoansList, type LoanListRow } from "@/lib/loan-adapters";
 import type { Customer, RiskGrade } from "@/lib/types";
 import { useSessionUser } from "@/lib/use-session-user";
 
@@ -53,6 +54,82 @@ const riskGradeConfig: Record<RiskGrade, { label: string; variant: "default" | "
  E: { label: "Grade E", variant: "destructive" },
 };
 
+type CustomerLoanStatus = {
+ count: number;
+ outstanding: number;
+ penalty: number;
+ tone: "none" | "green" | "yellow" | "red";
+ label: string;
+ nextDueDate?: string;
+};
+
+const ACTIVE_LOAN_STATUSES = new Set(["active", "in_arrears"]);
+
+function dateOnly(value?: string): Date | null {
+ if (!value || value === "1970-01-01") return null;
+ const date = new Date(`${value.slice(0, 10)}T00:00:00`);
+ return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function daysUntil(value?: string): number | null {
+ const due = dateOnly(value);
+ if (!due) return null;
+ const today = new Date();
+ const current = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+ return Math.ceil((due.getTime() - current.getTime()) / 86_400_000);
+}
+
+function customerLoanStatus(loans: LoanListRow[]): CustomerLoanStatus {
+ const active = loans.filter((loan) => ACTIVE_LOAN_STATUSES.has(loan.status));
+ if (active.length === 0) {
+  return { count: 0, outstanding: 0, penalty: 0, tone: "none", label: "No active loan" };
+ }
+
+ const outstanding = active.reduce((sum, loan) => sum + loan.total_outstanding, 0);
+ const penalty = active.reduce((sum, loan) => sum + (loan.penalty_outstanding ?? loan.penalty ?? 0), 0);
+ const dueCandidates = active
+  .map((loan) => loan.first_payment_date || loan.maturity_date)
+  .filter(Boolean)
+  .sort();
+ const nextDueDate = dueCandidates[0];
+ const dueInDays = daysUntil(nextDueDate);
+ const overdue = active.some((loan) => loan.days_in_arrears > 0) || (dueInDays != null && dueInDays < 0);
+
+ if (overdue) {
+  return { count: active.length, outstanding, penalty, tone: "red", label: "Payment overdue", nextDueDate };
+ }
+ if (dueInDays != null && dueInDays <= 3) {
+  return { count: active.length, outstanding, penalty, tone: "yellow", label: "Payment due soon", nextDueDate };
+ }
+ return { count: active.length, outstanding, penalty, tone: "green", label: "Active loan", nextDueDate };
+}
+
+function statusClasses(tone: CustomerLoanStatus["tone"]) {
+ switch (tone) {
+  case "red":
+   return "border-l-4 border-l-red-500 bg-red-50/60 hover:bg-red-50";
+  case "yellow":
+   return "border-l-4 border-l-amber-400 bg-amber-50/70 hover:bg-amber-50";
+  case "green":
+   return "border-l-4 border-l-emerald-500 bg-emerald-50/50 hover:bg-emerald-50";
+  default:
+   return "";
+ }
+}
+
+function statusBadgeClasses(tone: CustomerLoanStatus["tone"]) {
+ switch (tone) {
+  case "red":
+   return "border-red-200 bg-red-100 text-red-800";
+  case "yellow":
+   return "border-amber-200 bg-amber-100 text-amber-900";
+  case "green":
+   return "border-emerald-200 bg-emerald-100 text-emerald-800";
+  default:
+   return "border-muted bg-muted/40 text-muted-foreground";
+ }
+}
+
 export default function CustomersPage() {
  const { t } = useTranslations();
  const { user } = useSessionUser();
@@ -62,6 +139,7 @@ export default function CustomersPage() {
  const scopeBranchId = isManagerView || isOfficerView ? user?.branch_id : null;
  const customersBasePath = isManagerView ? "/manager/customers" : isOfficerView ? "/officer/customers" : "/customers";
  const [customers, setCustomers] = useState<Customer[]>([]);
+ const [loans, setLoans] = useState<LoanListRow[]>([]);
  const [loading, setLoading] = useState(true);
  const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -119,6 +197,29 @@ export default function CustomersPage() {
  void loadCustomers();
  }, [loadCustomers]);
 
+ useEffect(() => {
+ let cancelled = false;
+ const params = new URLSearchParams();
+ params.set("page_size", "200");
+ if (scopeBranchId) params.set("branch_id", scopeBranchId);
+
+ void fetch(`/api/loans?${params.toString()}`, { credentials: "include", cache: "no-store" })
+ .then(async (res) => {
+  if (!res.ok) return null;
+  return res.json();
+ })
+ .then((json) => {
+  if (!cancelled && json) setLoans(extractLoansList(json));
+ })
+ .catch(() => {
+  if (!cancelled) setLoans([]);
+ });
+
+ return () => {
+  cancelled = true;
+ };
+ }, [scopeBranchId]);
+
  const [searchQuery, setSearchQuery] = useState("");
  const [typeFilter, setTypeFilter] = useState<string>("all");
  const [riskFilter, setRiskFilter] = useState<string>("all");
@@ -146,10 +247,20 @@ export default function CustomersPage() {
  return matchesSearch && matchesType && matchesRisk;
  });
 
- const activeLoansForCustomer = (_customerId: string) => ({
- count: 0,
- outstanding: 0,
- });
+ const loanStatusByCustomer = useMemo(() => {
+ const map = new Map<string, LoanListRow[]>();
+ for (const loan of loans) {
+  const id = loan.customer_id?.trim();
+  if (!id) continue;
+  const list = map.get(id) ?? [];
+  list.push(loan);
+  map.set(id, list);
+ }
+ return map;
+ }, [loans]);
+
+ const activeLoansForCustomer = (customerId: string) =>
+ customerLoanStatus(loanStatusByCustomer.get(customerId) ?? []);
 
  const totalCustomers = visibleCustomers.length;
  const individualCount = visibleCustomers.filter((c) => c.customer_type === "individual").length;
@@ -336,14 +447,14 @@ export default function CustomersPage() {
  ) : (
  filteredCustomers.map((customer) => {
  const risk = riskGradeConfig[customer.risk_grade];
- const { count: activeLoanCount, outstanding: totalOutstanding } = activeLoansForCustomer(customer.id);
+ const loanStatus = activeLoansForCustomer(customer.id);
  const avatarSrc = resolveMediaViewUrl(
   customer.passport_photo_preview_url,
   customer.passport_photo_url
  );
 
  return (
- <TableRow key={customer.id}>
+ <TableRow key={customer.id} className={statusClasses(loanStatus.tone)}>
  <TableCell>
  <div className="flex items-center gap-3">
  <Avatar className="h-9 w-9">
@@ -417,12 +528,25 @@ export default function CustomersPage() {
  )}
  </TableCell>
  <TableCell>
- {activeLoanCount > 0 ? (
- <div>
- <p className="font-medium">{activeLoanCount} loan(s)</p>
+ {loanStatus.count > 0 ? (
+ <div className="space-y-1">
+ <Badge variant="outline" className={statusBadgeClasses(loanStatus.tone)}>
+ {loanStatus.label}
+ </Badge>
+ <p className="font-medium">{loanStatus.count} loan(s)</p>
  <p className="text-xs text-muted-foreground">
- {formatCurrency(totalOutstanding)} outstanding
+ {formatCurrency(loanStatus.outstanding)} outstanding
  </p>
+ {loanStatus.nextDueDate ? (
+ <p className="text-xs text-muted-foreground">
+ Due {formatDate(loanStatus.nextDueDate)}
+ </p>
+ ) : null}
+ {loanStatus.penalty > 0 ? (
+ <p className="text-xs font-medium text-red-600">
+ Penalty {formatCurrency(loanStatus.penalty)}
+ </p>
+ ) : null}
  </div>
  ) : (
  <span className="text-muted-foreground">None</span>

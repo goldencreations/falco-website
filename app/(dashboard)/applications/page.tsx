@@ -314,7 +314,7 @@ export default function ApplicationsPage() {
     setActionError(summary + failures.join(" · "));
   } else {
     setSuccessMessage(
-      `Deleted ${deleted} application${deleted === 1 ? "" : "s"} from the database.`
+      `Deleted ${deleted} application${deleted === 1 ? "" : "s"}.`
     );
   }
 };
@@ -337,7 +337,7 @@ export default function ApplicationsPage() {
 
  const handleApplicationDeleted = () => {
  setDeleteTarget(null);
- setSuccessMessage("Application deleted from the database.");
+ setSuccessMessage("Application deleted.");
  void reloadApplications();
  };
 
@@ -466,9 +466,9 @@ export default function ApplicationsPage() {
  title="Loan Applications"
  description={
  isOfficerView
- ? "Branch loan applications from the Falco API — limited to your assigned branch."
+ ? "Review loan applications for your assigned branch."
  : isManagerView
- ? "Branch loan applications from the Falco API — limited to your assigned branch."
+ ? "Review loan applications for your assigned branch."
  : "Manage and review loan applications"
  }
  />

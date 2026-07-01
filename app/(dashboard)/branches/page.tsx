@@ -606,9 +606,7 @@ export default function BranchesPage() {
  <DialogHeader>
  <DialogTitle>Create Branch</DialogTitle>
  <DialogDescription>
- Saves to the LMS via <span className="font-mono text-xs">POST /branches</span> (see branches controller
- docs). The branch appears in <span className="font-mono text-xs">GET /branches</span> for customer assignment
- and elsewhere.
+ Add a branch that can be used for customer assignment and reporting.
  </DialogDescription>
  </DialogHeader>
  <form className="grid gap-4" onSubmit={createBranch}>
@@ -721,7 +719,7 @@ export default function BranchesPage() {
  <DialogHeader>
  <DialogTitle>Edit Branch</DialogTitle>
  <DialogDescription>
- Updates the LMS via <span className="font-mono text-xs">PATCH /branches/{"{id}"}</span>.
+ Update branch details used across customer assignment and reporting.
  </DialogDescription>
  </DialogHeader>
  <form className="grid gap-4" onSubmit={saveBranchEdit}>

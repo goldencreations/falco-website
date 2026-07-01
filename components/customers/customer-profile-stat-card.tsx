@@ -8,7 +8,6 @@ type StatTone = "cyan" | "emerald" | "amber" | "violet" | "teal";
 const toneStyles: Record<
   StatTone,
   {
-    ring: string;
     surface: string;
     icon: string;
     label: string;
@@ -16,36 +15,31 @@ const toneStyles: Record<
   }
 > = {
   cyan: {
-    ring: "from-slate-200/90 via-cyan-300/70 to-cyan-600",
-    surface: "bg-gradient-to-br from-cyan-500/[0.09] via-card to-cyan-950/[0.04]",
+    surface: "border-cyan-200 bg-cyan-50",
     icon: "bg-cyan-500/15 text-cyan-700 ring-1 ring-cyan-500/20",
     label: "text-cyan-800/70",
     value: "text-cyan-950",
   },
   emerald: {
-    ring: "from-slate-200/90 via-emerald-300/70 to-emerald-600",
-    surface: "bg-gradient-to-br from-emerald-500/[0.09] via-card to-emerald-950/[0.04]",
+    surface: "border-emerald-200 bg-emerald-50",
     icon: "bg-emerald-500/15 text-emerald-700 ring-1 ring-emerald-500/20",
     label: "text-emerald-800/70",
     value: "text-emerald-950",
   },
   amber: {
-    ring: "from-slate-200/90 via-amber-300/70 to-amber-600",
-    surface: "bg-gradient-to-br from-amber-500/[0.1] via-card to-amber-950/[0.05]",
+    surface: "border-amber-200 bg-amber-50",
     icon: "bg-amber-500/15 text-amber-700 ring-1 ring-amber-500/20",
     label: "text-amber-800/70",
     value: "text-amber-950",
   },
   violet: {
-    ring: "from-slate-200/90 via-violet-300/70 to-violet-600",
-    surface: "bg-gradient-to-br from-violet-500/[0.09] via-card to-violet-950/[0.04]",
+    surface: "border-violet-200 bg-violet-50",
     icon: "bg-violet-500/15 text-violet-700 ring-1 ring-violet-500/20",
     label: "text-violet-800/70",
     value: "text-violet-950",
   },
   teal: {
-    ring: "from-slate-200/90 via-teal-300/70 to-[#573d3d]",
-    surface: "bg-gradient-to-br from-teal-500/[0.08] via-card to-[#573d3d]/[0.06]",
+    surface: "border-teal-200 bg-teal-50",
     icon: "bg-teal-500/15 text-teal-700 ring-1 ring-teal-500/20",
     label: "text-teal-800/70",
     value: "text-teal-950",
@@ -64,8 +58,8 @@ export function CustomerProfileStatCard({ title, value, hint, icon: Icon, tone }
   const styles = toneStyles[tone];
 
   return (
-    <div className={cn("rounded-xl bg-gradient-to-r p-px shadow-sm", styles.ring)}>
-      <Card className={cn("gap-0 rounded-[11px] border-0 py-0 shadow-none", styles.surface)}>
+    <div>
+      <Card className={cn("gap-0 rounded-xl border py-0 shadow-sm", styles.surface)}>
         <CardContent className="flex min-w-0 items-start gap-3 p-3.5 sm:p-4">
           <div
             className={cn(

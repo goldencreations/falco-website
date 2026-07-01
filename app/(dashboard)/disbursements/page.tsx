@@ -380,7 +380,7 @@ export default function DisbursementsPage() {
  : "Failed to load disbursements"
  );
  }
- if (!data) throw new Error("Empty response from server");
+ if (!data) throw new Error("Disbursement details could not be loaded.");
  setRows(Array.isArray(data.disbursements) ? data.disbursements : []);
  setKpis(data.kpis && typeof data.kpis === "object" ? data.kpis : null);
  } catch (e) {
@@ -414,7 +414,7 @@ export default function DisbursementsPage() {
  : "Failed to load eligible loans"
  );
  }
- if (!data) throw new Error("Empty response from server");
+ if (!data) throw new Error("Eligible loans could not be loaded.");
  setEligibleLoans(data.eligible_loans ?? []);
  setEligibleApplications(data.eligible_applications ?? []);
  setEligibleBranchScope(
@@ -575,7 +575,7 @@ export default function DisbursementsPage() {
  }
  const loanId =
  typeof data.loan_id === "string" && data.loan_id.trim() ? data.loan_id.trim() : null;
- if (!loanId) throw new Error("No loan account returned from server.");
+ if (!loanId) throw new Error("The loan account could not be prepared.");
  const loanNumber =
  typeof data.loan_number === "string" && data.loan_number.trim()
  ? data.loan_number.trim()

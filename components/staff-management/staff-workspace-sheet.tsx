@@ -388,8 +388,7 @@ export function StaffWorkspaceSheet({
  <CardHeader className="pb-2">
  <CardTitle className="text-base">Operational access</CardTitle>
  <CardDescription>
- Restrict creation of applications or customers without suspending the account. Mirrors a future{" "}
- <code className="text-xs">PATCH /users/:id/access</code>.
+ Restrict creation of applications or customers without suspending the account.
  </CardDescription>
  </CardHeader>
  <CardContent className="space-y-4">
