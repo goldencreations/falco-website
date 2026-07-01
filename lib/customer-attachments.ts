@@ -64,22 +64,42 @@ export function validateSupportingDocument(file: File): { ok: true } | { ok: fal
 
 export function validateCustomerAttachments(
   attachments: CustomerAttachmentFormState
-): { ok: true } | { ok: false; error: string } {
+): { ok: true } | { ok: false; error: string; field: string } {
   if (attachments.passport_photo) {
     const v = validateLocationPhoto(attachments.passport_photo);
-    if (!v.ok) return { ok: false, error: `Passport photo: ${v.error}` };
+    if (!v.ok) {
+      return { ok: false, error: `Passport photo: ${v.error}`, field: "attachments.passport_photo" };
+    }
   }
   for (const file of attachments.home_location_photos) {
     const v = validateLocationPhoto(file);
-    if (!v.ok) return { ok: false, error: `Home location photo (${file.name}): ${v.error}` };
+    if (!v.ok) {
+      return {
+        ok: false,
+        error: `Home location photo (${file.name}): ${v.error}`,
+        field: "attachments.home_location_photos",
+      };
+    }
   }
   for (const file of attachments.business_location_photos) {
     const v = validateLocationPhoto(file);
-    if (!v.ok) return { ok: false, error: `Business location photo (${file.name}): ${v.error}` };
+    if (!v.ok) {
+      return {
+        ok: false,
+        error: `Business location photo (${file.name}): ${v.error}`,
+        field: "attachments.business_location_photos",
+      };
+    }
   }
   for (const doc of attachments.supporting_documents) {
     const v = validateSupportingDocument(doc);
-    if (!v.ok) return { ok: false, error: `Supporting document (${doc.name}): ${v.error}` };
+    if (!v.ok) {
+      return {
+        ok: false,
+        error: `Supporting document (${doc.name}): ${v.error}`,
+        field: "attachments.supporting_documents",
+      };
+    }
   }
   return { ok: true };
 }

@@ -3,16 +3,26 @@
 import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { formControlErrorClass, formControlErrorProps } from "@/components/forms/form-field-message";
+import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { TzValidatedInput } from "@/components/forms/tz-validated-input";
 import { type CustomerReferenceFormRow } from "@/lib/customer-references";
 
 type Props = {
   value: CustomerReferenceFormRow[];
   onChange: (rows: CustomerReferenceFormRow[]) => void;
+  fieldErrors?: Record<string, string>;
 };
 
-export function CustomerReferencesFields({ value, onChange }: Props) {
+function rowFieldError(
+  fieldErrors: Record<string, string> | undefined,
+  index: number,
+  field: string
+) {
+  return fieldErrors?.[`references.${index}.${field}`];
+}
+
+export function CustomerReferencesFields({ value, onChange, fieldErrors }: Props) {
   const updateRow = (index: number, key: keyof CustomerReferenceFormRow, next: string) => {
     onChange(value.map((row, i) => (i === index ? { ...row, [key]: next } : row)));
   };
@@ -32,7 +42,11 @@ export function CustomerReferencesFields({ value, onChange }: Props) {
   return (
     <div className="space-y-4">
       {value.map((row, index) => (
-        <div key={index} className="rounded-lg border border-border p-4">
+        <div
+          key={index}
+          className="rounded-lg border border-border p-4"
+          data-form-field={`references.${index}`}
+        >
           <div className="mb-3 flex items-center justify-between">
             <p className="text-sm font-semibold">Reference {index + 1}</p>
             {value.length > 1 ? (
@@ -43,29 +57,40 @@ export function CustomerReferencesFields({ value, onChange }: Props) {
           </div>
           <FieldGroup>
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field>
+              <Field data-invalid={Boolean(rowFieldError(fieldErrors, index, "name"))}>
                 <FieldLabel>Full name</FieldLabel>
                 <Input
                   placeholder="Reference full name"
                   value={row.name}
+                  className={formControlErrorClass(Boolean(rowFieldError(fieldErrors, index, "name")))}
+                  {...formControlErrorProps(rowFieldError(fieldErrors, index, "name"))}
                   onChange={(e) => updateRow(index, "name", e.target.value)}
                 />
+                <FieldError>{rowFieldError(fieldErrors, index, "name")}</FieldError>
               </Field>
-              <Field>
+              <Field data-invalid={Boolean(rowFieldError(fieldErrors, index, "relationship"))}>
                 <FieldLabel>Relationship</FieldLabel>
                 <Input
                   placeholder="e.g., Friend, cousin, neighbor"
                   value={row.relationship}
+                  className={formControlErrorClass(
+                    Boolean(rowFieldError(fieldErrors, index, "relationship"))
+                  )}
+                  {...formControlErrorProps(rowFieldError(fieldErrors, index, "relationship"))}
                   onChange={(e) => updateRow(index, "relationship", e.target.value)}
                 />
+                <FieldError>{rowFieldError(fieldErrors, index, "relationship")}</FieldError>
               </Field>
-              <Field>
+              <Field data-invalid={Boolean(rowFieldError(fieldErrors, index, "phone"))}>
                 <FieldLabel>Phone number</FieldLabel>
                 <TzValidatedInput
                   kind="phone"
                   value={row.phone}
+                  className={formControlErrorClass(Boolean(rowFieldError(fieldErrors, index, "phone")))}
+                  {...formControlErrorProps(rowFieldError(fieldErrors, index, "phone"))}
                   onValueChange={(v) => updateRow(index, "phone", v)}
                 />
+                <FieldError>{rowFieldError(fieldErrors, index, "phone")}</FieldError>
               </Field>
               <Field>
                 <FieldLabel>Address / location</FieldLabel>

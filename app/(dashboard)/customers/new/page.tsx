@@ -45,35 +45,44 @@ import {
 } from "@/lib/customer-assignment-options";
 import {
  emptyCustomerAttachments,
- validateCustomerAttachments,
  type CustomerAttachmentFormState,
 } from "@/lib/customer-attachments";
 import { useOptionalOfficerSession } from "@/components/officer-session-context";
 import { MoneyInput } from "@/components/forms/money-input";
+import {
+  FormFieldMessage,
+  formControlErrorClass,
+  formControlErrorProps,
+} from "@/components/forms/form-field-message";
 import { TzValidatedInput } from "@/components/forms/tz-validated-input";
 import { parseMoneyInput } from "@/lib/money-input";
 import type { SessionUser } from "@/lib/auth";
 import { syntheticBranchFromSession } from "@/lib/branch-scope";
-import { formatValidationDetails } from "@/lib/falco-api";
+import { validateCustomerCreateForm } from "@/lib/customer-create-form-validation";
+import {
+  apiDetailsToFieldErrors,
+  clearFieldErrorsByPrefix,
+  formFieldLabel,
+  scrollToFormField,
+  summarizeFieldErrors,
+  type FormFieldErrors,
+} from "@/lib/customer-form-errors";
 import { parseLeadPrefillFromSearchParams } from "@/lib/lead-to-customer-prefill";
 import {
   customerCollateralFormToMetadataRecords,
   customerCollateralRowsWithImages,
   defaultCustomerCollateralForm,
-  validateCustomerCollateral,
   type CustomerCollateralFormRow,
 } from "@/lib/customer-collateral";
 import {
   customerGuarantorFormToApiRecords,
   customerGuarantorRowsWithIdFiles,
   defaultCustomerGuarantorForm,
-  validateCustomerGuarantors,
   type CustomerGuarantorFormRow,
 } from "@/lib/customer-guarantors";
 import {
   customerReferenceFormToRecords,
   defaultCustomerReferenceForm,
-  validateCustomerReferences,
   type CustomerReferenceFormRow,
 } from "@/lib/customer-references";
 import { uploadCustomerCollateralImages } from "@/lib/customer-collateral-uploads";
@@ -251,6 +260,7 @@ function NewCustomerPageInner() {
  ...(portalOfficer ? officerAssignmentDefaults(portalOfficer) : {}),
  }));
  const [error, setError] = useState("");
+ const [fieldErrors, setFieldErrors] = useState<FormFieldErrors>({});
  const [submitting, setSubmitting] = useState(false);
  const [placeSuggestions, setPlaceSuggestions] = useState<PlaceSuggestion[]>([]);
  const [streetSuggestions, setStreetSuggestions] = useState<PlaceSuggestion[]>([]);
@@ -432,12 +442,45 @@ function NewCustomerPageInner() {
  const selectedOfficer = loanOfficerOptions.find((officer) => officer.id === effectiveOfficerId);
 
  const updateField = <K extends keyof CustomerCreateForm>(key: K, value: CustomerCreateForm[K]) => {
+ setFieldErrors((prev) => {
+  if (!prev[String(key)]) return prev;
+  const next = { ...prev };
+  delete next[String(key)];
+  return next;
+ });
  setForm((prev) => {
  if (key === "branch_id") {
  return { ...prev, branch_id: value as string, loan_officer_id: "" };
  }
  return { ...prev, [key]: value };
  });
+ };
+
+ const handleGuarantorsChange = (rows: CustomerGuarantorFormRow[]) => {
+  setGuarantors(rows);
+  setFieldErrors((prev) => clearFieldErrorsByPrefix(prev, "guarantors."));
+ };
+
+ const handleCollateralChange = (rows: CustomerCollateralFormRow[]) => {
+  setCollateral(rows);
+  setFieldErrors((prev) => clearFieldErrorsByPrefix(prev, "collateral."));
+ };
+
+ const handleReferencesChange = (rows: CustomerReferenceFormRow[]) => {
+  setReferences(rows);
+  setFieldErrors((prev) => clearFieldErrorsByPrefix(prev, "references."));
+ };
+
+ const handleAttachmentsChange = (next: CustomerAttachmentFormState) => {
+  setAttachments(next);
+  setFieldErrors((prev) => clearFieldErrorsByPrefix(prev, "attachments."));
+ };
+
+ const applyValidationErrors = (errors: FormFieldErrors) => {
+  setFieldErrors(errors);
+  setError(summarizeFieldErrors(errors));
+  const firstKey = Object.keys(errors).find((key) => key !== "_form") ?? Object.keys(errors)[0];
+  if (firstKey) scrollToFormField(firstKey);
  };
 
  const applyAddressPartsToForm = (
@@ -608,21 +651,6 @@ function NewCustomerPageInner() {
  }
  };
 
- const validate = () => {
- if (!sessionLoaded || !user) return "Session is still loading. Please wait a moment and try again.";
- if (isOfficerView && !user.branch_id?.trim()) {
- return "Your account is not linked to a branch. Contact an administrator.";
- }
- if (!form.full_name.trim()) return "Full name is required.";
- if (!form.phone.trim()) return "Primary phone number is required.";
- if (!form.physical_address.trim()) return "Physical address is required.";
- if (!form.national_id.trim()) return "National ID is required.";
- if (!form.payment_reference.trim()) return "Payment reference is required.";
- if (!form.branch_id && !lockedBranchId) return "Please select a branch.";
- if (!isOfficerView && !form.loan_officer_id) return "Please assign a loan officer.";
- return "";
- };
-
  const buildPayload = () => ({
  full_name: form.full_name.trim(),
  phone: form.phone.trim(),
@@ -672,34 +700,22 @@ function NewCustomerPageInner() {
  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
  event.preventDefault();
  setError("");
- const message = validate();
- if (message) {
- setError(message);
- return;
- }
+ setFieldErrors({});
 
- const attachmentValidation = validateCustomerAttachments(attachments);
- if (!attachmentValidation.ok) {
- setError(attachmentValidation.error);
- return;
- }
-
- const guarantorValidation = validateCustomerGuarantors(guarantors);
- if (!guarantorValidation.ok) {
- setError(guarantorValidation.error);
- return;
- }
-
- const collateralValidation = validateCustomerCollateral(collateral);
- if (!collateralValidation.ok) {
- setError(collateralValidation.error);
- return;
- }
-
- const referenceValidation = validateCustomerReferences(references);
- if (!referenceValidation.ok) {
- setError(referenceValidation.error);
- return;
+ const validationErrors = validateCustomerCreateForm({
+  form,
+  sessionLoaded,
+  user,
+  isOfficerView,
+  lockedBranchId,
+  guarantors,
+  collateral,
+  references,
+  attachments,
+ });
+ if (Object.keys(validationErrors).length > 0) {
+  applyValidationErrors(validationErrors);
+  return;
  }
 
  const payload = buildPayload();
@@ -733,8 +749,17 @@ function NewCustomerPageInner() {
  ? responseBody.error
  : nested?.message ?? `Customer create failed (${response.status})`;
  const rawDetails = responseBody.details ?? nested?.details;
- const detailStr = formatValidationDetails(rawDetails);
- setError(detailStr ? `${baseMsg} ${detailStr}` : baseMsg);
+ const apiFieldErrors = apiDetailsToFieldErrors(rawDetails);
+ if (Object.keys(apiFieldErrors).length > 0) {
+  applyValidationErrors(apiFieldErrors);
+  if (apiFieldErrors._form) {
+   setError(apiFieldErrors._form);
+  } else {
+   setError(baseMsg);
+  }
+  return;
+ }
+ setError(baseMsg);
  return;
  }
 
@@ -837,6 +862,31 @@ function NewCustomerPageInner() {
  <form onSubmit={handleSubmit} className="space-y-6">
  <div className="grid gap-6 lg:grid-cols-3">
  <div className="space-y-6 lg:col-span-2">
+ {Object.keys(fieldErrors).length > 0 ? (
+  <Card className="border-destructive/30 bg-destructive/5">
+   <CardHeader className="pb-2">
+    <CardTitle className="text-sm text-destructive">Please fix the following fields</CardTitle>
+    <CardDescription className="text-destructive/90">
+     {error || summarizeFieldErrors(fieldErrors)}
+    </CardDescription>
+   </CardHeader>
+   <CardContent>
+    <ul className="space-y-1 text-xs text-destructive">
+     {Object.entries(fieldErrors).map(([field, message]) => (
+      <li key={field}>
+       <button
+        type="button"
+        className="text-left underline-offset-2 hover:underline"
+        onClick={() => scrollToFormField(field)}
+       >
+        <span className="font-medium">{formFieldLabel(field)}:</span> {message}
+       </button>
+      </li>
+     ))}
+    </ul>
+   </CardContent>
+  </Card>
+ ) : null}
  <Card>
  <CardHeader>
  <CardTitle>Assignment & System Controls</CardTitle>
@@ -846,7 +896,7 @@ function NewCustomerPageInner() {
  </CardHeader>
  <CardContent className="space-y-4">
  <div className="grid gap-4 md:grid-cols-2">
- <div className="space-y-2">
+ <div className="space-y-2" data-form-field="branch_id">
  <Label htmlFor="branch">Branch</Label>
  <p className="text-xs text-muted-foreground">
  Select the branch that will manage this customer. Reopen the list if a branch you expect is missing.
@@ -862,7 +912,11 @@ function NewCustomerPageInner() {
  }}
  disabled={Boolean(lockedBranchId)}
  >
- <SelectTrigger id="branch">
+ <SelectTrigger
+ id="branch"
+ className={formControlErrorClass(Boolean(fieldErrors.branch_id))}
+ {...formControlErrorProps(fieldErrors.branch_id)}
+ >
  <SelectValue placeholder={branchesLoading ? "Loading branches…" : "Select branch"} />
  </SelectTrigger>
  <SelectContent>
@@ -877,8 +931,9 @@ function NewCustomerPageInner() {
  </SelectContent>
  </Select>
  {branchesError ? <p className="text-xs text-destructive">{branchesError}</p> : null}
+ <FormFieldMessage message={fieldErrors.branch_id} />
  </div>
- <div className="space-y-2">
+ <div className="space-y-2" data-form-field="loan_officer_id">
  <Label htmlFor="loan-officer">Loan Officer</Label>
  <p className="text-xs text-muted-foreground">
  Only loan officers assigned to the selected branch are listed. Pick the officer responsible for this customer.
@@ -891,7 +946,11 @@ function NewCustomerPageInner() {
  }}
  disabled={!effectiveBranchId || Boolean(lockedOfficerId)}
  >
- <SelectTrigger id="loan-officer">
+ <SelectTrigger
+ id="loan-officer"
+ className={formControlErrorClass(Boolean(fieldErrors.loan_officer_id))}
+ {...formControlErrorProps(fieldErrors.loan_officer_id)}
+ >
  <SelectValue
  placeholder={
  !effectiveBranchId
@@ -916,6 +975,7 @@ function NewCustomerPageInner() {
  </SelectContent>
  </Select>
  {officersError ? <p className="text-xs text-destructive">{officersError}</p> : null}
+ <FormFieldMessage message={fieldErrors.loan_officer_id} />
  </div>
  </div>
  <div className="grid gap-4 md:grid-cols-2">
@@ -934,14 +994,17 @@ function NewCustomerPageInner() {
  </SelectContent>
  </Select>
  </div>
- <div className="space-y-2">
+ <div className="space-y-2" data-form-field="payment_reference">
  <Label htmlFor="payment-reference">Payment Reference</Label>
  <Input
  id="payment-reference"
  value={form.payment_reference}
+ className={formControlErrorClass(Boolean(fieldErrors.payment_reference))}
+ {...formControlErrorProps(fieldErrors.payment_reference)}
  onChange={(event) => updateField("payment_reference", event.target.value)}
  placeholder="e.g., REF-FFS-2026-00012"
  />
+ <FormFieldMessage message={fieldErrors.payment_reference} />
  </div>
  </div>
  </CardContent>
@@ -953,42 +1016,54 @@ function NewCustomerPageInner() {
  </CardHeader>
  <CardContent className="space-y-4">
  <div className="grid gap-4 md:grid-cols-2">
- <div className="space-y-2 md:col-span-2">
+ <div className="space-y-2 md:col-span-2" data-form-field="full_name">
  <Label htmlFor="full-name">Full Name</Label>
  <Input
  id="full-name"
  value={form.full_name}
+ className={formControlErrorClass(Boolean(fieldErrors.full_name))}
+ {...formControlErrorProps(fieldErrors.full_name)}
  onChange={(event) => updateField("full_name", event.target.value)}
  placeholder="Customer full name"
  />
+ <FormFieldMessage message={fieldErrors.full_name} />
  </div>
- <div className="space-y-2">
+ <div className="space-y-2" data-form-field="phone">
  <Label htmlFor="phone">Primary Phone</Label>
  <TzValidatedInput
  id="phone"
  kind="phone"
  value={form.phone}
+ className={formControlErrorClass(Boolean(fieldErrors.phone))}
+ {...formControlErrorProps(fieldErrors.phone)}
  onValueChange={(value) => updateField("phone", value)}
  />
+ <FormFieldMessage message={fieldErrors.phone} />
  </div>
- <div className="space-y-2">
+ <div className="space-y-2" data-form-field="alt_phone">
  <Label htmlFor="alt-phone">Alternative Phone</Label>
  <TzValidatedInput
  id="alt-phone"
  kind="phone"
  value={form.alt_phone}
+ className={formControlErrorClass(Boolean(fieldErrors.alt_phone))}
+ {...formControlErrorProps(fieldErrors.alt_phone)}
  onValueChange={(value) => updateField("alt_phone", value)}
  />
+ <FormFieldMessage message={fieldErrors.alt_phone} />
  </div>
- <div className="space-y-2">
+ <div className="space-y-2" data-form-field="email">
  <Label htmlFor="email">Email</Label>
  <Input
  id="email"
  type="email"
  value={form.email}
+ className={formControlErrorClass(Boolean(fieldErrors.email))}
+ {...formControlErrorProps(fieldErrors.email)}
  onChange={(event) => updateField("email", event.target.value)}
  placeholder="name@email.com"
  />
+ <FormFieldMessage message={fieldErrors.email} />
  </div>
  <div className="space-y-2">
  <Label htmlFor="id-type">ID Type</Label>
@@ -1005,23 +1080,28 @@ function NewCustomerPageInner() {
  </SelectContent>
  </Select>
  </div>
- <div className="space-y-2 md:col-span-2">
+ <div className="space-y-2 md:col-span-2" data-form-field="national_id">
  <Label htmlFor="national-id">National ID / Identifier</Label>
  {form.id_type === "NIDA" ? (
  <TzValidatedInput
  id="national-id"
  kind="nida"
  value={form.national_id}
+ className={formControlErrorClass(Boolean(fieldErrors.national_id))}
+ {...formControlErrorProps(fieldErrors.national_id)}
  onValueChange={(value) => updateField("national_id", value)}
  />
  ) : (
  <Input
  id="national-id"
  value={form.national_id}
+ className={formControlErrorClass(Boolean(fieldErrors.national_id))}
+ {...formControlErrorProps(fieldErrors.national_id)}
  onChange={(event) => updateField("national_id", event.target.value)}
  placeholder="Unique national identification"
  />
  )}
+ <FormFieldMessage message={fieldErrors.national_id} />
  </div>
  </div>
  </CardContent>
@@ -1078,12 +1158,14 @@ function NewCustomerPageInner() {
  </ul>
  ) : null}
  </div>
- <div className="space-y-2">
+ <div className="space-y-2" data-form-field="physical_address">
  <Label htmlFor="physical-address">Physical Address</Label>
  <div className="relative">
  <Textarea
  id="physical-address"
  value={form.physical_address}
+ className={formControlErrorClass(Boolean(fieldErrors.physical_address))}
+ {...formControlErrorProps(fieldErrors.physical_address)}
  onChange={(event) => updateField("physical_address", event.target.value)}
  onKeyDown={handlePhysicalAddressKeyDown}
  rows={3}
@@ -1118,6 +1200,7 @@ function NewCustomerPageInner() {
  </div>
  ) : null}
  </div>
+ <FormFieldMessage message={fieldErrors.physical_address} />
  </div>
  <div className="grid gap-4 md:grid-cols-2">
  <div className="space-y-2">
@@ -1315,15 +1398,18 @@ function NewCustomerPageInner() {
  onChange={(event) => updateField("business_registration_no", event.target.value)}
  />
  </div>
- <div className="space-y-2">
+ <div className="space-y-2" data-form-field="years_in_business">
  <Label htmlFor="years-in-business">Years in Business</Label>
  <Input
  id="years-in-business"
  type="number"
  min="0"
  value={form.years_in_business}
+ className={formControlErrorClass(Boolean(fieldErrors.years_in_business))}
+ {...formControlErrorProps(fieldErrors.years_in_business)}
  onChange={(event) => updateField("years_in_business", event.target.value)}
  />
+ <FormFieldMessage message={fieldErrors.years_in_business} />
  </div>
  <div className="space-y-2 md:col-span-2">
  <Label htmlFor="business-address">Business Address</Label>
@@ -1370,7 +1456,11 @@ function NewCustomerPageInner() {
  </CardDescription>
  </CardHeader>
  <CardContent>
- <CustomerGuarantorsFields value={guarantors} onChange={setGuarantors} />
+ <CustomerGuarantorsFields
+  value={guarantors}
+  onChange={handleGuarantorsChange}
+  fieldErrors={fieldErrors}
+ />
  </CardContent>
  </Card>
 
@@ -1384,7 +1474,11 @@ function NewCustomerPageInner() {
  </CardDescription>
  </CardHeader>
  <CardContent>
- <CustomerCollateralFields value={collateral} onChange={setCollateral} />
+ <CustomerCollateralFields
+  value={collateral}
+  onChange={handleCollateralChange}
+  fieldErrors={fieldErrors}
+ />
  </CardContent>
  </Card>
 
@@ -1398,7 +1492,11 @@ function NewCustomerPageInner() {
  </CardDescription>
  </CardHeader>
  <CardContent>
- <CustomerReferencesFields value={references} onChange={setReferences} />
+ <CustomerReferencesFields
+  value={references}
+  onChange={handleReferencesChange}
+  fieldErrors={fieldErrors}
+ />
  </CardContent>
  </Card>
 
@@ -1411,7 +1509,11 @@ function NewCustomerPageInner() {
  </CardDescription>
  </CardHeader>
  <CardContent>
- <CustomerAttachmentsFields value={attachments} onChange={setAttachments} />
+ <CustomerAttachmentsFields
+  value={attachments}
+  onChange={handleAttachmentsChange}
+  fieldErrors={fieldErrors}
+ />
  </CardContent>
  </Card>
 
@@ -1439,15 +1541,18 @@ function NewCustomerPageInner() {
  </SelectContent>
  </Select>
  </div>
- <div className="space-y-2">
+ <div className="space-y-2" data-form-field="risk_score">
  <Label htmlFor="risk-score">Risk Score</Label>
  <Input
  id="risk-score"
  type="number"
  min="0"
  value={form.risk_score}
+ className={formControlErrorClass(Boolean(fieldErrors.risk_score))}
+ {...formControlErrorProps(fieldErrors.risk_score)}
  onChange={(event) => updateField("risk_score", event.target.value)}
  />
+ <FormFieldMessage message={fieldErrors.risk_score} />
  </div>
  <div className="space-y-2">
  <Label htmlFor="registration-fee-amount">Registration Fee Amount</Label>
@@ -1552,7 +1657,7 @@ function NewCustomerPageInner() {
  </div>
  </div>
 
- {error ? (
+ {error && Object.keys(fieldErrors).length === 0 ? (
  <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
  {error}
  </p>
@@ -1576,6 +1681,8 @@ function NewCustomerPageInner() {
  loan_officer_id: lockedOfficerId,
  });
  setAttachments(emptyCustomerAttachments());
+ setFieldErrors({});
+ setError("");
  }}
  >
  <Save className="mr-2 h-4 w-4" />

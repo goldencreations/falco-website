@@ -340,25 +340,45 @@ export function customerCollateralFormToApiRecords(
 
 export function validateCustomerCollateral(
   rows: CustomerCollateralFormRow[]
-): { ok: true } | { ok: false; error: string } {
+): { ok: true } | { ok: false; error: string; field: string } {
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     if (!rowHasAnyInput(row)) continue;
 
     if (!row.collateralType.trim()) {
-      return { ok: false, error: `Collateral ${i + 1}: type is required.` };
+      return {
+        ok: false,
+        error: `Collateral ${i + 1}: type is required.`,
+        field: `collateral.${i}.collateralType`,
+      };
     }
 
     const value = parseMoneyInput(row.estimatedValue);
     if (!row.estimatedValue.trim() || !Number.isFinite(value) || value <= 0) {
-      return { ok: false, error: `Collateral ${i + 1}: estimated value is required.` };
+      return {
+        ok: false,
+        error: `Collateral ${i + 1}: enter a value greater than zero.`,
+        field: `collateral.${i}.estimatedValue`,
+      };
+    }
+
+    if (!row.description.trim()) {
+      return {
+        ok: false,
+        error: `Collateral ${i + 1}: describe the collateral.`,
+        field: `collateral.${i}.description`,
+      };
     }
 
     const files = row.images.length > 0 ? row.images : row.image ? [row.image] : [];
     for (const file of files) {
       const imageValidation = validateLocationPhoto(file);
       if (!imageValidation.ok) {
-        return { ok: false, error: `Collateral ${i + 1}: ${imageValidation.error}` };
+        return {
+          ok: false,
+          error: `Collateral ${i + 1}: ${imageValidation.error}`,
+          field: `collateral.${i}.images`,
+        };
       }
     }
   }

@@ -29,6 +29,7 @@ type CustomerAttachmentsFieldsProps = {
   existingBusinessPhotos?: ExistingPhoto[];
   existingDocuments?: Array<{ name: string; url: string; previewUrl?: string | null }>;
   className?: string;
+  fieldErrors?: Record<string, string>;
 };
 
 function isImageDocument(doc: { name: string; url: string; previewUrl?: string | null }) {
@@ -342,6 +343,7 @@ export function CustomerAttachmentsFields({
   existingBusinessPhotos = [],
   existingDocuments = [],
   className,
+  fieldErrors,
 }: CustomerAttachmentsFieldsProps) {
   const docsInputRef = useRef<HTMLInputElement>(null);
   const docsId = useId();
@@ -425,6 +427,7 @@ export function CustomerAttachmentsFields({
 
   return (
     <div className={cn("space-y-4", className)}>
+      <div data-form-field="attachments.passport_photo">
       <SingleImageUploadField
         id="customer-passport-photo"
         title="Passport / profile photo"
@@ -434,10 +437,12 @@ export function CustomerAttachmentsFields({
         file={value.passport_photo}
         existingUrl={existingPassportUrl}
         existingPreviewUrl={existingPassportPreviewUrl}
-        error={passportError}
+        error={passportError ?? fieldErrors?.["attachments.passport_photo"] ?? null}
         onSelect={selectPassportPhoto}
       />
+      </div>
 
+      <div data-form-field="attachments.home_location_photos">
       <MultiImageUploadField
         id="customer-home-photos"
         title="Home location photos"
@@ -446,7 +451,7 @@ export function CustomerAttachmentsFields({
         accept={PHOTO_ACCEPT}
         files={value.home_location_photos}
         existingPhotos={existingHomePhotos}
-        error={homeError}
+        error={homeError ?? fieldErrors?.["attachments.home_location_photos"] ?? null}
         onAdd={addHomePhotos}
         onRemove={(index) =>
           onChange({
@@ -459,7 +464,9 @@ export function CustomerAttachmentsFields({
           onChange({ ...value, home_location_photos: [] });
         }}
       />
+      </div>
 
+      <div data-form-field="attachments.business_location_photos">
       <MultiImageUploadField
         id="customer-business-photos"
         title="Business location photos"
@@ -468,7 +475,7 @@ export function CustomerAttachmentsFields({
         accept={PHOTO_ACCEPT}
         files={value.business_location_photos}
         existingPhotos={existingBusinessPhotos}
-        error={businessError}
+        error={businessError ?? fieldErrors?.["attachments.business_location_photos"] ?? null}
         onAdd={addBusinessPhotos}
         onRemove={(index) =>
           onChange({
@@ -481,8 +488,15 @@ export function CustomerAttachmentsFields({
           onChange({ ...value, business_location_photos: [] });
         }}
       />
+      </div>
 
-      <div className="space-y-2 rounded-lg border border-border p-3">
+      <div
+        className={cn(
+          "space-y-2 rounded-lg border border-border p-3",
+          fieldErrors?.["attachments.supporting_documents"] && "border-destructive/40"
+        )}
+        data-form-field="attachments.supporting_documents"
+      >
         <div className="flex flex-wrap items-center justify-between gap-2">
           <Label htmlFor={docsId} className="flex items-center gap-1.5 text-sm font-medium">
             <FileText className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
@@ -596,9 +610,9 @@ export function CustomerAttachmentsFields({
           </div>
         ) : null}
 
-        {docsError ? (
+        {docsError || fieldErrors?.["attachments.supporting_documents"] ? (
           <p role="alert" className="text-xs text-destructive">
-            {docsError}
+            {docsError ?? fieldErrors?.["attachments.supporting_documents"]}
           </p>
         ) : null}
       </div>
