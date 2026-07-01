@@ -1,4 +1,5 @@
 import { parseCustomerMetadata } from "@/lib/customer-location";
+import { digitsOnly, TZ_PHONE_MAX_DIGITS } from "@/lib/tz-form-inputs";
 
 export type CustomerReferenceRecord = {
   full_name: string;
@@ -79,20 +80,39 @@ export function parseCustomerReferencesFromRow(
 
 export function validateCustomerReferences(
   rows: CustomerReferenceFormRow[]
-): { ok: true } | { ok: false; error: string } {
+): { ok: true } | { ok: false; error: string; field: string } {
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     const hasAny =
       row.name.trim() || row.phone.trim() || row.relationship.trim() || row.address.trim();
     if (!hasAny) continue;
     if (!row.name.trim()) {
-      return { ok: false, error: `Reference ${i + 1}: full name is required.` };
+      return {
+        ok: false,
+        error: `Reference ${i + 1}: full name is required.`,
+        field: `references.${i}.name`,
+      };
     }
     if (!row.phone.trim()) {
-      return { ok: false, error: `Reference ${i + 1}: phone number is required.` };
+      return {
+        ok: false,
+        error: `Reference ${i + 1}: enter a phone number.`,
+        field: `references.${i}.phone`,
+      };
+    }
+    if (digitsOnly(row.phone).length !== TZ_PHONE_MAX_DIGITS) {
+      return {
+        ok: false,
+        error: `Reference ${i + 1}: enter a 10 digit phone number.`,
+        field: `references.${i}.phone`,
+      };
     }
     if (!row.relationship.trim()) {
-      return { ok: false, error: `Reference ${i + 1}: relationship is required.` };
+      return {
+        ok: false,
+        error: `Reference ${i + 1}: relationship is required.`,
+        field: `references.${i}.relationship`,
+      };
     }
   }
   return { ok: true };

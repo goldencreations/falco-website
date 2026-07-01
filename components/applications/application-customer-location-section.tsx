@@ -151,17 +151,7 @@ export function ApplicationCustomerLocationSection({ customer, value, onChange }
       <CardHeader>
         <CardTitle>Customer Location</CardTitle>
         <CardDescription>
-          Use a lead location captured for this customer, their registered profile pin, or GPS.
-          Saved on the application per{" "}
-          <a
-            href="https://falcobackend.habitek.co.tz/api/docs#"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-medium text-primary hover:underline"
-          >
-            POST /loan-applications
-          </a>
-          .
+          Choose a saved customer location, use a lead location, or capture the current GPS position.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

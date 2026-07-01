@@ -14,12 +14,17 @@ import {
   Plus,
   RefreshCcw,
   UserPlus,
+  X,
 } from "lucide-react";
 import { TzValidatedInput } from "@/components/forms/tz-validated-input";
+import {
+  formControlErrorClass,
+  formControlErrorProps,
+} from "@/components/forms/form-field-message";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -99,6 +104,90 @@ function todayInputDate(): string {
  return `${y}-${m}-${day}`;
 }
 
+type LeadFormErrors = Record<string, string>;
+
+function leadFieldLabel(field: string): string {
+  const labels: Record<string, string> = {
+    branchId: "Branch",
+    fullName: "Full name",
+    phoneNumber: "Phone number",
+    alternatePhone: "Alternate number",
+    locationName: "Street / location",
+    latitude: "Latitude",
+    longitude: "Longitude",
+    followUpDate: "Date added",
+  };
+  return labels[field] ?? field;
+}
+
+function summarizeLeadErrors(errors: LeadFormErrors): string {
+  const count = Object.keys(errors).length;
+  if (count === 0) return "";
+  if (count === 1) return Object.values(errors)[0];
+  return `Please fix ${count} fields highlighted below.`;
+}
+
+function validateLeadForm(
+  form: typeof initialLeadFormData,
+  options: { needsBranchPicker: boolean; fallbackBranchId?: string | null }
+): LeadFormErrors {
+  const errors: LeadFormErrors = {};
+  const phoneDigits = digitsOnly(form.phoneNumber);
+  const altDigits = digitsOnly(form.alternatePhone);
+  const branchId = form.branchId.trim() || options.fallbackBranchId?.trim() || "";
+
+  if (options.needsBranchPicker && !branchId) errors.branchId = "Select the branch for this lead.";
+  if (!form.fullName.trim()) errors.fullName = "Enter the customer's full name.";
+  if (!form.phoneNumber.trim()) {
+    errors.phoneNumber = "Enter the customer's phone number.";
+  } else if (phoneDigits.length !== TZ_PHONE_MAX_DIGITS) {
+    errors.phoneNumber = "Enter a 10 digit phone number, for example 0712345678.";
+  }
+  if (form.alternatePhone.trim() && altDigits.length !== TZ_PHONE_MAX_DIGITS) {
+    errors.alternatePhone = "Enter a 10 digit phone number, or leave this field empty.";
+  }
+  if (!form.locationName.trim()) errors.locationName = "Enter the street, area, or landmark.";
+
+  const latitude = form.latitude.trim();
+  const longitude = form.longitude.trim();
+  if (latitude) {
+    const value = Number(latitude);
+    if (!Number.isFinite(value) || value < -90 || value > 90) {
+      errors.latitude = "Latitude must be a number between -90 and 90.";
+    }
+  }
+  if (longitude) {
+    const value = Number(longitude);
+    if (!Number.isFinite(value) || value < -180 || value > 180) {
+      errors.longitude = "Longitude must be a number between -180 and 180.";
+    }
+  }
+  if ((latitude && !longitude) || (!latitude && longitude)) {
+    if (!latitude) errors.latitude = "Enter latitude too, or clear longitude.";
+    if (!longitude) errors.longitude = "Enter longitude too, or clear latitude.";
+  }
+  if (!form.followUpDate.trim()) errors.followUpDate = "Choose the date this lead was added.";
+
+  return errors;
+}
+
+const initialLeadFormData = {
+  branchId: "",
+  fullName: "",
+  phoneNumber: "",
+  alternatePhone: "",
+  locationType: "home" as LeadLocationType,
+  locationName: "",
+  region: "",
+  district: "",
+  ward: "",
+  latitude: "",
+  longitude: "",
+  notes: "",
+  followUpDate: todayInputDate(),
+  status: "new" as LeadStatus,
+};
+
 
 export default function LeadsPage() {
   const router = useRouter();
@@ -117,6 +206,7 @@ export default function LeadsPage() {
   const [showAddLeadForm, setShowAddLeadForm] = useState(false);
   const [editingLead, setEditingLead] = useState<LeadView | null>(null);
   const [isLocating, setIsLocating] = useState(false);
+  const [leadFieldErrors, setLeadFieldErrors] = useState<LeadFormErrors>({});
   const needsBranchPicker = user?.role === "super_admin";
   const [editFormData, setEditFormData] = useState({
     fullName: "",
@@ -133,24 +223,38 @@ export default function LeadsPage() {
     followUpDate: "",
     status: "new" as LeadStatus,
   });
-  const [formData, setFormData] = useState({
-    branchId: "",
- fullName: "",
- phoneNumber: "",
- alternatePhone: "",
- locationType: "home" as LeadLocationType,
- locationName: "",
- region: "",
- district: "",
- ward: "",
- latitude: "",
- longitude: "",
- notes: "",
- followUpDate: todayInputDate(),
- status: "new" as LeadStatus,
- });
+  const [formData, setFormData] = useState(initialLeadFormData);
 
   const visibleLeads = leads;
+
+  const updateLeadField = <K extends keyof typeof initialLeadFormData>(
+    key: K,
+    value: (typeof initialLeadFormData)[K]
+  ) => {
+    setLeadFieldErrors((prev) => {
+      if (!prev[String(key)]) return prev;
+      const next = { ...prev };
+      delete next[String(key)];
+      return next;
+    });
+    setFormData((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const applyLeadFieldErrors = (errors: LeadFormErrors) => {
+    setLeadFieldErrors(errors);
+    setError(summarizeLeadErrors(errors));
+    const firstField = Object.keys(errors)[0];
+    if (firstField) {
+      requestAnimationFrame(() => {
+        const target = document.querySelector(`[data-lead-field="${CSS.escape(firstField)}"]`);
+        target?.scrollIntoView({ behavior: "smooth", block: "center" });
+        const focusable = target?.querySelector<HTMLElement>(
+          "input:not([type=hidden]), textarea, button[role=combobox]"
+        );
+        focusable?.focus({ preventScroll: true });
+      });
+    }
+  };
 
  useEffect(() => {
  if (user?.branch_id && !formData.branchId) {
@@ -229,6 +333,13 @@ export default function LeadsPage() {
  void (async () => {
  try {
  const place = await reverseGeocodeNominatim(lat, lng);
+ setLeadFieldErrors((prev) => {
+ const next = { ...prev };
+ delete next.latitude;
+ delete next.longitude;
+ delete next.locationName;
+ return next;
+ });
  setFormData((prev) => ({
  ...prev,
  latitude: latStr,
@@ -239,6 +350,12 @@ export default function LeadsPage() {
  ward: place.ward || prev.ward,
  }));
  } catch {
+ setLeadFieldErrors((prev) => {
+ const next = { ...prev };
+ delete next.latitude;
+ delete next.longitude;
+ return next;
+ });
  setFormData((prev) => ({
  ...prev,
  latitude: latStr,
@@ -265,21 +382,18 @@ export default function LeadsPage() {
  setError("Your session is still loading. Please wait a moment and try again.");
  return;
  }
- if (!formData.fullName || !formData.phoneNumber || !formData.locationName) return;
-
- const phoneDigits = digitsOnly(formData.phoneNumber);
- if (phoneDigits.length !== TZ_PHONE_MAX_DIGITS) {
- setError(`Phone number must be exactly ${TZ_PHONE_MAX_DIGITS} digits (e.g. 0712345678).`);
- return;
- }
- const altDigits = digitsOnly(formData.alternatePhone);
- if (formData.alternatePhone.trim() && altDigits.length !== TZ_PHONE_MAX_DIGITS) {
- setError(`Alternate number must be exactly ${TZ_PHONE_MAX_DIGITS} digits.`);
+ setLeadFieldErrors({});
+ const validationErrors = validateLeadForm(formData, {
+ needsBranchPicker,
+ fallbackBranchId: user?.branch_id,
+ });
+ if (Object.keys(validationErrors).length > 0) {
+ applyLeadFieldErrors(validationErrors);
  return;
  }
  const branchId = formData.branchId.trim() || user?.branch_id?.trim() || "";
  if (needsBranchPicker && !branchId) {
- setError("Select a branch for this lead.");
+ applyLeadFieldErrors({ branchId: "Select the branch for this lead." });
  return;
  }
 
@@ -327,21 +441,11 @@ export default function LeadsPage() {
  await load();
  setShowAddLeadForm(false);
     setFormData({
+      ...initialLeadFormData,
       branchId: formData.branchId || user?.branch_id || branches[0]?.id || "",
- fullName: "",
- phoneNumber: "",
- alternatePhone: "",
- locationType: "home",
- locationName: "",
- region: "",
- district: "",
- ward: "",
- latitude: "",
- longitude: "",
- notes: "",
- followUpDate: todayInputDate(),
- status: "new",
- });
+      followUpDate: todayInputDate(),
+    });
+ setLeadFieldErrors({});
  } catch (e) {
  setError(e instanceof Error ? e.message : "Failed to save lead");
  } finally {
@@ -515,6 +619,7 @@ export default function LeadsPage() {
  type="button"
  className="w-full bg-emerald-600 hover:bg-emerald-700 sm:w-auto"
  onClick={() => {
+ setLeadFieldErrors({});
  setShowAddLeadForm((prev) => {
  const opening = !prev;
  if (opening) {
@@ -533,7 +638,19 @@ export default function LeadsPage() {
 
  {error && (
  <Card className="border-destructive/50 bg-destructive/5">
- <CardContent className="py-3 text-sm text-destructive">{error}</CardContent>
+ <CardContent className="flex items-center justify-between gap-3 py-3 text-sm text-destructive">
+ <span>{error}</span>
+ <Button
+ type="button"
+ variant="ghost"
+ size="icon"
+ className="h-7 w-7 shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+ aria-label="Dismiss message"
+ onClick={() => setError(null)}
+ >
+ <X className="h-4 w-4" aria-hidden />
+ </Button>
+ </CardContent>
  </Card>
  )}
 
@@ -961,26 +1078,55 @@ export default function LeadsPage() {
           )}
 
           {showAddLeadForm && (
-            <Card className="border-emerald-100">
- <CardHeader className="rounded-t-xl bg-gradient-to-r from-emerald-600 via-emerald-500 to-emerald-600 text-white">
- <CardTitle>Add New Lead</CardTitle>
- <CardDescription>
-              Enter potential customer details, set a location, and save a navigation-ready lead record
+            <Card className="overflow-hidden border-emerald-100 shadow-sm">
+ <CardHeader className="border-b border-emerald-100 bg-emerald-50/70 px-6 py-5">
+ <div className="flex items-start gap-3">
+ <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-emerald-600 text-white shadow-sm">
+ <Plus className="h-4 w-4" aria-hidden />
+ </div>
+ <div className="min-w-0 space-y-1">
+ <CardTitle className="text-base text-foreground sm:text-lg">Add New Lead</CardTitle>
+ <CardDescription className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
+ Capture the customer details and location needed for follow-up.
  </CardDescription>
+ </div>
+ </div>
  </CardHeader>
- <CardContent className="space-y-4">
+ <CardContent className="space-y-4 pt-5">
+          {Object.keys(leadFieldErrors).length > 0 ? (
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              <p className="font-medium">Please fix the highlighted fields.</p>
+              <ul className="mt-1 space-y-1 text-xs">
+                {Object.entries(leadFieldErrors).map(([field, message]) => (
+                  <li key={field}>
+                    <button
+                      type="button"
+                      className="text-left underline-offset-2 hover:underline"
+                      onClick={() => {
+                        const target = document.querySelector(`[data-lead-field="${CSS.escape(field)}"]`);
+                        target?.scrollIntoView({ behavior: "smooth", block: "center" });
+                      }}
+                    >
+                      <span className="font-medium">{leadFieldLabel(field)}:</span> {message}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           <FieldGroup>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
  {needsBranchPicker && (
- <Field>
+ <Field data-invalid={Boolean(leadFieldErrors.branchId)} data-lead-field="branchId">
  <FieldLabel>Branch</FieldLabel>
  <Select
  value={formData.branchId}
- onValueChange={(value) =>
- setFormData((prev) => ({ ...prev, branchId: value }))
- }
+ onValueChange={(value) => updateLeadField("branchId", value)}
  >
- <SelectTrigger>
+ <SelectTrigger
+ className={formControlErrorClass(Boolean(leadFieldErrors.branchId))}
+ {...formControlErrorProps(leadFieldErrors.branchId)}
+ >
  <SelectValue placeholder="Select branch" />
  </SelectTrigger>
  <SelectContent>
@@ -992,6 +1138,7 @@ export default function LeadsPage() {
  ))}
  </SelectContent>
  </Select>
+ <FieldError>{leadFieldErrors.branchId}</FieldError>
  </Field>
  )}
  <Field>
@@ -999,6 +1146,11 @@ export default function LeadsPage() {
  <Select
  value={formData.locationType}
  onValueChange={(value: LeadLocationType) => {
+ setLeadFieldErrors((prev) => {
+ const next = { ...prev };
+ delete next.locationType;
+ return next;
+ });
  applyLocationFromType(value);
  }}
  >
@@ -1012,58 +1164,60 @@ export default function LeadsPage() {
  </SelectContent>
  </Select>
  </Field>
- <Field>
+ <Field data-invalid={Boolean(leadFieldErrors.fullName)} data-lead-field="fullName">
  <FieldLabel>Full Name</FieldLabel>
  <Input
  placeholder="Potential customer name"
  value={formData.fullName}
- onChange={(e) =>
- setFormData((prev) => ({ ...prev, fullName: e.target.value }))
- }
+ className={formControlErrorClass(Boolean(leadFieldErrors.fullName))}
+ {...formControlErrorProps(leadFieldErrors.fullName)}
+ onChange={(e) => updateLeadField("fullName", e.target.value)}
  />
+ <FieldError>{leadFieldErrors.fullName}</FieldError>
  </Field>
- <Field>
+ <Field data-invalid={Boolean(leadFieldErrors.phoneNumber)} data-lead-field="phoneNumber">
  <FieldLabel>Phone Number</FieldLabel>
  <TzValidatedInput
  kind="phone"
  placeholder="0712345678"
  value={formData.phoneNumber}
- onValueChange={(phoneNumber) =>
- setFormData((prev) => ({ ...prev, phoneNumber }))
- }
+ className={formControlErrorClass(Boolean(leadFieldErrors.phoneNumber))}
+ {...formControlErrorProps(leadFieldErrors.phoneNumber)}
+ onValueChange={(phoneNumber) => updateLeadField("phoneNumber", phoneNumber)}
  maxLength={10}
  />
+ <FieldError>{leadFieldErrors.phoneNumber}</FieldError>
  </Field>
- <Field>
+ <Field data-invalid={Boolean(leadFieldErrors.alternatePhone)} data-lead-field="alternatePhone">
  <FieldLabel>Alternate Number (optional)</FieldLabel>
  <TzValidatedInput
  kind="phone"
  placeholder="0712345678"
  value={formData.alternatePhone}
- onValueChange={(alternatePhone) =>
- setFormData((prev) => ({ ...prev, alternatePhone }))
- }
+ className={formControlErrorClass(Boolean(leadFieldErrors.alternatePhone))}
+ {...formControlErrorProps(leadFieldErrors.alternatePhone)}
+ onValueChange={(alternatePhone) => updateLeadField("alternatePhone", alternatePhone)}
  maxLength={10}
  />
+ <FieldError>{leadFieldErrors.alternatePhone}</FieldError>
  </Field>
- <Field>
+ <Field data-invalid={Boolean(leadFieldErrors.locationName)} data-lead-field="locationName">
  <FieldLabel>Street / Location</FieldLabel>
  <Input
  placeholder="Street, area, or landmark"
  value={formData.locationName}
- onChange={(e) =>
- setFormData((prev) => ({ ...prev, locationName: e.target.value }))
- }
+ className={formControlErrorClass(Boolean(leadFieldErrors.locationName))}
+ {...formControlErrorProps(leadFieldErrors.locationName)}
+ onChange={(e) => updateLeadField("locationName", e.target.value)}
  />
+ <FieldError>{leadFieldErrors.locationName}</FieldError>
  </Field>
  <Field>
  <FieldLabel>Region</FieldLabel>
  <Input
  placeholder="Region"
  value={formData.region}
- onChange={(e) =>
- setFormData((prev) => ({ ...prev, region: e.target.value }))
- }
+ onChange={(e) => updateLeadField("region", e.target.value)}
  />
  </Field>
  <Field>
@@ -1071,9 +1225,7 @@ export default function LeadsPage() {
  <Input
  placeholder="District"
  value={formData.district}
- onChange={(e) =>
- setFormData((prev) => ({ ...prev, district: e.target.value }))
- }
+ onChange={(e) => updateLeadField("district", e.target.value)}
  />
  </Field>
  <Field>
@@ -1081,45 +1233,46 @@ export default function LeadsPage() {
  <Input
  placeholder="Ward"
  value={formData.ward}
- onChange={(e) =>
- setFormData((prev) => ({ ...prev, ward: e.target.value }))
- }
+ onChange={(e) => updateLeadField("ward", e.target.value)}
  />
  </Field>
- <Field>
+ <Field data-invalid={Boolean(leadFieldErrors.latitude)} data-lead-field="latitude">
  <FieldLabel>Latitude</FieldLabel>
  <Input
  type="number"
  step="any"
  placeholder="-6.7924"
  value={formData.latitude}
- onChange={(e) =>
- setFormData((prev) => ({ ...prev, latitude: e.target.value }))
- }
+ className={formControlErrorClass(Boolean(leadFieldErrors.latitude))}
+ {...formControlErrorProps(leadFieldErrors.latitude)}
+ onChange={(e) => updateLeadField("latitude", e.target.value)}
  />
+ <FieldError>{leadFieldErrors.latitude}</FieldError>
  </Field>
- <Field>
+ <Field data-invalid={Boolean(leadFieldErrors.longitude)} data-lead-field="longitude">
  <FieldLabel>Longitude</FieldLabel>
  <Input
  type="number"
  step="any"
  placeholder="39.2083"
  value={formData.longitude}
- onChange={(e) =>
- setFormData((prev) => ({ ...prev, longitude: e.target.value }))
- }
+ className={formControlErrorClass(Boolean(leadFieldErrors.longitude))}
+ {...formControlErrorProps(leadFieldErrors.longitude)}
+ onChange={(e) => updateLeadField("longitude", e.target.value)}
  />
+ <FieldError>{leadFieldErrors.longitude}</FieldError>
  </Field>
- <Field>
+ <Field data-invalid={Boolean(leadFieldErrors.followUpDate)} data-lead-field="followUpDate">
  <FieldLabel>Date Added</FieldLabel>
  <FieldDescription>When this lead was captured. Defaults to today; change if needed.</FieldDescription>
  <Input
  type="date"
  value={formData.followUpDate}
- onChange={(e) =>
- setFormData((prev) => ({ ...prev, followUpDate: e.target.value }))
- }
+ className={formControlErrorClass(Boolean(leadFieldErrors.followUpDate))}
+ {...formControlErrorProps(leadFieldErrors.followUpDate)}
+ onChange={(e) => updateLeadField("followUpDate", e.target.value)}
  />
+ <FieldError>{leadFieldErrors.followUpDate}</FieldError>
  </Field>
  <Field>
  <FieldLabel>Status</FieldLabel>
@@ -1147,7 +1300,7 @@ export default function LeadsPage() {
  rows={3}
  placeholder="Important follow-up details from the field visit"
  value={formData.notes}
- onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
+ onChange={(e) => updateLeadField("notes", e.target.value)}
  />
  </Field>
  </FieldGroup>

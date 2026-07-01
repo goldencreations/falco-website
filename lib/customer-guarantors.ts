@@ -1,6 +1,8 @@
 import type { GuarantorFileRow } from "@/lib/application-linked-uploads";
+import { validateLocationPhoto, validateSupportingDocument } from "@/lib/customer-attachments";
 import { parseCustomerMetadata } from "@/lib/customer-location";
 import { parseMoneyInput } from "@/lib/money-input";
+import { digitsOnly, TZ_NIDA_MAX_DIGITS, TZ_PHONE_MAX_DIGITS } from "@/lib/tz-form-inputs";
 
 export const MAX_CUSTOMER_GUARANTORS = 2;
 
@@ -430,19 +432,136 @@ export function parseCustomerGuarantorsFromRow(
 
 export function validateCustomerGuarantors(
   rows: CustomerGuarantorFormRow[]
-): { ok: true } | { ok: false; error: string } {
+): { ok: true } | { ok: false; error: string; field: string } {
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     if (!rowHasAnyInput(row)) continue;
 
     if (!row.name.trim()) {
-      return { ok: false, error: `Guarantor ${i + 1}: full name is required.` };
+      return {
+        ok: false,
+        error: `Guarantor ${i + 1}: full name is required.`,
+        field: `guarantors.${i}.name`,
+      };
     }
     if (!row.phone.trim()) {
-      return { ok: false, error: `Guarantor ${i + 1}: phone number is required.` };
+      return {
+        ok: false,
+        error: `Guarantor ${i + 1}: enter a phone number.`,
+        field: `guarantors.${i}.phone`,
+      };
+    }
+    if (digitsOnly(row.phone).length !== TZ_PHONE_MAX_DIGITS) {
+      return {
+        ok: false,
+        error: `Guarantor ${i + 1}: enter a 10 digit phone number.`,
+        field: `guarantors.${i}.phone`,
+      };
+    }
+    if (!row.nationalId.trim()) {
+      return {
+        ok: false,
+        error: `Guarantor ${i + 1}: enter the National ID number.`,
+        field: `guarantors.${i}.nationalId`,
+      };
+    }
+    if (digitsOnly(row.nationalId).length !== TZ_NIDA_MAX_DIGITS) {
+      return {
+        ok: false,
+        error: `Guarantor ${i + 1}: enter a complete 20 digit NIDA number.`,
+        field: `guarantors.${i}.nationalId`,
+      };
     }
     if (!resolveRelationship(row)) {
-      return { ok: false, error: `Guarantor ${i + 1}: relationship is required.` };
+      return {
+        ok: false,
+        error: `Guarantor ${i + 1}: relationship is required.`,
+        field: `guarantors.${i}.relationship`,
+      };
+    }
+    if (row.relationship === "other" && !row.otherRelationship.trim()) {
+      return {
+        ok: false,
+        error: `Guarantor ${i + 1}: enter the relationship.`,
+        field: `guarantors.${i}.otherRelationship`,
+      };
+    }
+
+    const hasCollateral =
+      row.collateralType.trim() ||
+      row.collateralEstimatedValue.trim() ||
+      row.collateralDescription.trim();
+    if (hasCollateral) {
+      if (!row.collateralType.trim()) {
+        return {
+          ok: false,
+          error: `Guarantor ${i + 1}: enter the collateral type.`,
+          field: `guarantors.${i}.collateralType`,
+        };
+      }
+      const collateralValue = parseMoneyInput(row.collateralEstimatedValue);
+      if (
+        !row.collateralEstimatedValue.trim() ||
+        !Number.isFinite(collateralValue) ||
+        collateralValue <= 0
+      ) {
+        return {
+          ok: false,
+          error: `Guarantor ${i + 1}: enter a collateral value greater than zero.`,
+          field: `guarantors.${i}.collateralEstimatedValue`,
+        };
+      }
+      if (!row.collateralDescription.trim()) {
+        return {
+          ok: false,
+          error: `Guarantor ${i + 1}: describe the collateral.`,
+          field: `guarantors.${i}.collateralDescription`,
+        };
+      }
+    }
+
+    const documentChecks: Array<[File | null, string, string]> = [
+      [row.idFront, "idFront", "Guarantor ID front"],
+      [row.idBack, "idBack", "Guarantor ID back"],
+      [row.wardLetter, "wardLetter", "Ward letter"],
+    ];
+    for (const [file, field, label] of documentChecks) {
+      if (!file) continue;
+      const check = validateSupportingDocument(file);
+      if (!check.ok) {
+        return {
+          ok: false,
+          error: `Guarantor ${i + 1}: ${label} must be PDF, JPG, JPEG, or PNG and 10MB or smaller.`,
+          field: `guarantors.${i}.${field}`,
+        };
+      }
+    }
+
+    const photoChecks: Array<[File | null, string, string]> = [
+      [row.photo, "photo", "Guarantor photo"],
+      [row.photoWithCustomer, "photoWithCustomer", "Photo with customer"],
+    ];
+    for (const [file, field, label] of photoChecks) {
+      if (!file) continue;
+      const check = validateLocationPhoto(file);
+      if (!check.ok) {
+        return {
+          ok: false,
+          error: `Guarantor ${i + 1}: ${label} must be JPG, JPEG, PNG, or WEBP and 5MB or smaller.`,
+          field: `guarantors.${i}.${field}`,
+        };
+      }
+    }
+
+    for (const file of row.attachments) {
+      const check = validateSupportingDocument(file);
+      if (!check.ok) {
+        return {
+          ok: false,
+          error: `Guarantor ${i + 1}: attachment must be PDF, JPG, JPEG, or PNG and 10MB or smaller.`,
+          field: `guarantors.${i}.attachments`,
+        };
+      }
     }
   }
   return { ok: true };

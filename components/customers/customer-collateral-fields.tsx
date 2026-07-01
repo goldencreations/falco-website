@@ -6,7 +6,8 @@ import { MoneyInput } from "@/components/forms/money-input";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { formControlErrorClass, formControlErrorProps } from "@/components/forms/form-field-message";
+import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { CachedMediaPreview } from "@/components/media/cached-media-preview";
 import { PHOTO_ACCEPT } from "@/lib/customer-attachments";
 import {
@@ -17,7 +18,16 @@ import {
 type Props = {
   value: CustomerCollateralFormRow[];
   onChange: (rows: CustomerCollateralFormRow[]) => void;
+  fieldErrors?: Record<string, string>;
 };
+
+function rowFieldError(
+  fieldErrors: Record<string, string> | undefined,
+  index: number,
+  field: string
+) {
+  return fieldErrors?.[`collateral.${index}.${field}`];
+}
 
 function CollateralImagePreview({
   file,
@@ -86,7 +96,7 @@ function CollateralExistingImagePreview({
   );
 }
 
-export function CustomerCollateralFields({ value, onChange }: Props) {
+export function CustomerCollateralFields({ value, onChange, fieldErrors }: Props) {
   const updateRow = (
     index: number,
     key: keyof CustomerCollateralFormRow,
@@ -157,7 +167,11 @@ export function CustomerCollateralFields({ value, onChange }: Props) {
   return (
     <div className="space-y-4">
       {value.map((row, index) => (
-        <div key={index} className="rounded-lg border border-border p-4">
+        <div
+          key={index}
+          className="rounded-lg border border-border p-4"
+          data-form-field={`collateral.${index}`}
+        >
           <div className="mb-3 flex items-center justify-between gap-2">
             <p className="text-sm font-semibold">Collateral {index + 1}</p>
             {value.length > 1 ? (
@@ -169,38 +183,66 @@ export function CustomerCollateralFields({ value, onChange }: Props) {
           </div>
           <FieldGroup>
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field>
+              <Field
+                data-invalid={Boolean(rowFieldError(fieldErrors, index, "collateralType"))}
+                data-form-field={`collateral.${index}.collateralType`}
+              >
                 <FieldLabel>Collateral type</FieldLabel>
                 <Input
                   placeholder="e.g., Motorcycle, TV, land title"
                   value={row.collateralType}
+                  className={formControlErrorClass(
+                    Boolean(rowFieldError(fieldErrors, index, "collateralType"))
+                  )}
+                  {...formControlErrorProps(rowFieldError(fieldErrors, index, "collateralType"))}
                   onChange={(e) => updateRow(index, "collateralType", e.target.value)}
                 />
+                <FieldError>{rowFieldError(fieldErrors, index, "collateralType")}</FieldError>
               </Field>
-              <Field>
+              <Field
+                data-invalid={Boolean(rowFieldError(fieldErrors, index, "estimatedValue"))}
+                data-form-field={`collateral.${index}.estimatedValue`}
+              >
                 <FieldLabel>Estimated value (TZS)</FieldLabel>
                 <MoneyInput
                   placeholder="e.g., 5,000,000"
                   value={row.estimatedValue}
+                  className={formControlErrorClass(
+                    Boolean(rowFieldError(fieldErrors, index, "estimatedValue"))
+                  )}
+                  {...formControlErrorProps(rowFieldError(fieldErrors, index, "estimatedValue"))}
                   onValueChange={(v) => updateRow(index, "estimatedValue", v)}
                 />
+                <FieldError>{rowFieldError(fieldErrors, index, "estimatedValue")}</FieldError>
               </Field>
             </div>
-            <Field>
+            <Field
+              data-invalid={Boolean(rowFieldError(fieldErrors, index, "description"))}
+              data-form-field={`collateral.${index}.description`}
+            >
               <FieldLabel>Description</FieldLabel>
               <Textarea
                 placeholder="Describe the collateral item..."
                 value={row.description}
+                aria-invalid={Boolean(rowFieldError(fieldErrors, index, "description"))}
+                className={formControlErrorClass(Boolean(rowFieldError(fieldErrors, index, "description")))}
+                {...formControlErrorProps(rowFieldError(fieldErrors, index, "description"))}
                 onChange={(e) => updateRow(index, "description", e.target.value)}
                 rows={2}
               />
+              <FieldError>{rowFieldError(fieldErrors, index, "description")}</FieldError>
             </Field>
-            <Field>
+            <Field
+              data-invalid={Boolean(rowFieldError(fieldErrors, index, "images"))}
+              data-form-field={`collateral.${index}.images`}
+            >
               <FieldLabel>Collateral image</FieldLabel>
               <Input
                 type="file"
                 accept={PHOTO_ACCEPT}
                 multiple
+                className={formControlErrorClass(Boolean(rowFieldError(fieldErrors, index, "images")))}
+                {...formControlErrorProps(rowFieldError(fieldErrors, index, "images"))}
                 onChange={(e) => updateImages(index, e.target.files)}
               />
               <p className="text-xs text-muted-foreground">
@@ -229,6 +271,7 @@ export function CustomerCollateralFields({ value, onChange }: Props) {
                   ))}
                 </div>
               ) : null}
+              <FieldError>{rowFieldError(fieldErrors, index, "images")}</FieldError>
             </Field>
           </FieldGroup>
         </div>
