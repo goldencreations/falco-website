@@ -615,21 +615,21 @@ export default function CustomerDetailPage() {
  title="Customer Profile"
  description={customer.customer_number}
  />
- <main className="flex min-h-0 flex-1 overflow-y-auto overflow-x-hidden scroll-smooth p-4 pb-10 lg:p-6 lg:pb-8">
- <div className="mx-auto max-w-7xl space-y-4 sm:space-y-5">
- <div className="flex items-center justify-between">
- <Button variant="ghost" size="sm" asChild>
+ <main className="flex min-h-0 flex-1 overflow-y-auto overflow-x-hidden scroll-smooth p-3 pb-10 sm:p-4 lg:p-6 lg:pb-8">
+ <div className="mx-auto w-full max-w-7xl space-y-4 sm:space-y-5">
+ <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+ <Button variant="ghost" size="sm" className="w-fit" asChild>
  <Link href={customersListPath}>
  <ArrowLeft className="mr-2 h-4 w-4" />
  Back to Customers
  </Link>
  </Button>
- <div className="flex gap-2">
- <Button variant="outline" size="sm" onClick={handleExportPdf} disabled={isExporting}>
+ <div className="grid w-full grid-cols-2 gap-2 min-[520px]:flex min-[520px]:w-auto min-[520px]:flex-wrap min-[520px]:justify-end">
+ <Button variant="outline" size="sm" className="justify-center" onClick={handleExportPdf} disabled={isExporting}>
  <Download className="mr-2 h-4 w-4" />
- {isExporting ? "Exporting..." : "Export Report"}
+ <span className="truncate">{isExporting ? "Exporting..." : "Export Report"}</span>
  </Button>
- <Button variant="outline" size="sm" asChild>
+ <Button variant="outline" size="sm" className="justify-center" asChild>
  <Link href={customerEditPath}>
  <Edit className="mr-2 h-4 w-4" />
  Edit
@@ -639,6 +639,7 @@ export default function CustomerDetailPage() {
  <Button
  variant="destructive"
  size="sm"
+ className="col-span-2 justify-center min-[520px]:col-auto"
  onClick={() => {
  setBlacklistError("");
  setBlacklistOpen(true);
@@ -654,7 +655,7 @@ export default function CustomerDetailPage() {
  {/* Customer Header Card */}
  <Card className="overflow-hidden border border-border/80 shadow-sm">
  <CardContent className="p-4 sm:p-5">
- <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+ <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-start">
  <Avatar className="h-20 w-20 shrink-0 ring-2 ring-primary/15 sm:h-24 sm:w-24">
           {passportAvatarSrc ? (
             <AvatarImage
@@ -669,10 +670,10 @@ export default function CustomerDetailPage() {
  {customer.last_name[0]}
  </AvatarFallback>
  </Avatar>
- <div className="flex-1 min-w-0 space-y-3">
+ <div className="min-w-0 flex-1 space-y-3 text-center sm:text-left">
  <div>
- <div className="flex flex-wrap items-center gap-2">
- <h2 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+ <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
+ <h2 className="max-w-full break-words text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
  {customer.first_name} {customer.middle_name} {customer.last_name}
  </h2>
  {customer.is_blacklisted && (
@@ -682,9 +683,9 @@ export default function CustomerDetailPage() {
  </Badge>
  )}
  </div>
- <p className="text-sm text-muted-foreground font-mono">{customer.customer_number}</p>
+ <p className="break-all font-mono text-sm text-muted-foreground">{customer.customer_number}</p>
  </div>
- <div className="flex flex-wrap gap-1.5">
+ <div className="flex flex-wrap justify-center gap-1.5 sm:justify-start">
  <Badge variant="outline" className="capitalize border-primary/30">
  {customer.customer_type === "business" ? (
  <Building2 className="mr-1 h-3 w-3 text-primary" />

@@ -2,10 +2,11 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
-import { CachedMediaPreview } from "@/components/media/cached-media-preview";
+import { CachedMediaPreview, resolveMediaViewUrl } from "@/components/media/cached-media-preview";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { ApplicationViewRow, CollateralRow, GuarantorRow, ReferenceRow } from "@/lib/application-adapters";
 import {
@@ -182,6 +183,16 @@ export function ApplicationDetailPanel({
 }: ApplicationDetailPanelProps) {
   const status = applicationStatusConfig[application.status];
   const StatusIcon = status.icon;
+  const customerPhotoUrl = resolveMediaViewUrl(
+    application.customerPassportPhotoPreviewUrl,
+    application.customerPassportPhotoUrl
+  );
+  const customerInitials = application.customerDisplayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || "C";
   const customerHref = resolvePortalPath(
     effectiveRole as Parameters<typeof resolvePortalPath>[0],
     `/customers/${application.customer_id}`
@@ -262,27 +273,42 @@ export function ApplicationDetailPanel({
       <Card className="overflow-hidden border-border/80 py-0 shadow-sm">
         <CardContent className="space-y-5 p-4 sm:p-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div className="min-w-0 space-y-2">
-              <p className="font-mono text-xs text-muted-foreground">{application.application_number}</p>
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
-                  {application.customerDisplayName}
-                </h1>
-                <Badge
-                  variant="outline"
-                  className={cn("gap-1 capitalize", statusBadgeClass(application.status))}
-                >
-                  <StatusIcon className="h-3 w-3" />
-                  {status.label}
-                </Badge>
+            <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start">
+              <Avatar className="h-16 w-16 shrink-0 ring-2 ring-primary/15 sm:h-20 sm:w-20">
+                {customerPhotoUrl ? (
+                  <AvatarImage
+                    src={customerPhotoUrl}
+                    alt={`${application.customerDisplayName} profile photo`}
+                    className="object-cover"
+                    loading="lazy"
+                  />
+                ) : null}
+                <AvatarFallback className="bg-primary/10 text-lg font-semibold text-primary">
+                  {customerInitials}
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-0 space-y-2">
+                <p className="font-mono text-xs text-muted-foreground">{application.application_number}</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="break-words text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+                    {application.customerDisplayName}
+                  </h1>
+                  <Badge
+                    variant="outline"
+                    className={cn("gap-1 capitalize", statusBadgeClass(application.status))}
+                  >
+                    <StatusIcon className="h-3 w-3" />
+                    {status.label}
+                  </Badge>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  {application.productName}
+                  {application.branchName ? ` · ${application.branchName}` : ""}
+                </p>
+                <Button variant="link" className="h-auto p-0 text-sm" asChild>
+                  <Link href={customerHref}>View customer profile</Link>
+                </Button>
               </div>
-              <p className="text-sm text-muted-foreground">
-                {application.productName}
-                {application.branchName ? ` · ${application.branchName}` : ""}
-              </p>
-              <Button variant="link" className="h-auto p-0 text-sm" asChild>
-                <Link href={customerHref}>View customer profile</Link>
-              </Button>
             </div>
             {detailLoading ? (
               <Badge variant="secondary" className="w-fit gap-1">

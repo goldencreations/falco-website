@@ -30,6 +30,76 @@ function readRawUrl(o: Record<string, unknown>, ...keys: string[]): string | und
   return undefined;
 }
 
+function readNestedUrl(o: Record<string, unknown>, key: string): string | undefined {
+  const value = o[key];
+  if (!value || typeof value !== "object") return undefined;
+  return readRawUrl(value as Record<string, unknown>, "url", "download_url", "preview_url", "signed_url");
+}
+
+function readPhotoValue(value: unknown, previewOnly = false): string | undefined {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (!value || typeof value !== "object") return undefined;
+  const o = value as Record<string, unknown>;
+  return previewOnly
+    ? readRawUrl(o, "preview_url", "signed_url", "url", "download_url")
+    : readRawUrl(o, "url", "download_url", "preview_url", "signed_url");
+}
+
+function readCustomerPhotoFromDocuments(source: Record<string, unknown>, previewOnly = false): string | undefined {
+  const docs = Array.isArray(source.documents) ? source.documents : [];
+  for (const item of docs) {
+    if (!item || typeof item !== "object") continue;
+    const doc = item as Record<string, unknown>;
+    const type = String(doc.type ?? doc.document_type ?? "").trim().toLowerCase();
+    if (!/passport|profile_photo|customer_photo/.test(type)) continue;
+    const direct = previewOnly
+      ? readRawUrl(doc, "preview_url", "signed_url", "url", "download_url")
+      : readRawUrl(doc, "url", "download_url", "preview_url", "signed_url");
+    if (direct) return direct;
+    const nested = readNestedUrl(doc, "document");
+    if (nested) return nested;
+  }
+  return undefined;
+}
+
+function customerPhotoFromApp(app: Record<string, unknown>): {
+  customerPassportPhotoUrl?: string;
+  customerPassportPhotoPreviewUrl?: string;
+} {
+  const md = readAppMetadata(app);
+  const customer =
+    app.customer && typeof app.customer === "object"
+      ? (app.customer as Record<string, unknown>)
+      : {};
+  const customerMd =
+    customer.metadata && typeof customer.metadata === "object" && customer.metadata !== null
+      ? (customer.metadata as Record<string, unknown>)
+      : {};
+  const sources = [customer, customerMd, md, app];
+
+  const readUrlFromSource = (source: Record<string, unknown>) =>
+    readRawUrl(source, "passport_photo_url", "profile_photo_url", "customer_photo_url") ??
+    readPhotoValue(source.passport_photo) ??
+    readNestedUrl(source, "passport_photo_document") ??
+    readNestedUrl(source, "passport_document") ??
+    readCustomerPhotoFromDocuments(source);
+
+  const readPreviewFromSource = (source: Record<string, unknown>) =>
+    readRawUrl(
+      source,
+      "passport_photo_preview_url",
+      "profile_photo_preview_url",
+      "customer_photo_preview_url"
+    ) ??
+    readPhotoValue(source.passport_photo, true) ??
+    readCustomerPhotoFromDocuments(source, true);
+
+  return {
+    customerPassportPhotoUrl: sources.map(readUrlFromSource).find(Boolean),
+    customerPassportPhotoPreviewUrl: sources.map(readPreviewFromSource).find(Boolean),
+  };
+}
+
 function extractDocumentField(
   o: Record<string, unknown>,
   key: string
@@ -304,6 +374,8 @@ export type ApplicationViewRow = LoanApplication & {
   creatorName: string;
   officerName: string;
   assigned_officer_id?: string;
+  customerPassportPhotoUrl?: string;
+  customerPassportPhotoPreviewUrl?: string;
   /** RM from nested customer on list rows when customer_id map is incomplete. */
   customer_loan_officer_id?: string;
   required_documents?: string[];
@@ -453,6 +525,7 @@ export function adaptApiApplicationListRow(row: Record<string, unknown>): Applic
 
  const cust = customerSearchTextFromRow(app);
  const profile = customerProfileFromApp(app);
+ const customerPhoto = customerPhotoFromApp(app);
  const product = app.product;
  let productName =
  product && typeof product === "object"
@@ -537,6 +610,8 @@ export function adaptApiApplicationListRow(row: Record<string, unknown>): Applic
  creatorName,
  officerName,
  assigned_officer_id: assignedOfficerId,
+ customerPassportPhotoUrl: customerPhoto.customerPassportPhotoUrl,
+ customerPassportPhotoPreviewUrl: customerPhoto.customerPassportPhotoPreviewUrl,
  customer_loan_officer_id: customerLoanOfficerId || undefined,
  required_documents,
  loan_id: loan_id || undefined,

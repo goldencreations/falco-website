@@ -33,7 +33,9 @@ function encodeMapsQuery(query: string): string {
  return encodeURIComponent(query.trim());
 }
 
-export function leadMapEmbedUrl(lead: LeadView): string | null {
+type LeadMapTarget = Pick<LeadView, "latitude" | "longitude" | "locationName" | "region" | "district" | "ward">;
+
+export function leadMapEmbedUrl(lead: LeadMapTarget): string | null {
  const coords = parseLeadCoordinates(lead);
  if (coords) {
  return `https://maps.google.com/maps?q=${coords.latitude},${coords.longitude}&z=15&output=embed`;
@@ -43,7 +45,7 @@ export function leadMapEmbedUrl(lead: LeadView): string | null {
  return `https://maps.google.com/maps?q=${encodeMapsQuery(address)}&z=14&output=embed`;
 }
 
-export function leadMapViewUrl(lead: LeadView): string | null {
+export function leadMapViewUrl(lead: LeadMapTarget): string | null {
  const coords = parseLeadCoordinates(lead);
  if (coords) {
  return `https://www.google.com/maps/search/?api=1&query=${coords.latitude},${coords.longitude}`;
@@ -53,7 +55,7 @@ export function leadMapViewUrl(lead: LeadView): string | null {
  return `https://www.google.com/maps/search/?api=1&query=${encodeMapsQuery(address)}`;
 }
 
-export function leadMapDirectionsUrl(lead: LeadView): string | null {
+export function leadMapDirectionsUrl(lead: LeadMapTarget): string | null {
  const coords = parseLeadCoordinates(lead);
  if (coords) {
  return `https://www.google.com/maps/dir/?api=1&destination=${coords.latitude},${coords.longitude}`;

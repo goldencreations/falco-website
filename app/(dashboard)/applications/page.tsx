@@ -474,7 +474,7 @@ export default function ApplicationsPage() {
  />
  <main className="flex min-h-0 flex-1 overflow-y-auto p-2 pb-6 sm:p-3">
  <div className="w-full space-y-4">
- <div className="rounded-xl border border-emerald-100 bg-gradient-to-r from-emerald-50 via-background to-background p-3 sm:p-4">
+ <div className="p-3 sm:p-4">
  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
  <div>
  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">

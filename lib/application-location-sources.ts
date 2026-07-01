@@ -34,7 +34,7 @@ export function filterLeadsForCustomer(leads: LeadView[], customer: Customer): L
 
 export type ApplicationLocationSource = {
   id: string;
-  kind: "lead" | "customer_home" | "customer_business";
+  kind: "lead" | "customer_home" | "customer_business" | "group_meeting";
   label: string;
   subtitle: string;
   latitude: string;
