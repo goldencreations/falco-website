@@ -113,9 +113,53 @@ function repaymentCountForManual(
   months: number
 ) {
   if (frequency === "daily") return Math.max(1, termDays);
-  if (frequency === "weekly") return Math.max(1, Math.ceil(termDays / 7));
-  if (frequency === "bi_weekly") return Math.max(1, Math.ceil(termDays / 14));
+  if (frequency === "weekly") return Math.max(1, Math.round(months * 4));
+  if (frequency === "bi_weekly") return Math.max(1, Math.round(months * 2));
   return Math.max(1, Math.round(months));
+}
+
+function parseScheduleDate(value: string): Date {
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return new Date();
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function formatScheduleDate(date: Date): string {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function addScheduleDays(date: Date, days: number): Date {
+  const next = new Date(date.getTime());
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+}
+
+function addScheduleMonths(date: Date, months: number): Date {
+  const next = new Date(date.getTime());
+  next.setUTCMonth(next.getUTCMonth() + months);
+  return next;
+}
+
+function manualScheduleDueDate(
+  startDate: string,
+  frequency: CalculatorPreviewForm["repaymentFrequency"],
+  installmentNumber: number
+): string {
+  const baseDate = parseScheduleDate(startDate);
+
+  if (frequency === "daily") {
+    return formatScheduleDate(addScheduleDays(baseDate, installmentNumber));
+  }
+  if (frequency === "weekly") {
+    return formatScheduleDate(addScheduleDays(baseDate, installmentNumber * 7));
+  }
+  if (frequency === "bi_weekly") {
+    return formatScheduleDate(addScheduleDays(baseDate, installmentNumber * 14));
+  }
+  return formatScheduleDate(addScheduleMonths(baseDate, installmentNumber));
 }
 
 function normalizePercentInput(value: string): number {
@@ -151,14 +195,28 @@ function applyManualFormula(
   const principalDue = principal / repaymentCount;
   const interestDue = interestAmount / repaymentCount;
   const feesDue = (processingFee + insuranceFee) / repaymentCount;
-  const schedulePreview = (parsed?.schedulePreview ?? []).map((row, index) => ({
-    ...row,
-    installmentNumber: row.installmentNumber || index + 1,
-    principalDue,
-    interestDue,
-    feesDue,
-    totalDue: installmentAmount,
-  }));
+  const generatedSchedulePreview = Array.from({ length: repaymentCount }, (_, index) => {
+    const installmentNumber = index + 1;
+    return {
+      installmentNumber,
+      dueDate: manualScheduleDueDate(form.startDate, form.repaymentFrequency, installmentNumber),
+      principalDue,
+      interestDue,
+      feesDue,
+      totalDue: installmentAmount,
+    };
+  });
+  const schedulePreview =
+    parsed?.schedulePreview && parsed.schedulePreview.length > 0
+      ? parsed.schedulePreview.map((row, index) => ({
+          ...row,
+          installmentNumber: row.installmentNumber || index + 1,
+          principalDue,
+          interestDue,
+          feesDue,
+          totalDue: installmentAmount,
+        }))
+      : generatedSchedulePreview;
 
   return {
     ...(parsed ?? {}),
