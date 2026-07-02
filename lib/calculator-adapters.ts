@@ -17,6 +17,8 @@ export type CalculatorResultView = {
  interestRate: number;
  interestType: InterestType;
  interestAmount: number;
+ interestOnPrincipal?: number;
+ interestOnProcessingFee?: number;
  processingFee: number;
  insuranceFee: number;
  totalFees: number;
@@ -77,6 +79,10 @@ export function adaptCalculatorResult(raw: Record<string, unknown>): CalculatorR
  interestRate: num(raw.interest_rate),
  interestType: asInterestType(str(raw.interest_type, "flat")),
  interestAmount: num(raw.interest_amount),
+ interestOnPrincipal:
+  raw.interest_on_principal != null ? num(raw.interest_on_principal) : undefined,
+ interestOnProcessingFee:
+  raw.interest_on_processing_fee != null ? num(raw.interest_on_processing_fee) : undefined,
  processingFee: num(raw.processing_fee),
  insuranceFee: num(raw.insurance_fee),
  totalFees: num(raw.total_fees),
@@ -188,7 +194,7 @@ export function validateProductCalculatorPreview(
   product: LoanProduct
 ): string | null {
   if (principal < product.min_amount || principal > product.max_amount) {
-    return `Loan amount must be between ${product.min_amount.toLocaleString()} and ${product.max_amount.toLocaleString()} TZS for this product.`;
+    return `Principal Amount must be between ${product.min_amount.toLocaleString()} and ${product.max_amount.toLocaleString()} TZS for this product.`;
   }
   if (termDays < product.min_term_days || termDays > product.max_term_days) {
     return `Term must be between ${product.min_term_days} and ${product.max_term_days} days for this product.`;
@@ -239,7 +245,7 @@ export function getProductCalculatorValidationError(
 ): string | null {
   if (form.mode !== "product" || !product) return null;
   const principal = num(parseMoneyInput(form.principal));
-  if (principal < 1) return "Enter a loan amount to calculate.";
+  if (principal < 1) return "Enter a Principal Amount to calculate.";
   const termDays = Math.round(num(form.termDays));
   if (termDays < 1) return "Enter a loan term in days.";
   return validateProductCalculatorPreview(principal, termDays, product);
