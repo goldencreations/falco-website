@@ -20,6 +20,7 @@ import {
  Scale,
  Loader2,
  RefreshCcw,
+ RotateCcw,
 } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Button } from "@/components/ui/button";
@@ -51,6 +52,8 @@ import {
  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import type {
  PaymentViewRow,
  ReconciliationStatus,
@@ -128,6 +131,16 @@ export default function PaymentsPage() {
  const [mobileNumber, setMobileNumber] = useState("");
  const [requestedLoanId, setRequestedLoanId] = useState<string | null>(null);
  const [openPaymentForm, setOpenPaymentForm] = useState<string | null>(null);
+ const [repaymentReference, setRepaymentReference] = useState<string | null>(null);
+ const [repaymentReferenceLoading, setRepaymentReferenceLoading] = useState(false);
+ const [paymentInstructions, setPaymentInstructions] = useState<string | null>(null);
+ const [reversePayment, setReversePayment] = useState<PaymentViewRow | null>(null);
+ const [reverseReason, setReverseReason] = useState("");
+ const [reverseLoading, setReverseLoading] = useState(false);
+ const canReverse =
+ user?.role === "super_admin" ||
+ user?.role === "accountant" ||
+ Boolean(user?.permissions?.includes("payments.reverse"));
 
  const load = useCallback(async () => {
  setLoading(true);
@@ -227,6 +240,51 @@ export default function PaymentsPage() {
 
  const selectedLoanDetails = selectedLoan ? loanById.get(selectedLoan) : undefined;
 
+ useEffect(() => {
+ let cancelled = false;
+ setRepaymentReference(null);
+ setRepaymentReferenceLoading(Boolean(selectedLoanDetails?.customer_id));
+ setPaymentInstructions(null);
+ if (!selectedLoanDetails?.customer_id) return;
+
+ void Promise.all([
+ fetch(`/api/customers/${encodeURIComponent(selectedLoanDetails.customer_id)}`, {
+ credentials: "include",
+ }).then((response) => response.json()),
+ fetch("/api/settings/payment-channels", { credentials: "include" }).then((response) =>
+ response.json()
+ ),
+ ]).then(([customerPayload, channelPayload]) => {
+ if (cancelled) return;
+ const customer =
+ customerPayload?.customer && typeof customerPayload.customer === "object"
+ ? customerPayload.customer
+ : customerPayload;
+ const references = Array.isArray(customer?.payment_references)
+ ? customer.payment_references
+ : [];
+ const active =
+ references.find((row: Record<string, unknown>) => row.is_active === true) ?? references[0];
+ if (active?.reference) setRepaymentReference(String(active.reference));
+
+ const channels = Array.isArray(channelPayload?.channels) ? channelPayload.channels : [];
+ const instruction = channels.find(
+ (row: Record<string, unknown>) =>
+ String(row.gateway ?? "").toLowerCase() === "clickpesa" &&
+ String(row.type ?? "").toLowerCase() === "mobile_money"
+ );
+ if (instruction?.instructions) setPaymentInstructions(String(instruction.instructions));
+ }).catch(() => {
+ // Manual repayment entry remains available if reference metadata cannot be loaded.
+ }).finally(() => {
+ if (!cancelled) setRepaymentReferenceLoading(false);
+ });
+
+ return () => {
+ cancelled = true;
+ };
+ }, [selectedLoanDetails?.customer_id]);
+
  const preselectedLoan = useMemo(
  () => (requestedLoanId ? loanById.get(requestedLoanId) : undefined),
  [requestedLoanId, loanById]
@@ -294,6 +352,33 @@ export default function PaymentsPage() {
  setError(e instanceof Error ? e.message : "Failed to record payment");
  } finally {
  setActionLoading(false);
+ }
+ };
+
+ const handleReversePayment = async () => {
+ if (!reversePayment || !reverseReason.trim()) return;
+ setReverseLoading(true);
+ setError(null);
+ try {
+ const res = await fetch(
+ `/api/payments/${encodeURIComponent(reversePayment.id)}/reverse`,
+ {
+ method: "POST",
+ credentials: "include",
+ headers: { "Content-Type": "application/json" },
+ body: JSON.stringify({ reason: reverseReason.trim() }),
+ }
+ );
+ const { data } = await parseJsonResponse<Record<string, unknown>>(res);
+ if (!res.ok) {
+ setError(formatApiResponseError(data, "Failed to reverse payment"));
+ return;
+ }
+ setReversePayment(null);
+ setReverseReason("");
+ await load();
+ } finally {
+ setReverseLoading(false);
  }
  };
 
@@ -486,6 +571,20 @@ export default function PaymentsPage() {
  </Field>
  {paymentMethod === "mobile_money" && (
  <>
+ <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950">
+ <p className="font-medium">ClickPesa automatic repayment</p>
+ <p className="mt-1">
+ Ask the customer to pay using reference{" "}
+ <span className="font-mono font-semibold">
+ {repaymentReferenceLoading ? "loading…" : repaymentReference ?? "not available"}
+ </span>.
+ The confirmed ClickPesa webhook records and allocates the repayment automatically.
+ </p>
+ {paymentInstructions ? <p className="mt-1 text-sky-900">{paymentInstructions}</p> : null}
+ <p className="mt-1 text-sky-800">
+ Use this form only when the transaction has already been independently verified.
+ </p>
+ </div>
  <Field>
  <FieldLabel>Mobile provider</FieldLabel>
  <Select value={mobileProvider} onValueChange={setMobileProvider}>
@@ -521,7 +620,7 @@ export default function PaymentsPage() {
  <SelectValue />
  </SelectTrigger>
  <SelectContent>
- <SelectItem value="system">System Captured</SelectItem>
+ <SelectItem value="system">Verified external transaction</SelectItem>
  <SelectItem value="manual_collection">Manual Collection (Loan Officer)</SelectItem>
  </SelectContent>
  </Select>
@@ -581,12 +680,13 @@ export default function PaymentsPage() {
  <TableHead>Status</TableHead>
  <TableHead>Reconciliation</TableHead>
  <TableHead>Date</TableHead>
+ {canReverse ? <TableHead className="text-right">Action</TableHead> : null}
  </TableRow>
  </TableHeader>
  <TableBody>
  {filteredPayments.length === 0 ? (
  <TableRow>
- <TableCell colSpan={10} className="py-8 text-center text-muted-foreground">
+ <TableCell colSpan={canReverse ? 11 : 10} className="py-8 text-center text-muted-foreground">
  No payments found
  </TableCell>
  </TableRow>
@@ -656,6 +756,27 @@ export default function PaymentsPage() {
  <TableCell className="text-sm text-muted-foreground">
  {formatDateTime(payment.payment_date)}
  </TableCell>
+ {canReverse ? (
+ <TableCell className="text-right">
+ {payment.status === "completed" &&
+ payment.amount > 0 &&
+ payment.metadata?.reversal_entry !== true ? (
+ <Button
+ type="button"
+ size="sm"
+ variant="outline"
+ className="text-destructive hover:bg-destructive/10"
+ onClick={() => {
+ setReversePayment(payment);
+ setReverseReason("");
+ }}
+ >
+ <RotateCcw className="mr-1 h-3.5 w-3.5" />
+ Reverse
+ </Button>
+ ) : null}
+ </TableCell>
+ ) : null}
  </TableRow>
  );
  })
@@ -668,6 +789,40 @@ export default function PaymentsPage() {
  )}
  </div>
  </main>
+
+ <Dialog open={Boolean(reversePayment)} onOpenChange={(open) => !open && setReversePayment(null)}>
+ <DialogContent className="sm:max-w-md">
+ <DialogHeader>
+ <DialogTitle>Reverse repayment</DialogTitle>
+ <DialogDescription>
+ This creates a compensating entry and restores the loan and schedule balances.
+ </DialogDescription>
+ </DialogHeader>
+ <div className="space-y-2">
+ <Label htmlFor="reversal-reason">Reason</Label>
+ <Textarea
+ id="reversal-reason"
+ value={reverseReason}
+ onChange={(event) => setReverseReason(event.target.value)}
+ placeholder="Why is this repayment being reversed?"
+ />
+ </div>
+ <DialogFooter>
+ <Button type="button" variant="outline" onClick={() => setReversePayment(null)}>
+ Cancel
+ </Button>
+ <Button
+ type="button"
+ variant="destructive"
+ disabled={reverseLoading || !reverseReason.trim()}
+ onClick={() => void handleReversePayment()}
+ >
+ {reverseLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+ Confirm reversal
+ </Button>
+ </DialogFooter>
+ </DialogContent>
+ </Dialog>
  </>
  );
 }

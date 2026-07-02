@@ -162,6 +162,12 @@ export function adaptApiDisbursementRow(raw: Record<string, unknown>): Disbursem
  bank_name: bankName,
  transaction_reference: row.transaction_reference != null ? str(row.transaction_reference) : null,
  status: asStatus(row.status ? str(row.status) : undefined),
+ gateway: row.gateway != null ? str(row.gateway) : null,
+ order_reference: row.order_reference != null ? str(row.order_reference) : null,
+ metadata:
+ row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+ ? (row.metadata as Record<string, unknown>)
+ : undefined,
  prepared_by: str(row.prepared_by ?? row.created_by ?? ""),
  approved_by: row.approved_by != null ? str(row.approved_by) : null,
  approved_at: row.approved_at ? str(row.approved_at) : null,
@@ -678,6 +684,11 @@ export function mapUiDisbursementCreateToFalco(body: Record<string, unknown>): R
 
  const bankName = body.bank_name != null ? String(body.bank_name).trim() : "";
  if (bankName) payload.bank_name = bankName;
+ const bankBic = body.bank_bic != null ? String(body.bank_bic).trim() : "";
+ if (bankBic) payload.bank_bic = bankBic;
+ const bankTransferType =
+ body.bank_transfer_type != null ? String(body.bank_transfer_type).trim().toUpperCase() : "";
+ if (bankTransferType) payload.bank_transfer_type = bankTransferType;
 
  const txRef = body.transaction_reference != null ? String(body.transaction_reference).trim() : "";
  if (txRef) payload.transaction_reference = txRef;
@@ -720,8 +731,8 @@ export function mapUiLoanDisburseToFalco(body: Record<string, unknown>): Record<
  if (disbursement_channel === "bank_transfer") {
  base.bank_account_number = String(body.account_number ?? "").trim() || null;
  base.bank_account_name = String(body.account_name ?? "").trim() || null;
- base.bank_bic = String(body.bank_bic ?? "000000000").trim();
- base.bank_transfer_type = String(body.bank_transfer_type ?? "domestic");
+ base.bank_bic = String(body.bank_bic ?? "").trim() || null;
+ base.bank_transfer_type = String(body.bank_transfer_type ?? "").trim().toUpperCase() || null;
  }
 
  return base;

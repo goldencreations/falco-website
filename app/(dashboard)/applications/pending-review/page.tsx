@@ -146,7 +146,10 @@ export default function PendingReviewPage() {
  resolveApplicationApprovalSuccessMessage(
  {
  message: result.message,
- loanId: "loanId" in result ? result.loanId : undefined,
+ loanId:
+ "loanId" in result && typeof result.loanId === "string"
+ ? result.loanId
+ : undefined,
  data: "data" in result ? result.data : undefined,
  },
  { role: effectiveRole, permissions: user?.permissions ?? [] }

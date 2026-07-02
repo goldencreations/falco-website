@@ -83,7 +83,9 @@ Gateway disbursement returns `202`:
 - `/disbursements` console rows expose frontend statuses: `pending_approval`, `approved`, `completed`, and `rejected`.
 - `POST /disbursements` creates `pending_approval` only; it does not call the gateway and does not activate the loan.
 - `PATCH /disbursements/{id}` supports `{ "action": "approve" }`, `{ "action": "reject", "rejection_reason": "..." }`, and `{ "action": "complete", "transaction_reference": "...", "disbursed_at": "..." }`.
-- Completing an approved row activates the loan through the same loan activation policy as cash disbursement.
+- Approving a cash/manual row activates the loan immediately.
+- Approving a mobile-money or bank row submits the payout to ClickPesa and leaves the loan pending until a success callback or confirmation job completes it.
+- Completing an approved row is a manual operational fallback; the frontend does not automatically complete a ClickPesa payout.
 
 - `order_reference` is deterministic per loan attempt: `DISB-{loan_id}-{attempt}`.
 - `cash` creates a completed disbursement, activates the loan, marks the application `disbursed`, and materializes immutable repayment schedule rows.
@@ -99,7 +101,7 @@ Gateway disbursement returns `202`:
 
 ## Edge Cases
 
-- Gateway payout completion does not activate loans in this module; webhook and confirmation jobs will handle that later.
+- Successful gateway payout callbacks activate the loan and create its repayment schedule; processing payouts may also be settled by the confirmation job after the configured reversal window.
 - Existing schedules are not regenerated if a cash activation is retried internally.
 - Schedule rounding places the remaining cents on the final installment.
 - Branch access is checked before creating or listing disbursement attempts.

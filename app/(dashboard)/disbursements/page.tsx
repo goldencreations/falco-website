@@ -346,6 +346,8 @@ export default function DisbursementsPage() {
  const [formAccountName, setFormAccountName] = useState("");
  const [formAccountNumber, setFormAccountNumber] = useState("");
  const [formBankName, setFormBankName] = useState("");
+ const [formBankBic, setFormBankBic] = useState("");
+ const [formBankTransferType, setFormBankTransferType] = useState<"ACH" | "RTGS">("ACH");
  const [formNotes, setFormNotes] = useState("");
 
  const [viewRow, setViewRow] = useState<DisbursementViewRow | null>(null);
@@ -649,8 +651,9 @@ export default function DisbursementsPage() {
  if (formAccountNumber) body.account_number = formAccountNumber;
  }
  if (BANK_CHANNELS.includes(formMethod) && formBankName) body.bank_name = formBankName;
- if (BANK_CHANNELS.includes(formMethod) && !formBankName) {
- body.bank_name = DISBURSEMENT_CHANNEL_LABELS[formMethod];
+ if (BANK_CHANNELS.includes(formMethod)) {
+ body.bank_bic = formBankBic.trim();
+ body.bank_transfer_type = formBankTransferType;
  }
 
  setActionLoading("create");
@@ -678,6 +681,8 @@ export default function DisbursementsPage() {
  setFormAccountName("");
  setFormAccountNumber("");
  setFormBankName("");
+ setFormBankBic("");
+ setFormBankTransferType("ACH");
  await load();
  await loadEligibleLoans();
  } finally {
@@ -720,7 +725,9 @@ export default function DisbursementsPage() {
   }
 };
 
- const canApprove = user ? userCanApproveDisbursement(user) : false;
+ const canApprove = user
+ ? userCanApproveDisbursement({ ...user, permissions: user.permissions ?? [] })
+ : false;
 
  const chartData = useMemo(() => {
  if (!kpis) return [];
@@ -761,6 +768,10 @@ export default function DisbursementsPage() {
  (!Number.isFinite(createAmountNum) ||
  createAmountNum <= 0 ||
  (maxDisburseAmount > 0 && createAmountNum > maxDisburseAmount));
+ const destinationInvalid =
+ (MOBILE_CHANNELS.includes(formMethod) && !formAccountNumber.trim()) ||
+ (BANK_CHANNELS.includes(formMethod) &&
+ (!formAccountName.trim() || !formAccountNumber.trim() || !formBankBic.trim()));
 
  const handleExportPdf = useCallback((row: DisbursementViewRow) => {
  exportDisbursementToPdf({
@@ -1371,6 +1382,7 @@ export default function DisbursementsPage() {
  </Field>
  </div>
  {BANK_CHANNELS.includes(formMethod) && (
+ <div className="grid gap-4 sm:grid-cols-2">
  <Field>
  <FieldLabel className="text-xs font-medium">Bank name</FieldLabel>
  <Input
@@ -1380,6 +1392,31 @@ export default function DisbursementsPage() {
  className="h-11"
  />
  </Field>
+ <Field>
+ <FieldLabel className="text-xs font-medium">Bank BIC / SWIFT code</FieldLabel>
+ <Input
+ value={formBankBic}
+ onChange={(e) => setFormBankBic(e.target.value)}
+ placeholder="Required by ClickPesa"
+ className="h-11 font-mono"
+ />
+ </Field>
+ <Field className="sm:col-span-2">
+ <FieldLabel className="text-xs font-medium">Transfer type</FieldLabel>
+ <Select
+ value={formBankTransferType}
+ onValueChange={(value) => setFormBankTransferType(value as "ACH" | "RTGS")}
+ >
+ <SelectTrigger className="h-11 bg-background">
+ <SelectValue />
+ </SelectTrigger>
+ <SelectContent>
+ <SelectItem value="ACH">ACH</SelectItem>
+ <SelectItem value="RTGS">RTGS</SelectItem>
+ </SelectContent>
+ </Select>
+ </Field>
+ </div>
  )}
  </div>
  </>
@@ -1425,7 +1462,8 @@ export default function DisbursementsPage() {
  !formLoan ||
  actionLoading === "create" ||
  !formAmount.trim() ||
- createAmountInvalid
+ createAmountInvalid ||
+ destinationInvalid
  }
  >
  {actionLoading === "create" ? (
@@ -1487,7 +1525,9 @@ export default function DisbursementsPage() {
  </TableCell>
  <TableCell>{DISBURSEMENT_CHANNEL_LABELS[row.method]}</TableCell>
  <TableCell>
- <Badge variant={sc.variant}>{sc.label}</Badge>
+ <Badge variant={sc.variant}>
+ {row.status === "approved" && row.gateway ? "ClickPesa processing" : sc.label}
+ </Badge>
  </TableCell>
  <TableCell className="text-sm">
  {staffDisplayLabel(row.prepared_by_name, row.prepared_by)}
@@ -1512,9 +1552,15 @@ export default function DisbursementsPage() {
  variant="outline"
  disabled={actionLoading === row.id}
  onClick={() => patch(row.id, { action: "approve" })}
- title="Approves disbursement and activates the loan"
+ title={
+ MOBILE_CHANNELS.includes(row.method) || BANK_CHANNELS.includes(row.method)
+ ? "Approve and send this payout to ClickPesa"
+ : "Approve and activate this cash/manual disbursement"
+ }
  >
- Approve & activate
+ {MOBILE_CHANNELS.includes(row.method) || BANK_CHANNELS.includes(row.method)
+ ? "Approve & send"
+ : "Approve & activate"}
  </Button>
  <Button
  size="sm"
@@ -1529,7 +1575,7 @@ export default function DisbursementsPage() {
  </Button>
  </>
  )}
- {canApprove && row.status === "approved" && (
+ {canApprove && row.status === "approved" && !row.gateway && (
  <Button
  size="sm"
  onClick={() => {
@@ -1574,7 +1620,9 @@ export default function DisbursementsPage() {
  <CardTitle className="text-base">{row.loan_number ?? row.loan_id}</CardTitle>
  <p className="text-sm text-muted-foreground">{row.customer_display_name ?? "—"}</p>
  </div>
- <Badge variant={sc.variant}>{sc.label}</Badge>
+ <Badge variant={sc.variant}>
+ {row.status === "approved" && row.gateway ? "ClickPesa processing" : sc.label}
+ </Badge>
  </div>
  </CardHeader>
  <CardContent className="space-y-3 text-sm">
@@ -1602,9 +1650,15 @@ export default function DisbursementsPage() {
  className="flex-1"
  disabled={actionLoading === row.id}
  onClick={() => patch(row.id, { action: "approve" })}
- title="Approves disbursement and activates the loan"
+ title={
+ MOBILE_CHANNELS.includes(row.method) || BANK_CHANNELS.includes(row.method)
+ ? "Approve and send this payout to ClickPesa"
+ : "Approve and activate this cash/manual disbursement"
+ }
  >
- Approve & activate
+ {MOBILE_CHANNELS.includes(row.method) || BANK_CHANNELS.includes(row.method)
+ ? "Approve & send"
+ : "Approve & activate"}
  </Button>
  <Button
  size="sm"
@@ -1620,7 +1674,7 @@ export default function DisbursementsPage() {
  </Button>
  </>
  )}
- {canApprove && row.status === "approved" && (
+ {canApprove && row.status === "approved" && !row.gateway && (
  <Button
  size="sm"
  className="flex-1"

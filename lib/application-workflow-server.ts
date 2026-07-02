@@ -377,63 +377,20 @@ export async function runServerApplicationApprovalWorkflow(
 
  if (isFinalApprovalRawStatus(raw)) {
 
- if (!mayFinalApprove && mayManagerReview) {
-
- let finalizeBody: Record<string, unknown>;
-
- try {
-
- finalizeBody = buildReviewBody("approve", {
-
- approved_amount: approvedAmount,
-
- review_notes: `Disbursement prepare — loan created by ${actorName}.`,
-
- });
-
- } catch (e) {
-
- return { ok: false, error: e instanceof Error ? e.message : "Invalid approval amount." };
-
- }
-
- const finalize = await postReview(applicationId, finalizeBody);
-
- if (!finalize.ok) return finalize;
-
- finalData = finalize.data;
-
- const loanId =
-
- extractLoanFromWorkflowResponse(finalData)?.id ??
-
- (await fetchApplicationRow(applicationId))?.loan_id;
-
- if (loanId) {
-
- return { ok: true, loanId, message: "Loan account created for disbursement." };
-
- }
-
- return {
-
- ok: false,
-
- error:
-
- "Application is approved but no loan account was returned. Deploy the latest backend or contact support.",
-
- };
-
- }
-
  if (!mayFinalApprove) {
 
+ if (mayManagerReview && progressedManager) {
+ return {
+ ok: true,
+ message: "Application approved at manager level. Final admin approval is required before disbursement.",
+ };
+ }
+
  return {
 
  ok: false,
 
- error: `Application is ${describeRow(row)} and needs final approval. Your account lacks loans.approve.`,
+ error: `Application is ${describeRow(row)} and is already manager-approved. Final admin approval is required.`,
 
  };
 

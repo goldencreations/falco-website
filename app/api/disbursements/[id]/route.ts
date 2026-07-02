@@ -105,39 +105,6 @@ export async function PATCH(
  );
  }
 
- /** On approval, complete disbursement so the loan becomes `active` (per disbursements-controller.md). */
- if (action === "approve") {
- const loanId =
- loanIdFromDisbursementPayload(res.data) ??
- (pre.ok ? loanIdFromDisbursementPayload(pre.data) : undefined);
- const completeBody: Record<string, unknown> = {
- action: "complete",
- disbursed_at: new Date().toISOString().slice(0, 10),
- };
- if (body.transaction_reference != null) {
- completeBody.transaction_reference = body.transaction_reference;
- }
- const completeRes = await falcoServerFetch<unknown>(
- `/disbursements/${encodeURIComponent(id)}`,
- { method: "PATCH", body: completeBody }
- );
- if (completeRes.ok) {
- const data = completeRes.data;
- if (data && typeof data === "object") {
- const o = data as Record<string, unknown>;
- const row = o.disbursement && typeof o.disbursement === "object" ? o.disbursement : data;
- const adapted = adaptApiDisbursementRow(row as Record<string, unknown>);
- const [enriched] = await enrichDisbursementRowsWithUserNames([adapted]);
- return NextResponse.json({
- disbursement: enriched,
- loan_activated: true,
- loan_id: loanId,
- });
- }
- return NextResponse.json(completeRes.data);
- }
- }
-
  const data = res.data;
  if (data && typeof data === "object") {
  const o = data as Record<string, unknown>;

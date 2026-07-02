@@ -40,6 +40,9 @@ export interface Disbursement {
  bank_name: string | null;
  transaction_reference: string | null;
  status: DisbursementStatus;
+ gateway?: string | null;
+ order_reference?: string | null;
+ metadata?: Record<string, unknown>;
  prepared_by: string;
  approved_by: string | null;
  approved_at: string | null;
