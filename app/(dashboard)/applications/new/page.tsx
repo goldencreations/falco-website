@@ -35,6 +35,7 @@ import {
 } from "@/lib/customer-adapters";
 import { extractGroupsList } from "@/lib/group-adapters";
 import { formatCurrency } from "@/lib/formatters";
+import { calculateLoanFormula, monthsFromTermDays } from "@/lib/loan-formula";
 import { extractProductsList } from "@/lib/product-adapters";
 import {
   customerGuarantorsToApplicationPayload,
@@ -512,32 +513,25 @@ function NewApplicationPageContent() {
  const calculateLoanDetails = () => {
  if (!selectedProduct || !amount || !termDays) return null;
 
- const processingFee = amount * (selectedProduct.processing_fee_percent / 100);
- const insuranceFee = amount * (selectedProduct.insurance_fee_percent / 100);
- const totalFees = processingFee + insuranceFee;
-
- let interest = 0;
- if (selectedProduct.interest_type === "flat") {
- interest = amount * (selectedProduct.interest_rate / 100) * (termDays / 365);
- } else {
- // Simplified reducing balance calculation
- const monthlyRate = selectedProduct.interest_rate / 100 / 12;
- const months = termDays / 30;
- interest = amount * monthlyRate * months * 0.6; // Approximation
- }
-
- const totalRepayment = amount + interest + totalFees;
- const installmentCount = Math.ceil(termDays / 30);
- const installmentAmount = totalRepayment / installmentCount;
+ const formula = calculateLoanFormula({
+ principal: amount,
+ months: monthsFromTermDays(termDays),
+ interestRatePerMonth:
+ selectedProduct.interest_rate_per_month ?? selectedProduct.interest_rate / 12,
+ processingFeePercent: selectedProduct.processing_fee_percent,
+ insuranceFeePercent: selectedProduct.insurance_fee_percent,
+ repaymentFrequency: selectedProduct.repayment_frequency,
+ interestType: selectedProduct.interest_type,
+ });
 
  return {
- processingFee,
- insuranceFee,
- totalFees,
- interest,
- totalRepayment,
- installmentCount,
- installmentAmount,
+ processingFee: formula.processingFee,
+ insuranceFee: formula.insuranceFee,
+ totalFees: formula.totalFees,
+ interest: formula.interestAmount,
+ totalRepayment: formula.totalRepayment,
+ installmentCount: formula.repaymentCount,
+ installmentAmount: formula.installmentAmount,
  };
  };
 
