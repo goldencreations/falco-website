@@ -40,6 +40,7 @@ import { formatCurrency, formatDate } from "@/lib/formatters";
 import { parseJsonResponse } from "@/lib/parse-json-response";
 import { extractProductsList } from "@/lib/product-adapters";
 import { parseMoneyInput } from "@/lib/money-input";
+import { calculateLoanFormula } from "@/lib/loan-formula";
 import type { LoanProduct } from "@/lib/types";
 
 const defaultForm: CalculatorPreviewForm = {
@@ -162,34 +163,31 @@ function manualScheduleDueDate(
   return formatScheduleDate(addScheduleMonths(baseDate, installmentNumber));
 }
 
-function normalizePercentInput(value: string): number {
-  const numeric = Math.max(0, Number(value) || 0);
-  return numeric > 100 ? numeric / 100 : numeric;
-}
-
-function normalizeInsuranceInput(value: string): number {
-  const numeric = Math.max(0, Number(value) || 0);
-  if (numeric > 0 && numeric < 1) return numeric * 100;
-  return normalizePercentInput(value);
-}
-
 function applyManualFormula(
   form: CalculatorPreviewForm,
   parsed?: CalculatorResultView
 ): CalculatorResultView {
   const principal = Number(parseMoneyInput(form.principal));
   const months = Math.max(1, Math.round(Number(form.loanPeriodMonths) || 0));
-  const termDays = termDaysFromLoanPeriodMonths(months);
-  const interestRate = normalizePercentInput(form.interestRatePerMonth);
-  const processingFeePercent = normalizePercentInput(form.processingFeePercent);
-  const insuranceFeePercent = normalizeInsuranceInput(form.insuranceFeePercent);
-  const processingFee = principal * (processingFeePercent / 100);
-  const insuranceFee = principal * (insuranceFeePercent / 100);
-  const interestOnPrincipal = principal * (interestRate / 100) * months;
-  const interestOnProcessingFee = processingFee * (interestRate / 100) * months;
-  const interestAmount = interestOnPrincipal + interestOnProcessingFee;
-  const totalRepayment =
-    principal + processingFee + interestOnProcessingFee + interestOnPrincipal + insuranceFee;
+  const formula = calculateLoanFormula({
+    principal,
+    months,
+    interestRatePerMonth: form.interestRatePerMonth,
+    processingFeePercent: form.processingFeePercent,
+    insuranceFeePercent: form.insuranceFeePercent,
+    repaymentFrequency: form.repaymentFrequency,
+    interestType: "flat",
+  });
+  const {
+    termDays,
+    interestRate,
+    processingFee,
+    insuranceFee,
+    interestOnPrincipal,
+    interestOnProcessingFee,
+    interestAmount,
+    totalRepayment,
+  } = formula;
   const repaymentCount = repaymentCountForManual(form.repaymentFrequency, termDays, months);
   const installmentAmount = totalRepayment / repaymentCount;
   const principalDue = principal / repaymentCount;

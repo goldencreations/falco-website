@@ -1,4 +1,7 @@
-import type { ApplicationViewRow } from "@/lib/application-adapters";
+import {
+ applyCalculatedApplicationTerms,
+ type ApplicationViewRow,
+} from "@/lib/application-adapters";
 import { extractCustomersList } from "@/lib/customer-adapters";
 import { extractProductsList } from "@/lib/product-adapters";
 import type { Customer, LoanProduct, RiskGrade, User, UserRole } from "@/lib/types";
@@ -7,6 +10,11 @@ import { extractUsersListPayload } from "@/lib/user-adapters";
 export type ProductLookupEntry = {
  name: string;
  required_documents: string[];
+ interestRatePerMonth?: number;
+ interestType?: LoanProduct["interest_type"];
+ processingFeePercent?: number;
+ insuranceFeePercent?: number;
+ repaymentFrequency?: LoanProduct["repayment_frequency"];
 };
 
 export type CustomerLookupEntry = {
@@ -32,6 +40,11 @@ export function buildProductMap(products: LoanProduct[]): Map<string, ProductLoo
  map.set(p.id, {
  name: p.name,
  required_documents: p.required_documents ?? [],
+ interestRatePerMonth: p.interest_rate_per_month ?? p.interest_rate / 12,
+ interestType: p.interest_type,
+ processingFeePercent: p.processing_fee_percent,
+ insuranceFeePercent: p.insurance_fee_percent,
+ repaymentFrequency: p.repayment_frequency,
  });
  }
  return map;
@@ -116,7 +129,7 @@ export function enrichApplicationRow(
  staffName ||
  (officerId ? `Officer #${officerId}` : "");
 
- return {
+ return applyCalculatedApplicationTerms({
  ...row,
  customerDisplayName,
  customerNumber,
@@ -125,11 +138,16 @@ export function enrichApplicationRow(
  officerName: officerName || "Unassigned",
  assigned_officer_id: officerId ?? row.assigned_officer_id,
  required_documents: product?.required_documents ?? row.required_documents,
+ productInterestRatePerMonth: row.productInterestRatePerMonth ?? product?.interestRatePerMonth,
+ productInterestType: row.productInterestType ?? product?.interestType,
+ productProcessingFeePercent: row.productProcessingFeePercent ?? product?.processingFeePercent,
+ productInsuranceFeePercent: row.productInsuranceFeePercent ?? product?.insuranceFeePercent,
+ productRepaymentFrequency: row.productRepaymentFrequency ?? product?.repaymentFrequency,
  businessName: row.businessName || customer?.businessName || undefined,
  monthlyIncome: row.monthlyIncome ?? customer?.monthlyIncome,
  riskGrade: row.riskGrade || customer?.riskGrade,
  creditScore: row.creditScore ?? customer?.creditScore,
- };
+ });
 }
 
 export function enrichApplicationRows(

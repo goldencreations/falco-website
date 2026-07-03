@@ -147,25 +147,6 @@ export default function CustomersPage() {
  setLoading(true);
  setLoadError(null);
  try {
- if (isOfficerView) {
- const res = await fetch("/api/customers/my-customers?page_size=100", {
- credentials: "include",
- cache: "no-store",
- });
- const json = (await res.json().catch(() => ({}))) as {
- customers?: Customer[];
- message?: string;
- };
- if (!res.ok) {
- throw new Error(formatApiResponseError(json, t("customers.loadError")));
- }
- const list = Array.isArray(json.customers)
- ? json.customers
- : extractCustomersList(json);
- setCustomers(list);
- return;
- }
-
  const params = new URLSearchParams();
  if (scopeBranchId) params.set("branch_id", scopeBranchId);
  params.set("page_size", "100");
@@ -191,7 +172,7 @@ export default function CustomersPage() {
  } finally {
  setLoading(false);
  }
- }, [scopeBranchId, isOfficerView, isManagerView, isSuperAdmin, t]);
+ }, [scopeBranchId, isManagerView, isSuperAdmin, t]);
 
  useEffect(() => {
  void loadCustomers();
@@ -226,9 +207,7 @@ export default function CustomersPage() {
  const [deleteTarget, setDeleteTarget] = useState<Customer | null>(null);
  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
  const visibleCustomers =
- isOfficerView
- ? customers
- : scopeBranchId
+ scopeBranchId
  ? customers.filter((customer) => customer.branch_id === scopeBranchId)
  : customers;
 

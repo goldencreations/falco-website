@@ -6,11 +6,14 @@ import {
 } from "@/lib/application-status";
 import { resolveCustomerLoanOfficerId } from "@/lib/customer-adapters";
 import { DEFAULT_FALCO_API_BASE_URL } from "@/lib/falco-api";
+import { calculateLoanFormula, monthsFromTermDays } from "@/lib/loan-formula";
 import type {
+ InterestType,
  LoanApplication,
  LoanApplicationStatus,
  LoanDocument,
  LoanMode,
+ RepaymentFrequency,
  RiskGrade,
 } from "@/lib/types";
 
@@ -384,6 +387,11 @@ export type ApplicationViewRow = LoanApplication & {
   /** API status string before normalization (for workflow transitions). */
   raw_status?: string;
   workflow_stage?: ApplicationWorkflowStage;
+  productInterestRatePerMonth?: number;
+  productInterestType?: InterestType;
+  productProcessingFeePercent?: number;
+  productInsuranceFeePercent?: number;
+  productRepaymentFrequency?: RepaymentFrequency;
   businessName?: string;
   monthlyIncome?: number;
   riskGrade?: RiskGrade | string;
@@ -398,6 +406,56 @@ export type ApplicationViewRow = LoanApplication & {
 
 function asStatus(v: string | undefined): LoanApplicationStatus {
  return normalizeApplicationStatus(v);
+}
+
+function asProductInterestType(v: unknown): InterestType {
+ return String(v ?? "") === "reducing_balance" ? "reducing_balance" : "flat";
+}
+
+function asProductRepaymentFrequency(v: unknown): RepaymentFrequency {
+ const value = String(v ?? "");
+ if (value === "daily" || value === "weekly" || value === "bi_weekly" || value === "monthly") {
+  return value;
+ }
+ return "monthly";
+}
+
+function finiteNumber(value: unknown): number | undefined {
+ const n = Number(value);
+ return Number.isFinite(n) ? n : undefined;
+}
+
+export function applyCalculatedApplicationTerms(row: ApplicationViewRow): ApplicationViewRow {
+ const interestRatePerMonth = row.productInterestRatePerMonth;
+ const processingFeePercent = row.productProcessingFeePercent;
+ const insuranceFeePercent = row.productInsuranceFeePercent;
+ if (
+  interestRatePerMonth == null ||
+  processingFeePercent == null ||
+  insuranceFeePercent == null ||
+  row.requested_amount <= 0 ||
+  row.term_days <= 0
+ ) {
+  return row;
+ }
+
+ const formula = calculateLoanFormula({
+  principal: row.approved_amount && row.approved_amount > 0 ? row.approved_amount : row.requested_amount,
+  months: monthsFromTermDays(row.term_days),
+  interestRatePerMonth,
+  processingFeePercent,
+  insuranceFeePercent,
+  repaymentFrequency: row.productRepaymentFrequency ?? "monthly",
+  interestType: row.productInterestType ?? "flat",
+ });
+
+ return {
+  ...row,
+  interest_amount: formula.interestAmount,
+  total_fees: formula.totalFees,
+  total_repayment: formula.totalRepayment,
+  installment_amount: formula.installmentAmount,
+ };
 }
 
 function unwrapApplication(row: Record<string, unknown>): Record<string, unknown> {
@@ -527,16 +585,35 @@ export function adaptApiApplicationListRow(row: Record<string, unknown>): Applic
  const profile = customerProfileFromApp(app);
  const customerPhoto = customerPhotoFromApp(app);
  const product = app.product;
+ const productRow =
+ product && typeof product === "object" ? (product as Record<string, unknown>) : null;
  let productName =
- product && typeof product === "object"
- ? String((product as Record<string, unknown>).name ?? "")
+ productRow
+ ? String(productRow.name ?? "")
  : String(app.product_name ?? "");
  let required_documents: string[] | undefined;
- if (product && typeof product === "object") {
- const rd = (product as Record<string, unknown>).required_documents;
+ let productInterestRatePerMonth: number | undefined;
+ let productInterestType: InterestType | undefined;
+ let productProcessingFeePercent: number | undefined;
+ let productInsuranceFeePercent: number | undefined;
+ let productRepaymentFrequency: RepaymentFrequency | undefined;
+ if (productRow) {
+ const rd = productRow.required_documents;
  if (Array.isArray(rd)) {
  required_documents = rd.map((x) => String(x));
  }
+ const monthlyRate = finiteNumber(productRow.interest_rate_per_month);
+ const annualRate = finiteNumber(productRow.interest_rate);
+ productInterestRatePerMonth =
+  monthlyRate != null && monthlyRate > 0
+   ? monthlyRate
+   : annualRate != null && annualRate > 0
+   ? annualRate / 12
+   : undefined;
+ productInterestType = asProductInterestType(productRow.interest_type);
+ productProcessingFeePercent = finiteNumber(productRow.processing_fee_percent);
+ productInsuranceFeePercent = finiteNumber(productRow.insurance_fee_percent);
+ productRepaymentFrequency = asProductRepaymentFrequency(productRow.repayment_frequency);
  }
 
  const branch = app.branch;
@@ -576,7 +653,7 @@ export function adaptApiApplicationListRow(row: Record<string, unknown>): Applic
  ? String(app.loan_number)
  : undefined;
 
- return {
+ const adapted: ApplicationViewRow = {
  id,
  application_number: String(app.application_number ?? id),
  customer_id: customerId,
@@ -598,6 +675,11 @@ export function adaptApiApplicationListRow(row: Record<string, unknown>): Applic
  workflow_stage: normalizeWorkflowStage(
  app.workflow_stage != null ? String(app.workflow_stage) : undefined
  ),
+ productInterestRatePerMonth,
+ productInterestType,
+ productProcessingFeePercent,
+ productInsuranceFeePercent,
+ productRepaymentFrequency,
  submitted_at: app.submitted_at ? String(app.submitted_at) : undefined,
  created_by: String(app.created_by ?? assignedOfficerId ?? ""),
  created_at: String(app.created_at ?? new Date().toISOString()),
@@ -624,6 +706,7 @@ export function adaptApiApplicationListRow(row: Record<string, unknown>): Applic
     guarantors: guarantors.length > 0 ? guarantors : undefined,
     references: references.length > 0 ? references : undefined,
   };
+ return applyCalculatedApplicationTerms(adapted);
 }
 
 export function extractApplicationsList(json: unknown): ApplicationViewRow[] {
