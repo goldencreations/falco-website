@@ -509,21 +509,22 @@ export default function ReportsPage() {
  </div>
 
  <Tabs defaultValue="portfolio" className="space-y-4">
- <TabsList>
- <TabsTrigger value="portfolio" className="gap-2">
- <TrendingUp className="h-4 w-4" />
+ <TabsList className="grid h-auto w-full grid-cols-2 gap-1 p-1 sm:inline-flex sm:h-9 sm:w-fit">
+ <TabsTrigger value="portfolio" className="gap-1.5 text-xs sm:text-sm">
+ <TrendingUp className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
  Portfolio
  </TabsTrigger>
- <TabsTrigger value="aging" className="gap-2">
- <AlertTriangle className="h-4 w-4" />
- Aging Analysis
+ <TabsTrigger value="aging" className="gap-1.5 text-xs sm:text-sm">
+ <AlertTriangle className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+ <span className="sm:hidden">Aging</span>
+ <span className="hidden sm:inline">Aging Analysis</span>
  </TabsTrigger>
- <TabsTrigger value="products" className="gap-2">
- <PieChart className="h-4 w-4" />
+ <TabsTrigger value="products" className="gap-1.5 text-xs sm:text-sm">
+ <PieChart className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
  Products
  </TabsTrigger>
- <TabsTrigger value="branches" className="gap-2">
- <BarChart3 className="h-4 w-4" />
+ <TabsTrigger value="branches" className="gap-1.5 text-xs sm:text-sm">
+ <BarChart3 className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
  Branches
  </TabsTrigger>
  </TabsList>
@@ -750,24 +751,26 @@ export default function ReportsPage() {
  </Card>
  </TabsContent>
 
- <TabsContent value="aging" className="space-y-6">
- <div className="grid gap-6 lg:grid-cols-2">
- <Card>
- <CardHeader>
- <CardTitle>Portfolio Aging (BOT Classification)</CardTitle>
- <CardDescription>Live aging buckets from the reports API</CardDescription>
+ <TabsContent value="aging" className="space-y-4 sm:space-y-6">
+ <div className="grid gap-4 sm:gap-6 lg:grid-cols-2">
+ <Card className="overflow-hidden">
+ <CardHeader className="pb-2 sm:pb-3">
+ <CardTitle className="text-base sm:text-lg">Portfolio Aging (BOT Classification)</CardTitle>
+ <CardDescription className="text-xs sm:text-sm">
+ Live aging buckets from the reports API
+ </CardDescription>
  </CardHeader>
- <CardContent>
- <div className="h-[300px]">
+ <CardContent className="px-3 sm:px-6">
+ <div className="h-[260px] min-w-0 sm:h-[300px]">
  {agingRows.some((a) => a.outstandingAmount > 0) ? (
  <ResponsiveContainer width="100%" height="100%">
  <RechartsPieChart>
  <Pie
  data={agingRows.filter((a) => a.outstandingAmount > 0)}
  cx="50%"
- cy="50%"
- innerRadius={60}
- outerRadius={100}
+ cy="45%"
+ innerRadius="32%"
+ outerRadius="58%"
  paddingAngle={2}
  dataKey="outstandingAmount"
  nameKey="classification"
@@ -783,9 +786,15 @@ export default function ReportsPage() {
  contentStyle={{
  backgroundColor: "hsl(var(--card))",
  border: "1px solid hsl(var(--border))",
+ fontSize: "12px",
  }}
  />
- <Legend formatter={(value) => agingRows.find((r) => r.classification === value)?.label ?? value} />
+ <Legend
+ layout="horizontal"
+ verticalAlign="bottom"
+ wrapperStyle={{ fontSize: "11px", lineHeight: "1.25rem", paddingTop: "8px" }}
+ formatter={(value) => agingRows.find((r) => r.classification === value)?.label ?? value}
+ />
  </RechartsPieChart>
  </ResponsiveContainer>
  ) : (
@@ -797,12 +806,63 @@ export default function ReportsPage() {
  </CardContent>
  </Card>
 
- <Card>
- <CardHeader>
- <CardTitle>Provision Requirements</CardTitle>
- <CardDescription>Based on classification and BOT rates</CardDescription>
+ <Card className="overflow-hidden">
+ <CardHeader className="pb-2 sm:pb-3">
+ <CardTitle className="text-base sm:text-lg">Provision Requirements</CardTitle>
+ <CardDescription className="text-xs sm:text-sm">
+ Based on classification and BOT rates
+ </CardDescription>
  </CardHeader>
- <CardContent>
+ <CardContent className="space-y-4 p-0 sm:p-6 sm:pt-0">
+ <div className="grid gap-3 p-4 pt-0 sm:hidden">
+ {agingRows.map((item) => (
+ <div
+ key={item.classification}
+ className="rounded-xl border border-emerald-100 bg-emerald-50/30 p-3"
+ >
+ <div className="flex items-center gap-2">
+ <div
+ className="h-3 w-3 shrink-0 rounded-full"
+ style={{ backgroundColor: agingColor(item.classification) }}
+ />
+ <p className="font-medium leading-snug">{item.label}</p>
+ </div>
+ <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
+ <div className="min-w-0">
+ <p className="text-xs text-muted-foreground">Outstanding</p>
+ <p className="font-semibold tabular-nums">{formatCurrency(item.outstandingAmount)}</p>
+ </div>
+ <div>
+ <p className="text-xs text-muted-foreground">Rate</p>
+ <p className="font-semibold tabular-nums">{safeRate(item.provisionRate).toFixed(0)}%</p>
+ </div>
+ <div className="min-w-0">
+ <p className="text-xs text-muted-foreground">Provision</p>
+ <p className="font-semibold tabular-nums">{formatCurrency(item.provisionAmount)}</p>
+ </div>
+ </div>
+ </div>
+ ))}
+ <div className="rounded-xl border bg-muted/30 p-3">
+ <p className="font-semibold">Total</p>
+ <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+ <div>
+ <p className="text-xs text-muted-foreground">Outstanding</p>
+ <p className="font-semibold tabular-nums">
+ {formatCurrency(aging?.totalOutstanding ?? 0)}
+ </p>
+ </div>
+ <div>
+ <p className="text-xs text-muted-foreground">Provision</p>
+ <p className="font-semibold tabular-nums text-warning">
+ {formatCurrency(aging?.totalProvision ?? 0)}
+ </p>
+ </div>
+ </div>
+ </div>
+ </div>
+
+ <div className="hidden overflow-x-auto sm:block">
  <Table>
  <TableHeader>
  <TableRow>
@@ -843,6 +903,7 @@ export default function ReportsPage() {
  </TableRow>
  </TableBody>
  </Table>
+ </div>
  </CardContent>
  </Card>
  </div>

@@ -40,7 +40,7 @@ import { formatCurrency, formatDate } from "@/lib/formatters";
 import { parseJsonResponse } from "@/lib/parse-json-response";
 import { extractProductsList } from "@/lib/product-adapters";
 import { parseMoneyInput } from "@/lib/money-input";
-import { calculateLoanFormula } from "@/lib/loan-formula";
+import { calculateLoanFormula, monthsFromTermDays } from "@/lib/loan-formula";
 import type { LoanProduct } from "@/lib/types";
 
 const defaultForm: CalculatorPreviewForm = {
@@ -108,15 +108,137 @@ function ProductPricingSummary({ product }: { product: LoanProduct }) {
   );
 }
 
-function repaymentCountForManual(
-  frequency: CalculatorPreviewForm["repaymentFrequency"],
-  termDays: number,
-  months: number
-) {
-  if (frequency === "daily") return Math.max(1, termDays);
-  if (frequency === "weekly") return Math.max(1, Math.round(months * 4));
-  if (frequency === "bi_weekly") return Math.max(1, Math.round(months * 2));
-  return Math.max(1, Math.round(months));
+function productInterestRatePerMonth(product: LoanProduct): number {
+  if (product.interest_rate_per_month != null && product.interest_rate_per_month > 0) {
+    return product.interest_rate_per_month;
+  }
+  if (product.interest_rate > 0) return product.interest_rate / 12;
+  return 0;
+}
+
+function buildCalculatorResultFromFormula(
+  form: CalculatorPreviewForm,
+  config: {
+    principal: number;
+    months: number;
+    termDays: number;
+    interestRatePerMonth: string | number;
+    processingFeePercent: string | number;
+    insuranceFeePercent: string | number;
+    repaymentFrequency: CalculatorPreviewForm["repaymentFrequency"];
+  },
+  parsed?: CalculatorResultView
+): CalculatorResultView {
+  const formula = calculateLoanFormula({
+    principal: config.principal,
+    months: config.months,
+    interestRatePerMonth: config.interestRatePerMonth,
+    processingFeePercent: config.processingFeePercent,
+    insuranceFeePercent: config.insuranceFeePercent,
+    repaymentFrequency: config.repaymentFrequency,
+    interestType: "flat",
+  });
+  const {
+    interestRate,
+    processingFee,
+    insuranceFee,
+    interestOnPrincipal,
+    interestOnProcessingFee,
+    interestAmount,
+    totalRepayment,
+    repaymentCount,
+    installmentAmount,
+  } = formula;
+  const principalDue = config.principal / repaymentCount;
+  const interestDue = interestAmount / repaymentCount;
+  const feesDue = (processingFee + insuranceFee) / repaymentCount;
+  const generatedSchedulePreview = Array.from({ length: repaymentCount }, (_, index) => {
+    const installmentNumber = index + 1;
+    return {
+      installmentNumber,
+      dueDate: manualScheduleDueDate(
+        form.startDate,
+        config.repaymentFrequency,
+        installmentNumber
+      ),
+      principalDue,
+      interestDue,
+      feesDue,
+      totalDue: installmentAmount,
+    };
+  });
+  const schedulePreview =
+    parsed?.schedulePreview && parsed.schedulePreview.length > 0
+      ? parsed.schedulePreview.map((row, index) => ({
+          ...row,
+          installmentNumber: row.installmentNumber || index + 1,
+          principalDue,
+          interestDue,
+          feesDue,
+          totalDue: installmentAmount,
+        }))
+      : generatedSchedulePreview;
+
+  return {
+    ...(parsed ?? {}),
+    principal: config.principal,
+    termDays: config.termDays,
+    loanPeriodMonths: config.months,
+    interestRate,
+    interestType: "flat",
+    interestAmount,
+    interestOnPrincipal,
+    interestOnProcessingFee,
+    processingFee,
+    insuranceFee,
+    totalFees: processingFee + insuranceFee,
+    totalRepayment,
+    installmentAmount,
+    repaymentCount,
+    repaymentFrequency: config.repaymentFrequency,
+    firstRepaymentDate: parsed?.firstRepaymentDate ?? generatedSchedulePreview[0]?.dueDate,
+    penaltyAmount: parsed?.penaltyAmount,
+    schedulePreview,
+  };
+}
+
+function applyProductFormula(
+  form: CalculatorPreviewForm,
+  product: LoanProduct
+): CalculatorResultView {
+  const principal = Number(parseMoneyInput(form.principal));
+  const termDays = Math.max(1, Math.round(Number(form.termDays) || 0));
+  const months = monthsFromTermDays(termDays);
+  return buildCalculatorResultFromFormula(form, {
+    principal,
+    months,
+    termDays,
+    interestRatePerMonth: productInterestRatePerMonth(product),
+    processingFeePercent: product.processing_fee_percent,
+    insuranceFeePercent: product.insurance_fee_percent,
+    repaymentFrequency: product.repayment_frequency,
+  });
+}
+
+function applyManualFormula(
+  form: CalculatorPreviewForm,
+  parsed?: CalculatorResultView
+): CalculatorResultView {
+  const principal = Number(parseMoneyInput(form.principal));
+  const months = Math.max(1, Math.round(Number(form.loanPeriodMonths) || 0));
+  return buildCalculatorResultFromFormula(
+    form,
+    {
+      principal,
+      months,
+      termDays: months * 30,
+      interestRatePerMonth: form.interestRatePerMonth,
+      processingFeePercent: form.processingFeePercent,
+      insuranceFeePercent: form.insuranceFeePercent,
+      repaymentFrequency: form.repaymentFrequency,
+    },
+    parsed
+  );
 }
 
 function parseScheduleDate(value: string): Date {
@@ -161,82 +283,6 @@ function manualScheduleDueDate(
     return formatScheduleDate(addScheduleDays(baseDate, installmentNumber * 14));
   }
   return formatScheduleDate(addScheduleMonths(baseDate, installmentNumber));
-}
-
-function applyManualFormula(
-  form: CalculatorPreviewForm,
-  parsed?: CalculatorResultView
-): CalculatorResultView {
-  const principal = Number(parseMoneyInput(form.principal));
-  const months = Math.max(1, Math.round(Number(form.loanPeriodMonths) || 0));
-  const formula = calculateLoanFormula({
-    principal,
-    months,
-    interestRatePerMonth: form.interestRatePerMonth,
-    processingFeePercent: form.processingFeePercent,
-    insuranceFeePercent: form.insuranceFeePercent,
-    repaymentFrequency: form.repaymentFrequency,
-    interestType: "flat",
-  });
-  const {
-    termDays,
-    interestRate,
-    processingFee,
-    insuranceFee,
-    interestOnPrincipal,
-    interestOnProcessingFee,
-    interestAmount,
-    totalRepayment,
-  } = formula;
-  const repaymentCount = repaymentCountForManual(form.repaymentFrequency, termDays, months);
-  const installmentAmount = totalRepayment / repaymentCount;
-  const principalDue = principal / repaymentCount;
-  const interestDue = interestAmount / repaymentCount;
-  const feesDue = (processingFee + insuranceFee) / repaymentCount;
-  const generatedSchedulePreview = Array.from({ length: repaymentCount }, (_, index) => {
-    const installmentNumber = index + 1;
-    return {
-      installmentNumber,
-      dueDate: manualScheduleDueDate(form.startDate, form.repaymentFrequency, installmentNumber),
-      principalDue,
-      interestDue,
-      feesDue,
-      totalDue: installmentAmount,
-    };
-  });
-  const schedulePreview =
-    parsed?.schedulePreview && parsed.schedulePreview.length > 0
-      ? parsed.schedulePreview.map((row, index) => ({
-          ...row,
-          installmentNumber: row.installmentNumber || index + 1,
-          principalDue,
-          interestDue,
-          feesDue,
-          totalDue: installmentAmount,
-        }))
-      : generatedSchedulePreview;
-
-  return {
-    ...(parsed ?? {}),
-    principal,
-    termDays,
-    loanPeriodMonths: months,
-    interestRate,
-    interestType: "flat",
-    interestAmount,
-    interestOnPrincipal,
-    interestOnProcessingFee,
-    processingFee,
-    insuranceFee,
-    totalFees: processingFee + insuranceFee,
-    totalRepayment,
-    installmentAmount,
-    repaymentCount,
-    repaymentFrequency: form.repaymentFrequency,
-    firstRepaymentDate: parsed?.firstRepaymentDate,
-    penaltyAmount: parsed?.penaltyAmount,
-    schedulePreview,
-  };
 }
 
 function ResultBreakdown({
@@ -564,6 +610,15 @@ export default function LoanCalculatorPage() {
         setResult(null);
         return;
       }
+      if (!activeProduct) {
+        setError("Select a loan product to calculate.");
+        setResult(null);
+        return;
+      }
+      setError(null);
+      setFieldErrors({});
+      setResult(applyProductFormula(form, activeProduct));
+      return;
     }
 
     const payload = mapUiCalculatorPreviewToApi(form, activeProduct);

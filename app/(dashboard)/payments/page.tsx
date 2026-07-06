@@ -665,8 +665,101 @@ export default function PaymentsPage() {
  </div>
  </div>
 
- <Card>
- <CardContent className="p-0">
+ <Card className="overflow-hidden border-emerald-100">
+ <CardContent className="space-y-4 p-0">
+ <div className="grid gap-3 p-4 sm:hidden">
+ {filteredPayments.length === 0 ? (
+ <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
+ No payments found
+ </p>
+ ) : (
+ filteredPayments.map((payment) => {
+ const loan = loanById.get(payment.loan_id);
+ const method = methodConfig[payment.payment_method] ?? methodConfig.cash;
+ const status = statusConfig[payment.status] ?? statusConfig.completed;
+ const reconKey = payment.reconciliation_status ?? "unmatched";
+ const reconciliationUi = reconciliationVariant[reconKey];
+ const MethodIcon = method.icon;
+ const StatusIcon = status.icon;
+ const ReconciliationIcon = reconciliationUi.icon;
+ const customerName =
+ payment.customer_display_name ?? loan?.customerDisplayName ?? "—";
+
+ return (
+ <div
+ key={payment.id}
+ className="rounded-xl border border-emerald-100 bg-emerald-50/30 p-3"
+ >
+ <div className="flex items-start justify-between gap-2">
+ <p className="font-mono text-xs font-medium">{payment.payment_number}</p>
+ <Badge variant={status.variant} className="shrink-0 gap-1">
+ <StatusIcon className="h-3 w-3" />
+ {status.label}
+ </Badge>
+ </div>
+
+ <p className="mt-2 font-medium">{customerName}</p>
+ {payment.customer_phone ? (
+ <p className="text-sm text-muted-foreground">{payment.customer_phone}</p>
+ ) : null}
+ <p className="font-mono text-xs text-muted-foreground">
+ {payment.loan_number ?? loan?.loan_number ?? "—"}
+ </p>
+
+ <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+ <div>
+ <p className="text-xs text-muted-foreground">Amount</p>
+ <p className="font-semibold">{formatCurrency(payment.amount)}</p>
+ </div>
+ <div>
+ <p className="text-xs text-muted-foreground">Date</p>
+ <p className="font-medium">{formatDateTime(payment.payment_date)}</p>
+ </div>
+ </div>
+
+ <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+ <div className="flex items-center gap-1.5">
+ <MethodIcon className="h-3.5 w-3.5 text-muted-foreground" />
+ <span>{method.label}</span>
+ {payment.metadata?.gateway ? (
+ <span className="text-xs text-muted-foreground">(auto)</span>
+ ) : null}
+ </div>
+ {payment.reference_number ? (
+ <span className="font-mono text-xs text-muted-foreground">
+ Ref: {payment.reference_number}
+ </span>
+ ) : null}
+ </div>
+
+ <div className="mt-3 rounded-lg border bg-background/80 p-2 text-xs">
+ <p className="font-medium text-muted-foreground">Allocation</p>
+ <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5">
+ <p>Penalty: {formatCurrency(payment.penalty_allocated)}</p>
+ <p>Principal: {formatCurrency(payment.principal_allocated)}</p>
+ <p>Interest: {formatCurrency(payment.interest_allocated)}</p>
+ <p>Fees: {formatCurrency(payment.fees_allocated)}</p>
+ </div>
+ </div>
+
+ <div className="mt-3 space-y-1">
+ <Badge variant={reconciliationUi.variant} className="gap-1">
+ <ReconciliationIcon className="h-3 w-3" />
+ {reconciliationUi.label}
+ </Badge>
+ {payment.reconciliation_note ? (
+ <p className="text-xs leading-relaxed text-muted-foreground">
+ {payment.reconciliation_note}
+ </p>
+ ) : null}
+ </div>
+ </div>
+ );
+ })
+ )}
+ </div>
+
+ <div className="hidden sm:block">
  <Table>
  <TableHeader>
  <TableRow>
@@ -783,6 +876,7 @@ export default function PaymentsPage() {
  )}
  </TableBody>
  </Table>
+ </div>
  </CardContent>
  </Card>
  </>

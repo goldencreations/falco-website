@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Loader2, Search, UserMinus, UserPlus, Users } from "lucide-react";
+import { Eye, Loader2, Search, UserMinus, UserPlus, Users } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -273,7 +273,110 @@ export function GroupMembersPanel({
  {group.members.length} active member{group.members.length === 1 ? "" : "s"} on this vikundi.
  </CardDescription>
  </CardHeader>
- <CardContent>
+ <CardContent className="space-y-4 p-0 sm:p-6">
+ <div className="grid gap-3 p-4 sm:hidden">
+ {group.members.length === 0 ? (
+ <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
+ {readOnly
+ ? "No members on this vikundi."
+ : "No members yet. Use the search above to assign customers to this vikundi."}
+ </p>
+ ) : (
+ group.members.map((member) => {
+ const leadership = leadershipRoleForCustomer(member.customerId, group);
+ const displayRole = leadership ?? member.role ?? "Member";
+ const owed = memberOutstanding?.[member.customerId];
+
+ return (
+ <div
+ key={member.customerId}
+ className="rounded-xl border border-emerald-100 bg-emerald-50/30 p-3"
+ >
+ <div className="flex items-start justify-between gap-2">
+ <div className="min-w-0">
+ {readOnly ? (
+ <Link
+ href={memberHref(member.customerId)}
+ className="font-medium leading-snug text-primary hover:underline"
+ >
+ {member.customerName}
+ </Link>
+ ) : (
+ <p className="font-medium leading-snug">{member.customerName}</p>
+ )}
+ {member.nationalId ? (
+ <p className="text-xs text-muted-foreground">ID: {member.nationalId}</p>
+ ) : null}
+ <p className="font-mono text-xs text-muted-foreground">
+ {member.customerNumber || "—"}
+ </p>
+ </div>
+ <div className="flex shrink-0 flex-col items-end gap-1">
+ {member.riskGrade ? (
+ <Badge variant={riskVariant[member.riskGrade as RiskGrade] ?? "outline"}>
+ {member.riskGrade}
+ </Badge>
+ ) : null}
+ <Badge variant={leadership ? "default" : "secondary"} className="capitalize">
+ {displayRole}
+ </Badge>
+ </div>
+ </div>
+
+ <p className="mt-2 text-sm text-muted-foreground">{member.phone || "—"}</p>
+
+ <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+ <div>
+ <p className="text-xs text-muted-foreground">Amount owed</p>
+ <p className="font-semibold tabular-nums">
+ {owed == null ? (
+ "—"
+ ) : owed > 0 ? (
+ <span className="text-destructive">{formatCurrency(owed)}</span>
+ ) : (
+ formatCurrency(0)
+ )}
+ </p>
+ </div>
+ <div>
+ <p className="text-xs text-muted-foreground">Monthly income</p>
+ <p className="font-semibold tabular-nums">
+ {member.monthlyIncome != null ? formatCurrency(member.monthlyIncome) : "—"}
+ </p>
+ </div>
+ </div>
+
+ <div className="mt-3 flex gap-2">
+ <Button size="sm" variant="outline" className="h-8 flex-1" asChild>
+ <Link href={memberHref(member.customerId)}>
+ <Eye className="mr-1 h-3.5 w-3.5" />
+ View Details
+ </Link>
+ </Button>
+ {!readOnly && !isLeadershipMember(member.customerId, group) ? (
+ <Button
+ type="button"
+ variant="outline"
+ size="sm"
+ className="h-8 text-destructive hover:text-destructive"
+ disabled={removingId === member.customerId}
+ onClick={() => void removeMember(member.customerId)}
+ >
+ {removingId === member.customerId ? (
+ <Loader2 className="h-3.5 w-3.5 animate-spin" />
+ ) : (
+ <UserMinus className="h-3.5 w-3.5" />
+ )}
+ </Button>
+ ) : null}
+ </div>
+ </div>
+ );
+ })
+ )}
+ </div>
+
+ <div className="hidden sm:block">
  <Table>
  <TableHeader>
  <TableRow>
@@ -291,7 +394,7 @@ export function GroupMembersPanel({
  {group.members.length === 0 ? (
  <TableRow>
  <TableCell
- colSpan={7}
+ colSpan={8}
  className="py-8 text-center text-muted-foreground"
  >
  {readOnly
@@ -385,6 +488,7 @@ export function GroupMembersPanel({
  )}
  </TableBody>
  </Table>
+ </div>
  </CardContent>
  </Card>
  </div>
