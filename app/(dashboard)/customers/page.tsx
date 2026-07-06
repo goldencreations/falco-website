@@ -400,8 +400,153 @@ export default function CustomersPage() {
 
  {/* Customers Table */}
  <Card className="overflow-hidden border-emerald-100">
- <CardContent className="p-0">
- <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0 [touch-action:pan-x]">
+ <CardContent className="space-y-4 p-0">
+ <div className="grid gap-3 p-4 sm:hidden">
+ {filteredCustomers.length === 0 ? (
+ <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
+ {isOfficerView ? t("customers.noCustomersOfficer") : t("customers.noCustomers")}
+ </p>
+ ) : (
+ filteredCustomers.map((customer) => {
+ const risk = riskGradeConfig[customer.risk_grade];
+ const loanStatus = activeLoansForCustomer(customer.id);
+ const avatarSrc = resolveMediaViewUrl(
+  customer.passport_photo_preview_url,
+  customer.passport_photo_url
+ );
+
+ return (
+ <div
+ key={customer.id}
+ className={`rounded-xl border border-emerald-100 bg-emerald-50/30 p-3 ${statusClasses(loanStatus.tone)}`}
+ >
+ <div className="flex items-start gap-3">
+ <Avatar className="h-10 w-10 shrink-0">
+ {avatarSrc ? (
+  <AvatarImage
+   src={avatarSrc}
+   alt={`${customer.first_name} ${customer.last_name}`}
+   className="object-cover"
+   loading="lazy"
+  />
+ ) : null}
+ <AvatarFallback className="bg-primary/10 text-primary text-sm">
+ {customer.first_name[0]}
+ {customer.last_name[0]}
+ </AvatarFallback>
+ </Avatar>
+ <div className="min-w-0 flex-1">
+ <p className="font-medium leading-snug">
+ {customer.first_name} {customer.last_name}
+ </p>
+ <p className="font-mono text-xs text-muted-foreground">{customer.customer_number}</p>
+ </div>
+ <Badge variant={risk.variant} className="shrink-0 text-xs">
+ {risk.label}
+ </Badge>
+ </div>
+
+ <div className="mt-3 space-y-1.5 text-sm">
+ <div className="flex items-center gap-1.5">
+ <Phone className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+ <span className="truncate">{customer.phone_primary}</span>
+ </div>
+ {customer.email ? (
+ <div className="flex items-center gap-1.5 text-muted-foreground">
+ <Mail className="h-3.5 w-3.5 shrink-0" />
+ <span className="truncate">{customer.email}</span>
+ </div>
+ ) : null}
+ <div className="flex items-center gap-1.5 text-muted-foreground">
+ <MapPin className="h-3.5 w-3.5 shrink-0" />
+ <span className="truncate">
+ {customer.district}, {customer.region}
+ </span>
+ </div>
+ </div>
+
+ <div className="mt-3 flex flex-wrap items-center gap-2">
+ <Badge variant="outline" className="capitalize">
+ {customer.customer_type === "business" ? (
+ <Building2 className="mr-1 h-3 w-3" />
+ ) : (
+ <User className="mr-1 h-3 w-3" />
+ )}
+ {customer.customer_type}
+ </Badge>
+ {customer.income_verified ? (
+ <Badge variant="secondary" className="text-xs">
+ Verified income
+ </Badge>
+ ) : null}
+ </div>
+
+ <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+ <div>
+ <p className="text-xs text-muted-foreground">Monthly income</p>
+ <p className="font-semibold">{formatCurrency(customer.monthly_income)}</p>
+ </div>
+ <div>
+ <p className="text-xs text-muted-foreground">Registered</p>
+ <p className="font-medium">{formatDate(customer.created_at)}</p>
+ </div>
+ </div>
+
+ <div className="mt-3">
+ {loanStatus.count > 0 ? (
+ <div className="space-y-1">
+ <Badge variant="outline" className={statusBadgeClasses(loanStatus.tone)}>
+ {loanStatus.label}
+ </Badge>
+ <p className="text-sm font-medium">
+ {loanStatus.count} loan(s) · {formatCurrency(loanStatus.outstanding)} outstanding
+ </p>
+ {loanStatus.nextDueDate ? (
+ <p className="text-xs text-muted-foreground">
+ Due {formatDate(loanStatus.nextDueDate)}
+ </p>
+ ) : null}
+ {loanStatus.penalty > 0 ? (
+ <p className="text-xs font-medium text-red-600">
+ Penalty {formatCurrency(loanStatus.penalty)}
+ </p>
+ ) : null}
+ </div>
+ ) : (
+ <p className="text-sm text-muted-foreground">No active loans</p>
+ )}
+ </div>
+
+ <div className="mt-3 flex gap-2">
+ <Button size="sm" variant="outline" className="h-8 flex-1" asChild>
+ <Link href={`${customersBasePath}/${customer.id}`}>
+ <Eye className="mr-1 h-3.5 w-3.5" />
+ View Details
+ </Link>
+ </Button>
+ {isSuperAdmin ? (
+ <Button
+ size="sm"
+ variant="outline"
+ className="h-8 text-destructive hover:text-destructive"
+ onClick={() => {
+ setDeleteTarget(customer);
+ setDeleteDialogOpen(true);
+ }}
+ aria-label={`Delete ${customer.first_name} ${customer.last_name}`}
+ >
+ <Trash2 className="h-3.5 w-3.5" />
+ </Button>
+ ) : null}
+ </div>
+ </div>
+ );
+ })
+ )}
+ </div>
+
+ <div className="hidden sm:block">
+ <div className="overflow-x-auto [touch-action:pan-x]">
  <Table className="min-w-[860px] lg:min-w-[980px]">
  <TableHeader>
  <TableRow className="bg-emerald-50/70 hover:bg-emerald-50/70">
@@ -564,6 +709,7 @@ export default function CustomersPage() {
  )}
  </TableBody>
  </Table>
+ </div>
  </div>
  </CardContent>
  </Card>

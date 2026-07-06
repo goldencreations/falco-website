@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Users, UserCheck, MapPin, Wallet, Plus, Loader2 } from "lucide-react";
+import { Users, UserCheck, MapPin, Wallet, Plus, Loader2, Eye } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -131,14 +131,82 @@ export default function GroupsPage() {
  </Card>
  </div>
 
- <Card>
- <CardContent className="p-0">
+ <Card className="overflow-hidden border-emerald-100">
+ <CardContent className="space-y-4 p-0">
  {loading ? (
  <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
  <Loader2 className="h-5 w-5 animate-spin" />
  Loading vikundi…
  </div>
  ) : (
+ <>
+ <div className="grid gap-3 p-4 sm:hidden">
+ {visibleGroups.length === 0 ? (
+ <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
+ {isOfficerView
+ ? 'No vikundi assigned to you yet. Click "Add New Kikundi" to register a group.'
+ : 'No vikundi found. Click "Add New Kikundi" to register a group.'}
+ </p>
+ ) : (
+ visibleGroups.map((group) => (
+ <div
+ key={group.id}
+ className="rounded-xl border border-emerald-100 bg-emerald-50/30 p-3"
+ >
+ <div className="flex items-start justify-between gap-2">
+ <div className="min-w-0">
+ <p className="font-medium leading-snug">{group.group_name}</p>
+ <p className="font-mono text-xs text-muted-foreground">
+ {group.group_code || group.id}
+ </p>
+ </div>
+ <Badge variant={group.status === "active" ? "default" : "secondary"} className="shrink-0 capitalize">
+ {group.status}
+ </Badge>
+ </div>
+
+ <div className="mt-3 space-y-1.5 text-sm">
+ <p className="flex items-center gap-1.5">
+ <UserCheck className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+ <span className="truncate">
+ Officer: <span className="font-medium">{officerName(group.loan_officer_id)}</span>
+ </span>
+ </p>
+ <p className="text-muted-foreground">
+ Branch: <span className="font-medium text-foreground">{branchName(group.branch_id)}</span>
+ </p>
+ <p className="flex items-center gap-1.5">
+ <Users className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+ <span>{group.member_customer_ids.length} member(s)</span>
+ </p>
+ </div>
+
+ <div className="mt-3 text-sm">
+ <p className="font-medium">{group.meeting_day}</p>
+ <p className="mt-0.5 flex items-start gap-1.5 text-xs text-muted-foreground">
+ <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+ <span className="line-clamp-2">{group.meeting_location}</span>
+ </p>
+ </div>
+
+ <p className="mt-3 text-xs text-muted-foreground">
+ Created {formatDate(group.created_at)}
+ </p>
+
+ <div className="mt-3">
+ <Button size="sm" variant="outline" className="h-8 w-full" asChild>
+ <Link href={groupDetailHref(group.id)}>
+ <Eye className="mr-1 h-3.5 w-3.5" />
+ View Details
+ </Link>
+ </Button>
+ </div>
+ </div>
+ ))
+ )}
+ </div>
+
+ <div className="hidden sm:block">
  <Table>
  <TableHeader>
  <TableRow>
@@ -211,6 +279,8 @@ export default function GroupsPage() {
  )}
  </TableBody>
  </Table>
+ </div>
+ </>
  )}
  </CardContent>
  </Card>

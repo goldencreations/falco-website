@@ -8,6 +8,7 @@ import {
  ArrowUpCircle,
  CheckCircle,
  CreditCard,
+ Eye,
  Loader2,
  RefreshCcw,
  Scale,
@@ -273,7 +274,7 @@ export default function ReconciliationPage() {
  </CardContent>
  </Card>
 
- <Card>
+ <Card className="overflow-hidden border-emerald-100">
  <CardHeader className="pb-3">
  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
  <div>
@@ -294,7 +295,7 @@ export default function ReconciliationPage() {
  </div>
  </div>
  </CardHeader>
- <CardContent className="p-0">
+ <CardContent className="space-y-4 p-0">
  {loading ? (
  <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
  <Loader2 className="h-5 w-5 animate-spin" />
@@ -303,6 +304,65 @@ export default function ReconciliationPage() {
  ) : filteredPayments.length === 0 ? (
  <p className="py-12 text-center text-sm text-muted-foreground">No payments match your filters.</p>
  ) : (
+ <>
+ <div className="grid gap-3 p-4 sm:hidden">
+ {filteredPayments.map((payment) => {
+ const reconKey = payment.reconciliation_status ?? "unmatched";
+ const recon = reconciliationVariant[reconKey];
+ const ReconIcon = recon.icon;
+ const loan = loanById.get(payment.loan_id);
+
+ return (
+ <div
+ key={payment.id}
+ className="rounded-xl border border-emerald-100 bg-emerald-50/30 p-3"
+ >
+ <div className="flex items-start justify-between gap-2">
+ <p className="font-mono text-xs font-medium">{payment.payment_number}</p>
+ <Badge variant={recon.variant} className="shrink-0 gap-1">
+ <ReconIcon className="h-3 w-3" />
+ {recon.label}
+ </Badge>
+ </div>
+
+ <p className="mt-2 font-medium">
+ {loan?.customerDisplayName ?? payment.customer_display_name ?? "—"}
+ </p>
+ <p className="text-xs text-muted-foreground">
+ {payment.loan_number ?? loan?.loan_number ?? "—"}
+ </p>
+
+ <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+ <div>
+ <p className="text-xs text-muted-foreground">Amount</p>
+ <p className="font-semibold">{formatCurrency(payment.amount)}</p>
+ </div>
+ <div>
+ <p className="text-xs text-muted-foreground">Date</p>
+ <p className="font-medium">{formatDateTime(payment.payment_date)}</p>
+ </div>
+ </div>
+
+ {payment.reconciliation_note ? (
+ <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+ {payment.reconciliation_note}
+ </p>
+ ) : null}
+
+ <div className="mt-3">
+ <Button size="sm" variant="outline" className="h-8 w-full" asChild>
+ <Link href={`${paymentsBasePath}?loan=${encodeURIComponent(payment.loan_id)}`}>
+ <Eye className="mr-1 h-3.5 w-3.5" />
+ View Details
+ </Link>
+ </Button>
+ </div>
+ </div>
+ );
+ })}
+ </div>
+
+ <div className="hidden sm:block">
  <Table>
  <TableHeader>
  <TableRow>
@@ -350,6 +410,8 @@ export default function ReconciliationPage() {
  })}
  </TableBody>
  </Table>
+ </div>
+ </>
  )}
  </CardContent>
  </Card>

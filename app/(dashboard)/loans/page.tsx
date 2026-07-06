@@ -454,9 +454,101 @@ export default function LoansPage() {
  </div>
  </div>
 
- {/* Loans Table */}
- <Card>
+ {/* Loans list */}
+ <Card className="overflow-hidden border-emerald-100">
  <CardContent className="p-0">
+ <div className="grid gap-3 p-4 sm:hidden">
+ {listLoading ? (
+ <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+ <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+ Loading loans…
+ </div>
+ ) : filteredLoans.length === 0 ? (
+ <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
+ No loans found
+ </p>
+ ) : (
+ filteredLoans.map((loan) => {
+ const status = statusConfig[loan.status];
+ const riskRow = riskConfig[loan.risk_classification] ?? riskConfig.current;
+ const StatusIcon = status.icon;
+ const paidPercent = effectivePaidPercent(loan);
+ const totalPaidDisplay = effectiveLoanTotalPaid(loan);
+ const penaltyOutstanding = loan.penalty_outstanding ?? loan.penalty ?? 0;
+
+ return (
+ <div key={loan.id} className="rounded-xl border border-emerald-100 bg-emerald-50/30 p-3">
+ <div className="flex items-start justify-between gap-2">
+ <p className="font-mono text-xs font-medium">{loan.loan_number}</p>
+ <Badge variant={status.variant} className="gap-1 shrink-0">
+ <StatusIcon className="h-3 w-3" />
+ {status.label}
+ </Badge>
+ </div>
+ <p className="mt-2 font-medium">{loanCustomerLabel(loan)}</p>
+ <p className="text-xs text-muted-foreground">{loan.customerPhone?.trim() || "—"}</p>
+ <p className="mt-1 text-xs text-muted-foreground">{loanProductLabel(loan)}</p>
+ <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+ <div className="rounded-md border border-emerald-100 bg-background/80 px-2 py-1.5">
+ <p className="text-muted-foreground">Principal</p>
+ <p className="font-semibold">{formatCurrency(loan.principal_amount)}</p>
+ </div>
+ <div className="rounded-md border border-emerald-100 bg-background/80 px-2 py-1.5">
+ <p className="text-muted-foreground">Outstanding</p>
+ <p className="font-semibold">{formatCurrency(loan.total_outstanding)}</p>
+ </div>
+ </div>
+ {penaltyOutstanding > 0 ? (
+ <p className="mt-2 text-xs font-medium text-destructive">
+ Penalty {formatCurrency(penaltyOutstanding)}
+ {loan.daily_penalty_rate ? ` · ${formatCurrency(loan.daily_penalty_rate)}/day` : ""}
+ </p>
+ ) : null}
+ <div className="mt-3">
+ <Progress value={Math.min(100, paidPercent)} className="h-2" />
+ <p className="mt-1 text-xs text-muted-foreground">
+ {paidPercent.toFixed(0)}% paid
+ {totalPaidDisplay > 0 ? ` · ${formatCurrency(totalPaidDisplay)}` : ""}
+ </p>
+ </div>
+ <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+ <div className="flex items-center gap-1.5">
+ <div className={`h-2 w-2 rounded-full ${riskRow.color}`} />
+ <span>{riskRow.label}</span>
+ {loan.days_in_arrears > 0 ? (
+ <span className="text-destructive">({loan.days_in_arrears}d)</span>
+ ) : null}
+ </div>
+ <span>·</span>
+ <span>Due {formatDate(loan.maturity_date)}</span>
+ </div>
+ <div className="mt-3 flex flex-wrap gap-2">
+ <Button size="sm" variant="outline" className="h-8 flex-1 min-w-[7rem]" onClick={() => setViewLoan(loan)}>
+ <Eye className="mr-1 h-3.5 w-3.5" />
+ View Details
+ </Button>
+ <Button size="sm" variant="outline" className="h-8 flex-1 min-w-[7rem]" asChild>
+ <Link href={`${paymentsBasePath}?loan=${loan.id}&openPayment=1`}>
+ <CreditCard className="mr-1 h-3.5 w-3.5" />
+ Record Payment
+ </Link>
+ </Button>
+ {loan.application_id ? (
+ <Button size="sm" variant="outline" className="h-8 w-full sm:w-auto" asChild title="Credit analysis for originating application">
+ <Link href={`${creditAnalysisPath}?applicationId=${loan.application_id}`}>
+ <Scale className="mr-1 h-3.5 w-3.5" />
+ Credit Analysis
+ </Link>
+ </Button>
+ ) : null}
+ </div>
+ </div>
+ );
+ })
+ )}
+ </div>
+
+ <div className="hidden sm:block">
  <Table>
  <TableHeader>
  <TableRow>
@@ -572,6 +664,7 @@ export default function LoansPage() {
  )}
  </TableBody>
  </Table>
+ </div>
  </CardContent>
  </Card>
  </div>

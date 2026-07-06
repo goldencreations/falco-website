@@ -81,6 +81,7 @@ import {
   leadViewFromEditForm,
 } from "@/lib/lead-to-customer-prefill";
 import { useSessionUser } from "@/lib/use-session-user";
+import { cn } from "@/lib/utils";
 
 const statusLabel: Record<LeadStatus, string> = {
  new: "New",
@@ -188,6 +189,11 @@ const initialLeadFormData = {
   status: "new" as LeadStatus,
 };
 
+const leadFormGridClass =
+  "grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2 [&_[data-slot=field]]:min-w-0 [&_[data-slot=select-trigger]]:w-full [&_[data-slot=select-trigger]]:max-w-full [&_[data-slot=select-value]]:truncate [&_input]:max-w-full [&_textarea]:max-w-full";
+
+const leadSelectTriggerClass = "w-full max-w-full min-w-0 [&_[data-slot=select-value]]:truncate";
+
 
 export default function LeadsPage() {
   const router = useRouter();
@@ -203,6 +209,7 @@ export default function LeadsPage() {
   const [selectedLeadId, setSelectedLeadId] = useState<string>("");
   const mapSectionRef = useRef<HTMLDivElement | null>(null);
   const editFormRef = useRef<HTMLDivElement | null>(null);
+  const addLeadFormRef = useRef<HTMLDivElement | null>(null);
   const [showAddLeadForm, setShowAddLeadForm] = useState(false);
   const [editingLead, setEditingLead] = useState<LeadView | null>(null);
   const [isLocating, setIsLocating] = useState(false);
@@ -261,6 +268,17 @@ export default function LeadsPage() {
  setFormData((prev) => ({ ...prev, branchId: user.branch_id }));
  }
  }, [user?.branch_id, formData.branchId]);
+
+ useEffect(() => {
+  if (!showAddLeadForm) return;
+  requestAnimationFrame(() => {
+   addLeadFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+   const focusable = addLeadFormRef.current?.querySelector<HTMLElement>(
+    "input:not([type=hidden]), textarea, button[role=combobox]"
+   );
+   focusable?.focus({ preventScroll: true });
+  });
+ }, [showAddLeadForm]);
 
   const load = useCallback(async () => {
     if (!sessionLoaded) return;
@@ -623,6 +641,7 @@ export default function LeadsPage() {
  setShowAddLeadForm((prev) => {
  const opening = !prev;
  if (opening) {
+ setEditingLead(null);
  setFormData((f) => ({ ...f, followUpDate: todayInputDate() }));
  }
  return opening;
@@ -890,9 +909,9 @@ export default function LeadsPage() {
                   </Button>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-4 pt-4">
-                <FieldGroup>
-                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <CardContent className="space-y-4 px-4 pt-4 sm:px-6">
+                <FieldGroup className="min-w-0">
+                  <div className={leadFormGridClass}>
                     <Field>
                       <FieldLabel>Location Type</FieldLabel>
                       <Select
@@ -901,7 +920,7 @@ export default function LeadsPage() {
                           setEditFormData((prev) => ({ ...prev, locationType: value }))
                         }
                       >
-                        <SelectTrigger>
+                        <SelectTrigger className={leadSelectTriggerClass}>
                           <SelectValue placeholder="Select location type" />
                         </SelectTrigger>
                         <SelectContent>
@@ -945,7 +964,7 @@ export default function LeadsPage() {
                         maxLength={10}
                       />
                     </Field>
-                    <Field>
+                    <Field className="md:col-span-2">
                       <FieldLabel>Street / Location</FieldLabel>
                       <Input
                         placeholder="Street, area, or landmark"
@@ -1024,7 +1043,7 @@ export default function LeadsPage() {
                           setEditFormData((prev) => ({ ...prev, status: value }))
                         }
                       >
-                        <SelectTrigger>
+                        <SelectTrigger className={leadSelectTriggerClass}>
                           <SelectValue placeholder="Status" />
                         </SelectTrigger>
                         <SelectContent>
@@ -1050,13 +1069,13 @@ export default function LeadsPage() {
                   </div>
                 </FieldGroup>
 
-                <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" onClick={() => setEditingLead(null)}>
+                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                  <Button variant="outline" className="w-full sm:w-auto" onClick={() => setEditingLead(null)}>
                     Cancel
                   </Button>
                   <Button
                     type="button"
-                    className="bg-amber-500 hover:bg-amber-600"
+                    className="w-full bg-amber-500 hover:bg-amber-600 sm:w-auto"
                     disabled={editSaving}
                     onClick={() => void handleUpdateLead()}
                   >
@@ -1078,8 +1097,8 @@ export default function LeadsPage() {
           )}
 
           {showAddLeadForm && (
-            <Card className="overflow-hidden border-emerald-100 shadow-sm">
- <CardHeader className="border-b border-emerald-100 bg-emerald-50/70 px-6 py-5">
+            <Card ref={addLeadFormRef} className="overflow-hidden border-emerald-100 shadow-sm scroll-mt-4">
+ <CardHeader className="border-b border-emerald-100 bg-emerald-50/70 px-4 py-4 sm:px-6 sm:py-5">
  <div className="flex items-start gap-3">
  <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-emerald-600 text-white shadow-sm">
  <Plus className="h-4 w-4" aria-hidden />
@@ -1092,7 +1111,7 @@ export default function LeadsPage() {
  </div>
  </div>
  </CardHeader>
- <CardContent className="space-y-4 pt-5">
+ <CardContent className="space-y-4 px-4 pt-4 sm:px-6 sm:pt-5">
           {Object.keys(leadFieldErrors).length > 0 ? (
             <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
               <p className="font-medium">Please fix the highlighted fields.</p>
@@ -1114,8 +1133,8 @@ export default function LeadsPage() {
               </ul>
             </div>
           ) : null}
-          <FieldGroup>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <FieldGroup className="min-w-0">
+            <div className={leadFormGridClass}>
  {needsBranchPicker && (
  <Field data-invalid={Boolean(leadFieldErrors.branchId)} data-lead-field="branchId">
  <FieldLabel>Branch</FieldLabel>
@@ -1124,7 +1143,7 @@ export default function LeadsPage() {
  onValueChange={(value) => updateLeadField("branchId", value)}
  >
  <SelectTrigger
- className={formControlErrorClass(Boolean(leadFieldErrors.branchId))}
+ className={cn(leadSelectTriggerClass, formControlErrorClass(Boolean(leadFieldErrors.branchId)))}
  {...formControlErrorProps(leadFieldErrors.branchId)}
  >
  <SelectValue placeholder="Select branch" />
@@ -1154,7 +1173,7 @@ export default function LeadsPage() {
  applyLocationFromType(value);
  }}
  >
- <SelectTrigger>
+ <SelectTrigger className={leadSelectTriggerClass}>
  <SelectValue placeholder="Select location type" />
  </SelectTrigger>
  <SelectContent>
@@ -1201,7 +1220,7 @@ export default function LeadsPage() {
  />
  <FieldError>{leadFieldErrors.alternatePhone}</FieldError>
  </Field>
- <Field data-invalid={Boolean(leadFieldErrors.locationName)} data-lead-field="locationName">
+ <Field data-invalid={Boolean(leadFieldErrors.locationName)} data-lead-field="locationName" className="md:col-span-2">
  <FieldLabel>Street / Location</FieldLabel>
  <Input
  placeholder="Street, area, or landmark"
@@ -1282,7 +1301,7 @@ export default function LeadsPage() {
  setFormData((prev) => ({ ...prev, status: value }))
  }
  >
- <SelectTrigger>
+ <SelectTrigger className={leadSelectTriggerClass}>
  <SelectValue />
  </SelectTrigger>
  <SelectContent>
@@ -1298,6 +1317,7 @@ export default function LeadsPage() {
  <FieldLabel>Notes</FieldLabel>
  <Textarea
  rows={3}
+ className="min-w-0"
  placeholder="Important follow-up details from the field visit"
  value={formData.notes}
  onChange={(e) => updateLeadField("notes", e.target.value)}
@@ -1306,14 +1326,14 @@ export default function LeadsPage() {
  </FieldGroup>
 
 
- <div className="flex flex-wrap gap-2">
- <Button variant="outline" onClick={handleCaptureLocation} disabled={isLocating}>
+ <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+ <Button variant="outline" className="w-full sm:w-auto" onClick={handleCaptureLocation} disabled={isLocating}>
  <LocateFixed className="mr-2 h-4 w-4" />
  {isLocating ? "Getting location…" : "Use browser location"}
  </Button>
  <Button
  type="button"
- className="bg-emerald-600 hover:bg-emerald-700"
+ className="w-full bg-emerald-600 hover:bg-emerald-700 sm:w-auto"
  disabled={saving}
  onClick={() => void handleAddLead()}
  >
