@@ -30,8 +30,15 @@ export async function POST(request: Request) {
  return NextResponse.json({ message: "Invalid JSON body" }, { status: 400 });
  }
 
- const res = await falcoServerFetch<unknown>("/branches", { method: "POST", body });
+  const res = await falcoServerFetch<unknown>("/branches", { method: "POST", body });
  if (!res.ok) {
+ console.error("[POST /api/falco/branches] backend error", {
+ status: res.error.status,
+ message: res.error.message,
+ code: res.error.code,
+ details: res.error.details,
+ body,
+ });
  return NextResponse.json({ message: res.error.message, details: res.error.details }, { status: res.error.status });
  }
 
