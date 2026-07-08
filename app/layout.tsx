@@ -4,26 +4,37 @@ import { AppProviders } from '@/components/app-providers'
 import { Toaster } from '@/components/ui/sonner'
 import './globals.css'
 
+const siteUrl =
+ process.env.NEXT_PUBLIC_SITE_URL ??
+ (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
+
 export const metadata: Metadata = {
+ metadataBase: new URL(siteUrl),
  title: 'Falco Financial Services - Loan Management System',
  description: 'Internal loan management system for Falco Financial Services Ltd',
  generator: 'v0.app',
  icons: {
- icon: [
- {
- url: '/icon-light-32x32.png',
- media: '(prefers-color-scheme: light)',
+ icon: '/logo_falco.jpeg',
+ shortcut: '/logo_falco.jpeg',
+ apple: '/logo_falco.jpeg',
  },
+ openGraph: {
+ title: 'Falco Financial Services - Loan Management System',
+ description: 'Internal loan management system for Falco Financial Services Ltd',
+ images: [
  {
- url: '/icon-dark-32x32.png',
- media: '(prefers-color-scheme: dark)',
- },
- {
- url: '/icon.svg',
- type: 'image/svg+xml',
+ url: '/logo_falco.jpeg',
+ width: 1280,
+ height: 853,
+ alt: 'Falco Financial Services',
  },
  ],
- apple: '/apple-icon.png',
+ },
+ twitter: {
+ card: 'summary_large_image',
+ title: 'Falco Financial Services - Loan Management System',
+ description: 'Internal loan management system for Falco Financial Services Ltd',
+ images: ['/logo_falco.jpeg'],
  },
 }
 
