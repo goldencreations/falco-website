@@ -168,14 +168,14 @@ export async function fetchBranchesForSessionUser(user: SessionUser, request?: R
  try {
  return await fetchBranchesForSessionUserInner(user, request);
  } catch {
- const scopedId = user.branch_id?.trim();
+ const scopedId = isBranchDataScoped(user) ? user.branch_id?.trim() : undefined;
  if (scopedId) return [syntheticBranchFromSession(user)];
  return [];
  }
 }
 
 async function fetchBranchesForSessionUserInner(user: SessionUser, request?: Request): Promise<Branch[]> {
- const scopedId = user.branch_id?.trim();
+ const scopedId = isBranchDataScoped(user) ? user.branch_id?.trim() : undefined;
 
  const listRes = await falcoServerFetch<unknown>("/branches", { request });
  if (listRes.ok) {
@@ -232,7 +232,8 @@ export async function fetchStaffUsersForSessionUser(
  user: SessionUser,
  options: StaffListOptions = {}
 ): Promise<User[]> {
- const branchId = options.branchId?.trim() || user.branch_id?.trim();
+ const branchId =
+ options.branchId?.trim() || (isBranchDataScoped(user) ? user.branch_id?.trim() : undefined);
  const requestedRole = options.requestedRole?.trim();
  const apiRole = requestedRole
  ? mapAppRoleToApiRole(requestedRole as UserRole) ?? requestedRole
