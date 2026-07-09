@@ -20,7 +20,7 @@ import {
  type StaffWorkspaceAccessFlags,
 } from "@/components/staff-management/staff-workspace-model";
 import {
- PasswordResetState,
+ PasswordResetResult,
  StaffEditFormState,
  StaffFormState,
  StaffRecord,
@@ -29,11 +29,9 @@ import {
 } from "@/components/staff-management/types";
 import {
  defaultCreateForm,
- defaultResetForm,
  emptyEditForm,
  mapUserToStaff,
  roleHasPortalAccess,
- validatePasswordReset,
  validateStaffForm,
 } from "@/components/staff-management/utils";
 import { useBranchAssignment } from "@/components/branch-assignment-context";
@@ -89,8 +87,13 @@ function StaffManagementPageInner() {
  const [editFormError, setEditFormError] = useState("");
 
  const [resetStaff, setResetStaff] = useState<StaffRecord | null>(null);
- const [resetForm, setResetForm] = useState<PasswordResetState>(defaultResetForm);
+ const [resetSubmitting, setResetSubmitting] = useState(false);
  const [resetFormError, setResetFormError] = useState("");
+ const [resetResult, setResetResult] = useState<PasswordResetResult | null>(null);
+
+ const [deleteStaff, setDeleteStaff] = useState<StaffRecord | null>(null);
+ const [deleteSubmitting, setDeleteSubmitting] = useState(false);
+ const [deleteError, setDeleteError] = useState("");
 
  const [workspaceStaff, setWorkspaceStaff] = useState<StaffRecord | null>(null);
  const [workspaceOpen, setWorkspaceOpen] = useState(false);
@@ -395,51 +398,88 @@ function StaffManagementPageInner() {
  setEditFormError("");
  };
 
- const handleResetPassword = async (event: FormEvent<HTMLFormElement>) => {
- event.preventDefault();
+ const handleResetPassword = async () => {
  if (!resetStaff) return;
  if (!roleHasPortalAccess(resetStaff.role)) {
  setResetStaff(null);
- setResetForm(defaultResetForm);
  setResetFormError("");
  return;
  }
 
- const validationError = validatePasswordReset(resetForm);
- if (validationError) {
- setResetFormError(validationError);
- return;
- }
-
+ setResetSubmitting(true);
+ setResetFormError("");
+ try {
  const res = await fetch(`/api/staff/directory/${resetStaff.id}/reset-password`, {
  method: "POST",
  credentials: "include",
- headers: { "Content-Type": "application/json" },
- body: JSON.stringify({ password: resetForm.password }),
  });
 
- if (!res.ok) {
- const err = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
- setResetFormError(err.message ?? err.error ?? "Reset request failed.");
+ const data = (await res.json().catch(() => ({}))) as {
+ error?: string;
+ message?: string;
+ temporary_password?: string;
+ };
+
+ if (!res.ok || !data.temporary_password) {
+ setResetFormError(data.message ?? data.error ?? "Reset request failed.");
  return;
  }
 
+ setResetResult({ staff: resetStaff, temporaryPassword: data.temporary_password });
  setResetStaff(null);
- setResetForm(defaultResetForm);
- setResetFormError("");
  await refreshDirectory();
+ } catch {
+ setResetFormError("Network error — could not reset password.");
+ } finally {
+ setResetSubmitting(false);
+ }
  };
 
- const toggleStaffStatus = async (staff: StaffRecord) => {
+  const toggleStaffStatus = async (staff: StaffRecord) => {
  const nextStatus = !staff.is_active;
+ try {
  const res = await fetch(`/api/staff/directory/${staff.id}`, {
  method: "PATCH",
  credentials: "include",
  headers: { "Content-Type": "application/json" },
  body: JSON.stringify({ is_active: nextStatus }),
  });
- if (!res.ok) return;
+ if (!res.ok) {
+ const err = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
+ toast.error(err.message ?? err.error ?? `Could not ${nextStatus ? "activate" : "suspend"} staff member`);
+ return;
+ }
+ toast.success(`${staff.full_name} ${nextStatus ? "activated" : "suspended"}`);
  await refreshDirectory();
+ } catch {
+ toast.error("Network error — could not update staff status");
+ }
+ };
+
+ const handleDeleteStaff = async () => {
+ if (!deleteStaff) return;
+ setDeleteSubmitting(true);
+ setDeleteError("");
+ try {
+ const res = await fetch(`/api/staff/directory/${deleteStaff.id}`, {
+ method: "DELETE",
+ credentials: "include",
+ });
+ if (!res.ok) {
+ const err = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
+ const message = err.error ?? err.message ?? "Could not delete staff member.";
+ setDeleteError(message);
+ if (res.status !== 409) toast.error(message);
+ return;
+ }
+ toast.success(`${deleteStaff.full_name} was deleted.`);
+ setDeleteStaff(null);
+ await refreshDirectory();
+ } catch {
+ setDeleteError("Network error — could not delete staff member.");
+ } finally {
+ setDeleteSubmitting(false);
+ }
  };
 
  const resolveStaffName = useCallback(
@@ -516,11 +556,14 @@ function StaffManagementPageInner() {
  onEdit={openEdit}
  onResetPassword={(staff) => {
  setResetStaff(staff);
- setResetForm(defaultResetForm);
  setResetFormError("");
  }}
  onToggleStatus={toggleStaffStatus}
  onOpenWorkspace={openWorkspace}
+ onDelete={(staff) => {
+ setDeleteStaff(staff);
+ setDeleteError("");
+ }}
  />
  </TabsContent>
 
@@ -567,12 +610,16 @@ function StaffManagementPageInner() {
  }}
  onResetPassword={(s) => {
  setResetStaff(s);
- setResetForm(defaultResetForm);
  setResetFormError("");
  handleWorkspaceOpenChange(false);
  }}
  onToggleStatus={(s) => {
  void toggleStaffStatus(s);
+ }}
+ onDelete={(s) => {
+ setDeleteStaff(s);
+ setDeleteError("");
+ handleWorkspaceOpenChange(false);
  }}
  />
  ) : null}
@@ -612,15 +659,23 @@ function StaffManagementPageInner() {
  onEditFormChange={(updater) => setEditForm((prev) => (prev ? updater(prev) : prev))}
  onEditSubmit={(e) => void handleEditStaff(e)}
  resetStaff={resetStaff}
- resetForm={resetForm}
+ resetSubmitting={resetSubmitting}
  resetFormError={resetFormError}
  onResetClose={() => {
  setResetStaff(null);
- setResetForm(defaultResetForm);
  setResetFormError("");
  }}
- onResetFormChange={(updater) => setResetForm((prev) => updater(prev))}
- onResetSubmit={handleResetPassword}
+ onResetConfirm={() => void handleResetPassword()}
+ resetResult={resetResult}
+ onResetResultClose={() => setResetResult(null)}
+ deleteStaff={deleteStaff}
+ deleteSubmitting={deleteSubmitting}
+ deleteError={deleteError}
+ onDeleteClose={() => {
+ setDeleteStaff(null);
+ setDeleteError("");
+ }}
+ onDeleteConfirm={() => void handleDeleteStaff()}
  />
  </>
  );

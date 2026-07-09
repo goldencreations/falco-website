@@ -41,7 +41,8 @@ export interface StaffEditFormState {
  is_active: boolean;
 }
 
-export interface PasswordResetState {
- password: string;
- confirmPassword: string;
+/** Result of a successful admin-initiated password reset — shown once, then discarded. */
+export interface PasswordResetResult {
+ staff: StaffRecord;
+ temporaryPassword: string;
 }

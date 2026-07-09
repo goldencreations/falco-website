@@ -10,7 +10,16 @@ import {
  XAxis,
  YAxis,
 } from "recharts";
-import { FileText, KeyRound, LayoutGrid, UserCog, UserPen, UserRoundMinus, UserRoundCheck } from "lucide-react";
+import {
+ FileText,
+ KeyRound,
+ LayoutGrid,
+ Trash2,
+ UserCog,
+ UserPen,
+ UserRoundMinus,
+ UserRoundCheck,
+} from "lucide-react";
 import { formatCurrency, formatDateTime } from "@/lib/formatters";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -49,6 +58,7 @@ export interface StaffWorkspaceSheetProps {
  onEdit: (staff: StaffRecord) => void;
  onResetPassword: (staff: StaffRecord) => void;
  onToggleStatus: (staff: StaffRecord) => void;
+ onDelete: (staff: StaffRecord) => void;
 }
 
 function MomBarBlock({
@@ -100,6 +110,7 @@ export function StaffWorkspaceSheet({
  onEdit,
  onResetPassword,
  onToggleStatus,
+ onDelete,
 }: StaffWorkspaceSheetProps) {
  if (!staff || !workspace) return null;
 
@@ -450,6 +461,10 @@ export function StaffWorkspaceSheet({
  Activate
  </>
  )}
+ </Button>
+ <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" onClick={() => onDelete(staff)}>
+ <Trash2 className="mr-2 size-4" />
+ Delete
  </Button>
  </div>
  </SheetContent>

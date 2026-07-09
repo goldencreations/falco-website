@@ -12,6 +12,7 @@ import {
  Phone,
  Plus,
  ShieldCheck,
+ Trash2,
  UserCog,
  UserPen,
  UserRoundCheck,
@@ -65,6 +66,7 @@ interface StaffDirectoryProps {
  onResetPassword: (staff: StaffRecord) => void;
  onToggleStatus: (staff: StaffRecord) => void;
  onOpenWorkspace: (staff: StaffRecord) => void;
+ onDelete: (staff: StaffRecord) => void;
 }
 
 export function StaffDirectory({
@@ -85,6 +87,7 @@ export function StaffDirectory({
  onResetPassword,
  onToggleStatus,
  onOpenWorkspace,
+ onDelete,
 }: StaffDirectoryProps) {
  const activeCount = staffMembers.filter((staff) => staff.is_active).length;
  const onlineCount = staffMembers.filter((staff) => isOnline(staff.last_login)).length;
@@ -323,6 +326,10 @@ export function StaffDirectory({
  Activate Staff
  </>
  )}
+ </DropdownMenuItem>
+ <DropdownMenuItem variant="destructive" onClick={() => onDelete(staff)}>
+ <Trash2 className="mr-2 h-4 w-4" />
+ Delete Staff
  </DropdownMenuItem>
  </DropdownMenuContent>
  </DropdownMenu>

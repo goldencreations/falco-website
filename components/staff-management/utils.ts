@@ -1,7 +1,6 @@
 import type { User } from "@/lib/types";
 import type { StaffProvisioningRole } from "@/lib/staff-requests-types";
 import {
- PasswordResetState,
  StaffEditFormState,
  StaffFormState,
  StaffRecord,
@@ -46,11 +45,6 @@ export const defaultCreateForm: StaffFormState = {
  phone: "",
  role: "loan_officer",
  branch_id: "",
- password: "",
- confirmPassword: "",
-};
-
-export const defaultResetForm: PasswordResetState = {
  password: "",
  confirmPassword: "",
 };
@@ -156,8 +150,3 @@ export function validateProvisioningHireForm(form: StaffFormState) {
  return "";
 }
 
-export function validatePasswordReset(form: PasswordResetState) {
- if (!form.password || form.password.length < 8) return "New password must be at least 8 characters.";
- if (form.password !== form.confirmPassword) return "Password confirmation does not match.";
- return "";
-}

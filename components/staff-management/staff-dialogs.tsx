@@ -1,4 +1,5 @@
-import { Loader2 } from "lucide-react";
+import { ChangeEvent, FormEvent, useState } from "react";
+import { Check, Copy, Eye, EyeOff, KeyRound, Loader2, Trash2, TriangleAlert } from "lucide-react";
 import { formatDateTime } from "@/lib/formatters";
 import type { Branch } from "@/lib/types";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -34,7 +35,7 @@ import {
  SelectValue,
 } from "@/components/ui/select";
 import {
- PasswordResetState,
+ PasswordResetResult,
  StaffEditFormState,
  StaffFormState,
  StaffRecord,
@@ -73,11 +74,117 @@ interface StaffDialogsProps {
  onEditFormChange: (updater: (prev: StaffEditFormState) => StaffEditFormState) => void;
  onEditSubmit: (event: FormEvent<HTMLFormElement>) => void;
  resetStaff: StaffRecord | null;
- resetForm: PasswordResetState;
+ /** Disables the confirm button while `POST /users/{id}/reset-password` is in flight. */
+ resetSubmitting?: boolean;
  resetFormError: string;
  onResetClose: () => void;
- onResetFormChange: (updater: (prev: PasswordResetState) => PasswordResetState) => void;
- onResetSubmit: (event: FormEvent<HTMLFormElement>) => void;
+ onResetConfirm: () => void;
+ /** Set once the backend returns the new temporary password — shown exactly once. */
+ resetResult: PasswordResetResult | null;
+ onResetResultClose: () => void;
+ deleteStaff: StaffRecord | null;
+ /** Disables the confirm button while `DELETE /users/{id}` is in flight. */
+ deleteSubmitting?: boolean;
+ /** Surfaces the backend's 409 conflict message (e.g. "still a loan officer on active loan groups"). */
+ deleteError: string;
+ onDeleteClose: () => void;
+ onDeleteConfirm: () => void;
+}
+
+/** Password input with a show/hide toggle, matching the login screen's pattern. */
+function PasswordInput({
+ id,
+ value,
+ onChange,
+ className,
+ autoComplete = "new-password",
+}: {
+ id: string;
+ value: string;
+ onChange: (event: ChangeEvent<HTMLInputElement>) => void;
+ className?: string;
+ autoComplete?: string;
+}) {
+ const [visible, setVisible] = useState(false);
+ return (
+ <div className="relative">
+ <Input
+ id={id}
+ type={visible ? "text" : "password"}
+ autoComplete={autoComplete}
+ value={value}
+ onChange={onChange}
+ className={cn("pr-10", className)}
+ />
+ <Button
+ type="button"
+ variant="ghost"
+ size="icon-sm"
+ className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+ onClick={() => setVisible((prev) => !prev)}
+ aria-label={visible ? "Hide password" : "Show password"}
+ >
+ {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+ </Button>
+ </div>
+ );
+}
+
+/** Shows a freshly-reset temporary password once, with copy-to-clipboard — the API never re-exposes it. */
+function ResetPasswordResultDialog({
+ result,
+ onClose,
+}: {
+ result: PasswordResetResult;
+ onClose: () => void;
+}) {
+ const [copied, setCopied] = useState(false);
+
+ const copyPassword = async () => {
+ try {
+ await navigator.clipboard.writeText(result.temporaryPassword);
+ setCopied(true);
+ setTimeout(() => setCopied(false), 2000);
+ } catch {
+ /* clipboard unavailable — admin can still select and copy manually */
+ }
+ };
+
+ return (
+ <>
+ <DialogHeader>
+ <DialogTitle>New temporary password</DialogTitle>
+ <DialogDescription>
+ Copy and share this with {result.staff.full_name} now — it will not be shown again. Their existing
+ sessions have been signed out, so they&apos;ll need this to log back in.
+ </DialogDescription>
+ </DialogHeader>
+ <div className="space-y-2">
+ <Label htmlFor="reset-result-password">Temporary password</Label>
+ <div className="flex items-center gap-2">
+ <Input
+ id="reset-result-password"
+ readOnly
+ value={result.temporaryPassword}
+ className="bg-muted/40 font-mono"
+ onFocus={(event) => event.target.select()}
+ />
+ <Button type="button" variant="outline" size="icon" onClick={() => void copyPassword()} aria-label="Copy password">
+ {copied ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
+ </Button>
+ </div>
+ </div>
+ <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+ <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+ <p>This password won&apos;t be retrievable after you close this dialog. Reset again if you lose it.</p>
+ </div>
+ <DialogFooter>
+ <Button type="button" onClick={onClose}>
+ Done
+ </Button>
+ </DialogFooter>
+ </>
+ );
 }
 
 function StaffRoleSelectContent({ variant = "all" }: { variant?: "all" | "provisioning" }) {
@@ -252,10 +359,8 @@ export function StaffFormFields({
  <Label htmlFor="staff-password" className="text-muted-foreground">
  Password
  </Label>
- <Input
+ <PasswordInput
  id="staff-password"
- type="password"
- autoComplete="new-password"
  value={form.password}
  onChange={(event) => onChange((prev) => ({ ...prev, password: event.target.value }))}
  className="border-border/80 bg-background"
@@ -265,10 +370,8 @@ export function StaffFormFields({
  <Label htmlFor="staff-confirm-password" className="text-muted-foreground">
  Confirm password
  </Label>
- <Input
+ <PasswordInput
  id="staff-confirm-password"
- type="password"
- autoComplete="new-password"
  value={form.confirmPassword}
  onChange={(event) =>
  onChange((prev) => ({ ...prev, confirmPassword: event.target.value }))
@@ -281,7 +384,7 @@ export function StaffFormFields({
  ) : null}
  </div>
  );
- }
+}
 
  return (
  <div className="space-y-6">
@@ -396,10 +499,8 @@ export function StaffFormFields({
  <div className="grid gap-4 sm:grid-cols-2">
  <div className="space-y-2">
  <Label htmlFor="staff-password">Password</Label>
- <Input
+ <PasswordInput
  id="staff-password"
- type="password"
- autoComplete="new-password"
  value={form.password}
  onChange={(event) => onChange((prev) => ({ ...prev, password: event.target.value }))}
  className="bg-background"
@@ -407,10 +508,8 @@ export function StaffFormFields({
  </div>
  <div className="space-y-2">
  <Label htmlFor="staff-confirm-password">Confirm password</Label>
- <Input
+ <PasswordInput
  id="staff-confirm-password"
- type="password"
- autoComplete="new-password"
  value={form.confirmPassword}
  onChange={(event) =>
  onChange((prev) => ({ ...prev, confirmPassword: event.target.value }))
@@ -741,45 +840,78 @@ export function StaffDialogs(props: StaffDialogsProps) {
  <DialogHeader>
  <DialogTitle>Reset password</DialogTitle>
  <DialogDescription>
- Set a new temporary password for {props.resetStaff.full_name}. They should change it after signing
- in.
+ This generates a brand-new temporary password for {props.resetStaff.full_name} and immediately
+ signs them out of any active sessions. You&apos;ll see the new password once — copy and share it
+ with them right after.
  </DialogDescription>
  </DialogHeader>
- <form className="space-y-4" onSubmit={props.onResetSubmit}>
- <div className="space-y-2">
- <Label htmlFor="reset-password">New password</Label>
- <Input
- id="reset-password"
- type="password"
- autoComplete="new-password"
- value={props.resetForm.password}
- onChange={(event) =>
- props.onResetFormChange((prev) => ({ ...prev, password: event.target.value }))
- }
- className="bg-background"
- />
- </div>
- <div className="space-y-2">
- <Label htmlFor="reset-confirm-password">Confirm password</Label>
- <Input
- id="reset-confirm-password"
- type="password"
- autoComplete="new-password"
- value={props.resetForm.confirmPassword}
- onChange={(event) =>
- props.onResetFormChange((prev) => ({ ...prev, confirmPassword: event.target.value }))
- }
- className="bg-background"
- />
- </div>
  {props.resetFormError ? <p className="text-sm text-destructive">{props.resetFormError}</p> : null}
  <DialogFooter>
- <Button type="button" variant="outline" onClick={props.onResetClose}>
+ <Button type="button" variant="outline" onClick={props.onResetClose} disabled={props.resetSubmitting}>
  Cancel
  </Button>
- <Button type="submit">Update password</Button>
+ <Button type="button" onClick={props.onResetConfirm} disabled={props.resetSubmitting}>
+ {props.resetSubmitting ? (
+ <>
+ <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+ Resetting…
+ </>
+ ) : (
+ <>
+ <KeyRound className="mr-2 h-4 w-4" />
+ Reset password
+ </>
+ )}
+ </Button>
  </DialogFooter>
- </form>
+ </>
+ ) : null}
+ </DialogContent>
+ </Dialog>
+
+ <Dialog open={Boolean(props.resetResult)} onOpenChange={(open) => !open && props.onResetResultClose()}>
+ <DialogContent className="sm:max-w-md">
+ {props.resetResult ? (
+ <ResetPasswordResultDialog result={props.resetResult} onClose={props.onResetResultClose} />
+ ) : null}
+ </DialogContent>
+ </Dialog>
+
+ <Dialog open={Boolean(props.deleteStaff)} onOpenChange={(open) => !open && props.onDeleteClose()}>
+ <DialogContent className="sm:max-w-md">
+ {props.deleteStaff ? (
+ <>
+ <DialogHeader>
+ <DialogTitle>Delete staff member</DialogTitle>
+ <DialogDescription>
+ This permanently deletes {props.deleteStaff.full_name} ({props.deleteStaff.email}). This action
+ cannot be undone.
+ </DialogDescription>
+ </DialogHeader>
+ {props.deleteError ? (
+ <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+ <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+ <p>{props.deleteError}</p>
+ </div>
+ ) : null}
+ <DialogFooter>
+ <Button type="button" variant="outline" onClick={props.onDeleteClose} disabled={props.deleteSubmitting}>
+ Cancel
+ </Button>
+ <Button type="button" variant="destructive" onClick={props.onDeleteConfirm} disabled={props.deleteSubmitting}>
+ {props.deleteSubmitting ? (
+ <>
+ <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+ Deleting…
+ </>
+ ) : (
+ <>
+ <Trash2 className="mr-2 h-4 w-4" />
+ Delete staff member
+ </>
+ )}
+ </Button>
+ </DialogFooter>
  </>
  ) : null}
  </DialogContent>
