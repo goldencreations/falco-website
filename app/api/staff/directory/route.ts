@@ -119,12 +119,27 @@ export async function POST(request: Request) {
  payload.temporary_password = password;
  }
 
+ console.log("[POST /api/staff/directory] creating user", {
+ email,
+ role: apiRole,
+ branch_id,
+ portal,
+ sentTemporaryPassword: Boolean(payload.temporary_password),
+ temporaryPasswordLength: password ? password.length : 0,
+ });
+
  const res = await falcoServerFetch<{ user?: Record<string, unknown> }>("/users", {
  method: "POST",
  body: payload,
  });
 
  if (!res.ok) {
+ console.error("[POST /api/staff/directory] backend error", {
+ status: res.error.status,
+ message: res.error.message,
+ code: res.error.code,
+ details: res.error.details,
+ });
  return NextResponse.json(
  { error: res.error.message, details: res.error.details },
  { status: res.error.status }
@@ -137,6 +152,13 @@ export async function POST(request: Request) {
  }
 
  const user = adaptApiUserToUser(row);
+ console.log("[POST /api/staff/directory] backend created user", {
+ id: user.id,
+ email: user.email,
+ role: user.role,
+ branch_id: user.branch_id,
+ is_active: user.is_active,
+ });
  return NextResponse.json({
  user,
  portal_credentials_set: portal,

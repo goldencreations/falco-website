@@ -31,7 +31,7 @@ export async function POST(request: Request) {
  return NextResponse.json({ message: "Invalid JSON body" }, { status: 400 });
  }
 
- const email = body.email?.trim();
+ const email = body.email?.trim().toLowerCase();
  const password = body.password;
  if (!email || !password) {
  return NextResponse.json({ message: "Email and password are required" }, { status: 400 });
