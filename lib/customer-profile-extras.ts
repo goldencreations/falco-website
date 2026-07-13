@@ -146,10 +146,10 @@ export type CustomerGuarantorRow = {
   nationalId: string;
   phone: string;
   relationship: string;
+  address?: string;
   collateralType?: string;
   collateralDescription?: string;
   collateralEstimatedValue?: number;
-  documents: Array<{ name: string; url: string }>;
   documents: CustomerGuarantorDocument[];
 };
 
@@ -360,6 +360,10 @@ export function extractGuarantorsFromApplications(
           nationalId: g.national_id ?? "—",
           phone: g.phone ?? "—",
           relationship: g.relationship ?? "—",
+          address: g.address,
+          collateralType: g.collateral_type,
+          collateralDescription: g.collateral_description,
+          collateralEstimatedValue: g.collateral_estimated_value,
           documents: guarantorDocumentsFromRow(g),
         });
       }
@@ -404,6 +408,10 @@ function guarantorRowFromApiItem(
     nationalId: normalized.national_id ?? "—",
     phone: normalized.phone ?? "—",
     relationship: normalized.relationship ?? "—",
+    address: normalized.address,
+    collateralType: normalized.collateral_type,
+    collateralDescription: normalized.collateral_description,
+    collateralEstimatedValue: normalized.collateral_estimated_value,
     documents: guarantorDocumentsFromRow(normalized),
   };
 }
@@ -518,6 +526,10 @@ export function buildCustomerGuarantorRows(
       nationalId: g.national_id ?? "—",
       phone: g.phone,
       relationship: g.relationship,
+      address: g.address,
+      collateralType: g.collateral_type,
+      collateralDescription: g.collateral_description,
+      collateralEstimatedValue: g.collateral_estimated_value,
       documents: extractMetadataGuarantorDocuments(sourceRow, g),
     };
 

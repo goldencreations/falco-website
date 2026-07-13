@@ -6,7 +6,7 @@ import { GlobalSearch } from "@/components/global-search";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Badge } from "@/components/ui/badge";
 import type { Branch } from "@/lib/types";
-import { knownBranchNameFromCode } from "@/lib/branch-scope";
+import { branchIdsMatch, knownBranchNameFromCode } from "@/lib/branch-scope";
 import { useSessionUser } from "@/lib/use-session-user";
 
 interface DashboardHeaderProps {
@@ -17,7 +17,11 @@ interface DashboardHeaderProps {
 export function DashboardHeader({ title, description }: DashboardHeaderProps) {
  const { user } = useSessionUser();
  const [branches, setBranches] = useState<Branch[]>([]);
- const needsBranchLookup = user?.role === "super_admin";
+ // Every role needs this (not just super_admin) to resolve their own branch's real name — the
+ // backend session payload doesn't reliably include `branch_name`, and `/api/falco/branches`
+ // scopes non-admins to their own branch, so it's safe and returns the actual name instead of
+ // falling through to the `Branch {id}` placeholder below.
+ const needsBranchLookup = Boolean(user?.branch_id?.trim());
 
  useEffect(() => {
  if (!needsBranchLookup) return;
@@ -36,7 +40,7 @@ export function DashboardHeader({ title, description }: DashboardHeaderProps) {
  };
  }, [needsBranchLookup]);
 
- const currentBranch = branches.find((b) => b.id === user?.branch_id);
+ const currentBranch = branches.find((b) => branchIdsMatch(b.id, user?.branch_id));
  const branchBadgeLabel =
  currentBranch?.name ??
  (user?.branch_name?.trim() ? user.branch_name.trim() : undefined) ??

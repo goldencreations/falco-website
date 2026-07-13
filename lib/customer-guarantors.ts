@@ -44,6 +44,13 @@ export type CustomerGuarantorFormRow = {
   photoWithCustomer: File | null;
   wardLetter: File | null;
   attachments: File[];
+  /** Existing (already-uploaded) ID document metadata carried over from the backend record. */
+  idFrontDocumentId?: string;
+  idBackDocumentId?: string;
+  existingIdFrontUrl?: string;
+  existingIdFrontPreviewUrl?: string;
+  existingIdBackUrl?: string;
+  existingIdBackPreviewUrl?: string;
 };
 
 export function emptyCustomerGuarantorRow(): CustomerGuarantorFormRow {
@@ -350,14 +357,22 @@ export function customerGuarantorApiRecordsToForm(
     const normalized = record.relationship.trim().toLowerCase().replace(/\s+/g, "_");
     const isStandard = STANDARD_GUARANTOR_RELATIONSHIPS.has(normalized);
     return {
+      // Base defaults (null files, empty attachments array, etc.) so every row always has the
+      // full shape the fields UI expects — without this, rows built from a saved guarantor that
+      // omits e.g. `address`/`attachments` would crash the edit form (`row.attachments.length`
+      // on `undefined`) as soon as it rendered.
+      ...emptyCustomerGuarantorRow(),
       ...(record.id ? { id: record.id } : {}),
       name: record.full_name,
       phone: record.phone,
       nationalId: record.national_id ?? "",
       relationship: isStandard ? normalized : normalized ? "other" : "",
       otherRelationship: isStandard ? "" : record.relationship,
-      idFront: null,
-      idBack: null,
+      address: record.address ?? "",
+      collateralType: record.collateral_type ?? "",
+      collateralDescription: record.collateral_description ?? "",
+      collateralEstimatedValue:
+        record.collateral_estimated_value != null ? String(record.collateral_estimated_value) : "",
       ...(record.id_front_document_id ? { idFrontDocumentId: record.id_front_document_id } : {}),
       ...(record.id_back_document_id ? { idBackDocumentId: record.id_back_document_id } : {}),
       ...(record.id_front_url ? { existingIdFrontUrl: record.id_front_url } : {}),

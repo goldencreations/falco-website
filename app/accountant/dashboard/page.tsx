@@ -11,6 +11,7 @@ import {
  loadAccountantFinanceEssentials,
  type AccountantFinanceSnapshot,
 } from "@/lib/accountant-dashboard-metrics";
+import { branchIdsMatch } from "@/lib/branch-scope";
 import { forceCachedReload } from "@/lib/client-fetch-cache";
 import { useTranslations } from "@/lib/i18n/use-translations";
 import { loginRedirectForRole } from "@/lib/role-portal";
@@ -29,8 +30,8 @@ export default function AccountantDashboardPage() {
  const branchId = user?.branch_id?.trim() ?? "";
  const branchLabel = useMemo(() => {
  if (!branchId) return "Branch";
- const fromCtx = branchCtx?.branches.find((b) => b.id === branchId);
- return fromCtx?.name ?? `Branch ${branchId}`;
+ const fromCtx = branchCtx?.branches.find((b) => branchIdsMatch(b.id, branchId));
+ return fromCtx?.name && fromCtx.name !== "Branch" ? fromCtx.name : `Branch ${branchId}`;
  }, [branchId, branchCtx?.branches]);
 
  const load = useCallback(async () => {
