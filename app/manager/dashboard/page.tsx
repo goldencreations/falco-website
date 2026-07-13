@@ -18,6 +18,7 @@ import {
 import { ManagerPageHeader } from "@/components/manager-page-header";
 import { useOptionalBranchAssignment } from "@/components/branch-assignment-context";
 import { Badge } from "@/components/ui/badge";
+import { branchIdsMatch } from "@/lib/branch-scope";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -53,8 +54,8 @@ export default function ManagerDashboardPage() {
 
  const branchLabel = useMemo(() => {
  if (!branchId) return "Branch";
- const fromCtx = branchCtx?.branches.find((b) => b.id === branchId);
- return fromCtx?.name ?? `Branch ${branchId}`;
+ const fromCtx = branchCtx?.branches.find((b) => branchIdsMatch(b.id, branchId));
+ return fromCtx?.name && fromCtx.name !== "Branch" ? fromCtx.name : `Branch ${branchId}`;
  }, [branchId, branchCtx?.branches]);
 
  const load = useCallback(async () => {

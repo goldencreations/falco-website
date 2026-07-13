@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import {
   ExternalLink,
   FileSpreadsheet,
@@ -146,6 +147,69 @@ function summarizeLeadErrors(errors: LeadFormErrors): string {
   if (count === 0) return "";
   if (count === 1) return Object.values(errors)[0];
   return `Please fix ${count} fields highlighted below.`;
+}
+
+const PROHIBITED_FIELD_LABELS: Record<string, string> = {
+  latitude: "GPS latitude",
+  longitude: "GPS longitude",
+  follow_up_date: "date added",
+};
+
+function humanizeProhibitedField(field: string): string {
+  return PROHIBITED_FIELD_LABELS[field] ?? field.replace(/_/g, " ");
+}
+
+/** Backend validation `details` entries whose message says the field is "prohibited" for this account/role. */
+function extractProhibitedFields(data: unknown): string[] {
+  const details =
+    data && typeof data === "object" ? (data as { details?: unknown }).details : undefined;
+  if (!Array.isArray(details)) return [];
+  const fields: string[] = [];
+  for (const entry of details) {
+    if (!entry || typeof entry !== "object") continue;
+    const field = (entry as { field?: unknown }).field;
+    const message = (entry as { message?: unknown }).message;
+    if (typeof field === "string" && typeof message === "string" && /prohibited/i.test(message)) {
+      fields.push(field);
+    }
+  }
+  return fields;
+}
+
+/**
+ * POSTs/PATCHes a lead payload. Some accounts are blocked by the backend from setting fields
+ * like `latitude`/`longitude`/`follow_up_date` (422 "field is prohibited"). When that happens,
+ * this drops just those fields and retries once so the rest of the lead still saves.
+ */
+async function submitLeadPayload(
+  url: string,
+  method: "POST" | "PATCH",
+  payload: Record<string, unknown>
+): Promise<{ res: Response; data: unknown; droppedFields: string[] }> {
+  const send = (body: Record<string, unknown>) =>
+    apiFetch(url, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  const res = await send(payload);
+  const { data } = await parseJsonResponse<unknown>(res);
+  if (res.ok || res.status !== 422) return { res, data, droppedFields: [] };
+
+  const prohibited = extractProhibitedFields(data).filter((field) => field in payload);
+  if (prohibited.length === 0) return { res, data, droppedFields: [] };
+
+  const retryPayload = { ...payload };
+  for (const field of prohibited) delete retryPayload[field];
+
+  const retryRes = await send(retryPayload);
+  const retryParsed = await parseJsonResponse<unknown>(retryRes);
+  return {
+    res: retryRes,
+    data: retryParsed.data,
+    droppedFields: retryRes.ok ? prohibited : [],
+  };
 }
 
 function validateLeadForm(
@@ -458,30 +522,31 @@ export default function LeadsPage() {
  status: formData.status,
  });
 
- const res = await apiFetch("/api/leads", {
- method: "POST",
- headers: { "Content-Type": "application/json" },
- body: JSON.stringify({
- ...body,
- ...(branchId ? { branch_id: branchId } : {}),
- }),
- });
- const { data } = await parseJsonResponse<unknown>(res);
- if (!res.ok) {
- const msg = apiErrorMessage(data, formatApiResponseError(data, "Failed to save lead"));
- if (isSessionExpiredResponse(res.status, msg)) {
- throw new Error("Your session expired. Please sign in again.");
- }
- if (res.status === 403) {
- throw new Error(
- "You do not have permission to add leads. Ask your branch manager to enable leads access for loan officers."
- );
- }
- throw new Error(msg);
- }
+      const { res, data, droppedFields } = await submitLeadPayload("/api/leads", "POST", {
+        ...body,
+        ...(branchId ? { branch_id: branchId } : {}),
+      });
+      if (!res.ok) {
+        const msg = apiErrorMessage(data, formatApiResponseError(data, "Failed to save lead"));
+        if (isSessionExpiredResponse(res.status, msg)) {
+          throw new Error("Your session expired. Please sign in again.");
+        }
+        if (res.status === 403) {
+          throw new Error(
+            "You do not have permission to add leads. Ask your branch manager to enable leads access for loan officers."
+          );
+        }
+        throw new Error(msg);
+      }
+      if (droppedFields.length > 0) {
+        const labels = droppedFields.map(humanizeProhibitedField).join(", ");
+        toast.info(
+          `Lead saved, but ${labels} ${droppedFields.length > 1 ? "aren't" : "isn't"} allowed for your account and were left blank.`
+        );
+      }
 
- await load();
- setShowAddLeadForm(false);
+      await load();
+      setShowAddLeadForm(false);
     setFormData({
       ...initialLeadFormData,
       branchId: formData.branchId || user?.branch_id || branches[0]?.id || "",
@@ -608,18 +673,23 @@ export default function LeadsPage() {
         status: editFormData.status,
       });
 
-      const res = await apiFetch(`/api/leads/${encodeURIComponent(editingLead.id)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const { data } = await parseJsonResponse<unknown>(res);
+      const { res, data, droppedFields } = await submitLeadPayload(
+        `/api/leads/${encodeURIComponent(editingLead.id)}`,
+        "PATCH",
+        body
+      );
       if (!res.ok) {
         const msg = apiErrorMessage(data, formatApiResponseError(data, "Failed to update lead"));
         if (isSessionExpiredResponse(res.status, msg)) {
           throw new Error("Your session expired. Please sign in again.");
         }
         throw new Error(msg);
+      }
+      if (droppedFields.length > 0) {
+        const labels = droppedFields.map(humanizeProhibitedField).join(", ");
+        toast.info(
+          `Lead updated, but ${labels} ${droppedFields.length > 1 ? "aren't" : "isn't"} allowed for your account and were left unchanged.`
+        );
       }
 
       await load();
