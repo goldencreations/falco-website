@@ -5,8 +5,29 @@ import Link from "next/link";
 import { Eye, Loader2, Search, UserMinus, UserPlus, Users } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+ Card,
+ CardAction,
+ CardContent,
+ CardDescription,
+ CardHeader,
+ CardTitle,
+} from "@/components/ui/card";
+import {
+ Dialog,
+ DialogContent,
+ DialogDescription,
+ DialogHeader,
+ DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+ Select,
+ SelectContent,
+ SelectItem,
+ SelectTrigger,
+ SelectValue,
+} from "@/components/ui/select";
 import {
  Table,
  TableBody,
@@ -20,11 +41,26 @@ import { formatValidationDetails } from "@/lib/falco-api";
 import type { GroupDetailView } from "@/lib/group-adapters";
 import {
  buildAddGroupMemberBody,
- isLeadershipMember,
+ isChairpersonMember,
  leadershipRoleForCustomer,
 } from "@/lib/group-members";
 import { formatCurrency } from "@/lib/formatters";
 import type { Customer, RiskGrade } from "@/lib/types";
+
+type AssignableRole = "member" | "chairperson" | "secretary" | "treasurer";
+
+const GROUP_ROLE_OPTIONS: Array<{ value: AssignableRole; label: string }> = [
+ { value: "member", label: "Member" },
+ { value: "chairperson", label: "Chairperson" },
+ { value: "secretary", label: "Secretary" },
+ { value: "treasurer", label: "Treasurer" },
+];
+
+const LEADERSHIP_FIELD_BY_ROLE: Record<Exclude<AssignableRole, "member">, keyof GroupDetailView> = {
+ chairperson: "chairperson_customer_id",
+ secretary: "secretary_customer_id",
+ treasurer: "treasurer_customer_id",
+};
 
 const riskVariant: Record<
  RiskGrade,
@@ -60,67 +96,95 @@ export function GroupMembersPanel({
  memberDetailHref,
 }: Props) {
  const memberHref = memberDetailHref ?? customerDetailHref;
+ const [addMemberOpen, setAddMemberOpen] = useState(false);
  const [searchQuery, setSearchQuery] = useState("");
- const [searchResults, setSearchResults] = useState<Customer[]>([]);
+ // The backend's `/customers?q=` filter is unreliable — it can return zero matches for a
+ // customer that plainly exists (confirmed: an unscoped, unfiltered search for a real customer's
+ // name still came back empty). So, like the main Customers list page, we fetch the branch's
+ // customers once (no `q`) and filter client-side instead of trusting the backend search.
+ const [branchCustomers, setBranchCustomers] = useState<Customer[]>([]);
  const [searching, setSearching] = useState(false);
  const [searchError, setSearchError] = useState("");
  const [actionError, setActionError] = useState("");
  const [assigningId, setAssigningId] = useState<string | null>(null);
  const [removingId, setRemovingId] = useState<string | null>(null);
+ const [roleSelections, setRoleSelections] = useState<Record<string, AssignableRole>>({});
+
+ const roleForCustomer = useCallback(
+ (customerId: string) => roleSelections[customerId] ?? "member",
+ [roleSelections]
+ );
+
+ /** Name of whoever currently holds a leadership role, if anyone (for a "will replace" hint). */
+ const currentHolderName = useCallback(
+ (role: Exclude<AssignableRole, "member">) => {
+ const holderId = group[LEADERSHIP_FIELD_BY_ROLE[role]] as string | undefined;
+ if (!holderId?.trim()) return null;
+ return group.members.find((m) => m.customerId === holderId.trim())?.customerName ?? null;
+ },
+ [group]
+ );
 
  const memberIds = useMemo(
  () => new Set(group.members.map((m) => m.customerId)),
  [group.members]
  );
 
- const searchCustomers = useCallback(async () => {
- const q = searchQuery.trim();
- if (q.length < 2) {
- setSearchResults([]);
- setSearchError("");
- return;
- }
-
+ const loadBranchCustomers = useCallback(async () => {
  setSearching(true);
  setSearchError("");
  try {
- const params = new URLSearchParams({
- q,
- is_active: "true",
- page_size: "25",
- });
+ const params = new URLSearchParams({ is_active: "true", page_size: "200" });
  if (group.branch_id) params.set("branch_id", group.branch_id);
 
  const res = await fetch(`/api/customers?${params.toString()}`, { credentials: "include" });
  const json = (await res.json()) as unknown;
  if (!res.ok) {
  const o = json as { message?: string };
- setSearchError(o.message ?? "Could not search customers");
- setSearchResults([]);
+ setSearchError(o.message ?? "Could not load customers");
+ setBranchCustomers([]);
  return;
  }
 
- const rows = extractCustomersList(json).filter((c) => !memberIds.has(c.id));
- setSearchResults(rows);
- if (!rows.length) {
- setSearchError("No matching customers in this branch, or they are already members.");
- }
+ setBranchCustomers(extractCustomersList(json));
  } catch {
- setSearchError("Could not search customers");
- setSearchResults([]);
+ setSearchError("Could not load customers");
+ setBranchCustomers([]);
  } finally {
  setSearching(false);
  }
- }, [searchQuery, group.branch_id, memberIds]);
+ }, [group.branch_id]);
 
  useEffect(() => {
- const timer = window.setTimeout(() => {
- void searchCustomers();
- }, 350);
- return () => window.clearTimeout(timer);
- }, [searchCustomers]);
+ if (!addMemberOpen) return;
+ void loadBranchCustomers();
+ }, [addMemberOpen, loadBranchCustomers]);
+
+ const searchResults = useMemo(() => {
+ const q = searchQuery.trim().toLowerCase();
+ if (q.length < 2) return [];
+ const digits = searchQuery.replace(/\D/g, "");
+
+ return branchCustomers.filter((c) => {
+ if (memberIds.has(c.id)) return false;
+ const fullName = [c.first_name, c.middle_name, c.last_name].filter(Boolean).join(" ").toLowerCase();
+ const matchesText =
+ fullName.includes(q) ||
+ (c.customer_number ?? "").toLowerCase().includes(q) ||
+ (c.national_id ?? "").toLowerCase().includes(q);
+ const matchesPhone = digits.length >= 3 && (c.phone_primary ?? "").includes(digits);
+ return matchesText || matchesPhone;
+ });
+ }, [branchCustomers, searchQuery, memberIds]);
+
+ const searchErrorMessage =
+ searchError ||
+ (!searching && searchQuery.trim().length >= 2 && searchResults.length === 0
+ ? "No matching customers in this branch, or they are already members."
+ : "");
 
  const assignMember = async (customer: Customer) => {
+ const role = roleForCustomer(customer.id);
  setActionError("");
  setAssigningId(customer.id);
  try {
@@ -139,8 +203,37 @@ export function GroupMembersPanel({
  setActionError(detailText || json.message || "Could not add member");
  return;
  }
+
+ if (role !== "member") {
+ const leadershipRes = await fetch(`/api/groups/${encodeURIComponent(groupId)}`, {
+ method: "PATCH",
+ credentials: "include",
+ headers: { "Content-Type": "application/json" },
+ body: JSON.stringify({ [LEADERSHIP_FIELD_BY_ROLE[role]]: customer.id }),
+ });
+ if (!leadershipRes.ok) {
+ const leadershipJson = (await leadershipRes.json().catch(() => ({}))) as {
+ message?: string;
+ details?: { field?: string; message?: string }[];
+ };
+ const detailText = formatValidationDetails(leadershipJson.details);
+ setActionError(
+ `${customer.first_name} ${customer.last_name} was added, but could not be set as ${role}: ${
+ detailText || leadershipJson.message || "unknown error"
+ }`
+ );
+ await onChanged();
+ return;
+ }
+ }
+
  setSearchQuery("");
- setSearchResults([]);
+ setRoleSelections((prev) => {
+ const next = { ...prev };
+ delete next[customer.id];
+ return next;
+ });
+ setAddMemberOpen(false);
  await onChanged();
  } catch {
  setActionError("Could not add member");
@@ -149,9 +242,19 @@ export function GroupMembersPanel({
  }
  };
 
+ const handleAddMemberOpenChange = (open: boolean) => {
+ setAddMemberOpen(open);
+ if (!open) {
+ setSearchQuery("");
+ setSearchError("");
+ setActionError("");
+ setRoleSelections({});
+ }
+ };
+
  const removeMember = async (customerId: string) => {
- if (isLeadershipMember(customerId, group)) {
- setActionError("Change leadership roles on the group before removing this person.");
+ if (isChairpersonMember(customerId, group)) {
+ setActionError("The chairperson cannot be removed. Assign a new chairperson first.");
  return;
  }
  setActionError("");
@@ -177,21 +280,23 @@ export function GroupMembersPanel({
  return (
  <div className="space-y-6">
  {!readOnly ? (
- <Card>
- <CardHeader>
- <CardTitle className="flex items-center gap-2 text-base">
+ <Dialog open={addMemberOpen} onOpenChange={handleAddMemberOpenChange}>
+ <DialogContent className="sm:max-w-2xl">
+ <DialogHeader>
+ <DialogTitle className="flex items-center gap-2">
  <Search className="h-4 w-4" />
- Assign member
- </CardTitle>
- <CardDescription>
+ Add member
+ </DialogTitle>
+ <DialogDescription>
  Search customers by name, customer number, phone, or national ID. Only active
  customers from this vikundi&apos;s branch can be added.
- </CardDescription>
- </CardHeader>
- <CardContent className="space-y-4">
+ </DialogDescription>
+ </DialogHeader>
+ <div className="space-y-4">
  <div className="relative max-w-xl">
  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
  <Input
+ autoFocus
  className="pl-9"
  placeholder="Search by name, phone, or customer number…"
  value={searchQuery}
@@ -201,11 +306,11 @@ export function GroupMembersPanel({
  {searching ? (
  <p className="flex items-center gap-2 text-sm text-muted-foreground">
  <Loader2 className="h-4 w-4 animate-spin" />
- Searching…
+ Loading customers…
  </p>
  ) : null}
- {searchError && searchQuery.trim().length >= 2 ? (
- <p className="text-sm text-muted-foreground">{searchError}</p>
+ {!searching && searchErrorMessage ? (
+ <p className="text-sm text-muted-foreground">{searchErrorMessage}</p>
  ) : null}
  {searchQuery.trim().length > 0 && searchQuery.trim().length < 2 ? (
  <p className="text-sm text-muted-foreground">Type at least 2 characters to search.</p>
@@ -213,18 +318,23 @@ export function GroupMembersPanel({
  {actionError ? <p className="text-sm text-destructive">{actionError}</p> : null}
 
  {searchResults.length > 0 ? (
- <div className="rounded-lg border">
+ <div className="max-h-[360px] overflow-y-auto rounded-lg border">
  <Table>
  <TableHeader>
  <TableRow>
  <TableHead>Customer</TableHead>
  <TableHead>Phone</TableHead>
  <TableHead>Risk</TableHead>
+ <TableHead>Role</TableHead>
  <TableHead className="text-right">Action</TableHead>
  </TableRow>
  </TableHeader>
  <TableBody>
- {searchResults.map((customer) => (
+ {searchResults.map((customer) => {
+ const selectedRole = roleForCustomer(customer.id);
+ const replacing =
+ selectedRole !== "member" ? currentHolderName(selectedRole) : null;
+ return (
  <TableRow key={customer.id}>
  <TableCell>
  <p className="font-medium">
@@ -235,6 +345,28 @@ export function GroupMembersPanel({
  <TableCell className="text-sm">{customer.phone_primary || "—"}</TableCell>
  <TableCell>
  <Badge variant={riskVariant[customer.risk_grade]}>{customer.risk_grade}</Badge>
+ </TableCell>
+ <TableCell>
+ <Select
+ value={selectedRole}
+ onValueChange={(value) =>
+ setRoleSelections((prev) => ({ ...prev, [customer.id]: value as AssignableRole }))
+ }
+ >
+ <SelectTrigger size="sm" className="w-[130px]">
+ <SelectValue />
+ </SelectTrigger>
+ <SelectContent>
+ {GROUP_ROLE_OPTIONS.map((option) => (
+ <SelectItem key={option.value} value={option.value}>
+ {option.label}
+ </SelectItem>
+ ))}
+ </SelectContent>
+ </Select>
+ {replacing ? (
+ <p className="mt-1 text-[11px] text-muted-foreground">Replaces {replacing}</p>
+ ) : null}
  </TableCell>
  <TableCell className="text-right">
  <Button
@@ -254,13 +386,15 @@ export function GroupMembersPanel({
  </Button>
  </TableCell>
  </TableRow>
- ))}
+ );
+ })}
  </TableBody>
  </Table>
  </div>
  ) : null}
- </CardContent>
- </Card>
+ </div>
+ </DialogContent>
+ </Dialog>
  ) : null}
 
  <Card>
@@ -272,6 +406,14 @@ export function GroupMembersPanel({
  <CardDescription>
  {group.members.length} active member{group.members.length === 1 ? "" : "s"} on this vikundi.
  </CardDescription>
+ {!readOnly ? (
+ <CardAction>
+ <Button type="button" size="sm" onClick={() => setAddMemberOpen(true)}>
+ <UserPlus className="mr-1.5 h-4 w-4" />
+ Add member
+ </Button>
+ </CardAction>
+ ) : null}
  </CardHeader>
  <CardContent className="space-y-4 p-0 sm:p-6">
  <div className="grid gap-3 p-4 sm:hidden">
@@ -353,7 +495,7 @@ export function GroupMembersPanel({
  View Details
  </Link>
  </Button>
- {!readOnly && !isLeadershipMember(member.customerId, group) ? (
+ {!readOnly && !isChairpersonMember(member.customerId, group) ? (
  <Button
  type="button"
  variant="outline"
@@ -461,7 +603,7 @@ export function GroupMembersPanel({
  >
  <Link href={memberHref(member.customerId)}>View</Link>
  </Button>
- {!readOnly && !isLeadershipMember(member.customerId, group) ? (
+ {!readOnly && !isChairpersonMember(member.customerId, group) ? (
  <Button
  type="button"
  variant="ghost"

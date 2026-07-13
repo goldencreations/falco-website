@@ -26,6 +26,16 @@ export function isLeadershipMember(
  return leadershipRoleForCustomer(customerId, group) !== null;
 }
 
+/** Only the chairperson is locked on the group — secretary/treasurer can be removed. */
+export function isChairpersonMember(
+ customerId: string,
+ group: Pick<LoanGroup, "chairperson_customer_id">
+): boolean {
+ const id = customerId.trim();
+ if (!id) return false;
+ return id === group.chairperson_customer_id.trim();
+}
+
 /** Body for `POST /groups/{group}/members`. */
 export function buildAddGroupMemberBody(customerId: string): Record<string, string> {
  return { customer_id: customerId.trim() };
