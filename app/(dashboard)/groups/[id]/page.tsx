@@ -7,6 +7,7 @@ import { ArrowLeft, UserCheck, Users, Loader2, Wallet } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { GroupMembersPanel } from "@/components/group-members-panel";
 import { GroupMeetingLocationCard } from "@/components/groups/group-meeting-location-card";
+import { GroupDeleteDangerZone } from "@/components/groups/group-delete-danger-zone";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -263,6 +264,10 @@ export default function GroupDetailPage() {
  <p className="text-sm text-muted-foreground">{group.notes}</p>
  </CardContent>
  </Card>
+ ) : null}
+
+ {user?.role !== "loan_officer" ? (
+ <GroupDeleteDangerZone group={group} groupsListHref={groupsListHref} />
  ) : null}
  </div>
  </main>
