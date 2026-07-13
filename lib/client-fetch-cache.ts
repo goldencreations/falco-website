@@ -234,6 +234,16 @@ export async function cachedFetch(
  return cachedFetchImpl(input, init, fetchFn);
 }
 
+/**
+ * Bypasses the cache patch entirely — use for binary downloads (xlsx, pdf, images).
+ * The patched `window.fetch` reads every response body via `.text()` to cache/replay it,
+ * which corrupts non-text bytes. This calls the original `fetch` the patch captured.
+ */
+export function rawFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+ const fetchFn = nativeFetch ?? fetch;
+ return fetchFn(input, init);
+}
+
 /** Install a global fetch wrapper so existing pages benefit without edits. */
 export function installFetchCachePatch() {
  if (patchInstalled || typeof window === "undefined") return;

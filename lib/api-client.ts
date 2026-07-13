@@ -1,4 +1,4 @@
-import { withCacheBypass } from "@/lib/client-fetch-cache";
+import { rawFetch, withCacheBypass } from "@/lib/client-fetch-cache";
 
 /** Authenticated calls to this app's `/api/*` routes (cookies + no stale GET cache). */
 export function apiFetch(input: string, init?: RequestInit): Promise<Response> {
@@ -11,6 +11,19 @@ export function apiFetch(input: string, init?: RequestInit): Promise<Response> {
  headers: init?.headers,
  })
  );
+}
+
+/**
+ * Authenticated calls for binary responses (xlsx, pdf, images, …). Skips the global fetch-cache
+ * patch, which reads bodies as text and would corrupt non-text bytes.
+ */
+export function apiFetchBinary(input: string, init?: RequestInit): Promise<Response> {
+ return rawFetch(input, {
+ credentials: "include",
+ cache: "no-store",
+ ...init,
+ headers: init?.headers,
+ });
 }
 
 export function apiErrorMessage(json: unknown, fallback: string): string {
