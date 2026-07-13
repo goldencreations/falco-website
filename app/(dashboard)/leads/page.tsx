@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ExternalLink,
+  FileSpreadsheet,
   Loader2,
   LocateFixed,
   MapPin,
@@ -36,6 +37,15 @@ import {
  TableHeader,
  TableRow,
 } from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import {
  Select,
  SelectContent,
@@ -98,11 +108,21 @@ const locationTypeLabel: Record<LeadLocationType, string> = {
 
 /** Local calendar date for `<input type="date">` (YYYY-MM-DD). */
 function todayInputDate(): string {
- const d = new Date();
- const y = d.getFullYear();
- const m = String(d.getMonth() + 1).padStart(2, "0");
- const day = String(d.getDate()).padStart(2, "0");
- return `${y}-${m}-${day}`;
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** Same-format date `daysAgo` days before today, for the report's default start date. */
+function daysAgoInputDate(daysAgo: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - daysAgo);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 type LeadFormErrors = Record<string, string>;
@@ -214,6 +234,10 @@ export default function LeadsPage() {
   const [editingLead, setEditingLead] = useState<LeadView | null>(null);
   const [isLocating, setIsLocating] = useState(false);
   const [leadFieldErrors, setLeadFieldErrors] = useState<LeadFormErrors>({});
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportFrom, setReportFrom] = useState(() => daysAgoInputDate(30));
+  const [reportTo, setReportTo] = useState(() => todayInputDate());
+  const [reportError, setReportError] = useState<string | null>(null);
   const needsBranchPicker = user?.role === "super_admin";
   const [editFormData, setEditFormData] = useState({
     fullName: "",
@@ -607,6 +631,35 @@ export default function LeadsPage() {
     }
   };
 
+  const handleGenerateReport = () => {
+    if (!reportFrom || !reportTo) {
+      setReportError("Choose a start and end date.");
+      return;
+    }
+    if (reportFrom > reportTo) {
+      setReportError("The start date must be on or before the end date.");
+      return;
+    }
+
+    setReportError(null);
+    const params = new URLSearchParams({ from: reportFrom, to: reportTo });
+    const downloadUrl = `/api/leads/report?${params.toString()}`;
+
+    // Navigate directly to the download URL instead of using `fetch`/blob: this app's global
+    // fetch-cache patch (lib/client-fetch-cache.ts) reads every response body as text to cache
+    // it, which corrupts binary files like .xlsx. A plain browser navigation (same mechanism an
+    // <img> tag uses) is handled by the browser's native network stack and never touches that
+    // patch, so the bytes reach disk untouched.
+    const link = document.createElement("a");
+    link.href = downloadUrl;
+    link.rel = "noopener";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    setReportOpen(false);
+  };
+
   return (
  <>
  <DashboardHeader
@@ -681,16 +734,29 @@ export default function LeadsPage() {
  ) : (
  <>
  <Card className="overflow-hidden border-emerald-100">
- <CardHeader>
- <div className="flex flex-wrap items-center justify-between gap-3">
- <div>
- <CardTitle>Leads for Follow-up</CardTitle>
- <CardDescription>
- Track and update potential customers captured during field work
- </CardDescription>
- </div>
- </div>
- </CardHeader>
+              <CardHeader>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <CardTitle>Leads for Follow-up</CardTitle>
+                    <CardDescription>
+                      Track and update potential customers captured during field work
+                    </CardDescription>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="border-emerald-200 text-emerald-800 hover:bg-emerald-50"
+                    onClick={() => {
+                      setReportError(null);
+                      setReportOpen(true);
+                    }}
+                  >
+                    <FileSpreadsheet className="mr-2 h-4 w-4" />
+                    Generate Report
+                  </Button>
+                </div>
+              </CardHeader>
  <CardContent className="space-y-4 p-0">
  <div className="grid gap-3 p-4 sm:hidden">
  {visibleLeads.map((lead) => (
@@ -1422,12 +1488,60 @@ export default function LeadsPage() {
  Select a lead from the list or use View to show their location here.
  </p>
  )}
- </CardContent>
- </Card>
- </>
- )}
- </div>
- </main>
- </>
- );
+          </CardContent>
+        </Card>
+        </>
+        )}
+      </div>
+
+      <Dialog open={reportOpen} onOpenChange={setReportOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Generate Leads Report</DialogTitle>
+            <DialogDescription>
+              Choose the time frame for the field leads report. It will be generated as an Excel
+              file with your name and role, ready to download.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="report-from">Start date</Label>
+              <Input
+                id="report-from"
+                type="date"
+                value={reportFrom}
+                max={reportTo || undefined}
+                onChange={(e) => setReportFrom(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="report-to">End date</Label>
+              <Input
+                id="report-to"
+                type="date"
+                value={reportTo}
+                min={reportFrom || undefined}
+                onChange={(e) => setReportTo(e.target.value)}
+              />
+            </div>
+          </div>
+          {reportError ? <p className="text-sm text-destructive">{reportError}</p> : null}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setReportOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="bg-emerald-600 hover:bg-emerald-700"
+              onClick={handleGenerateReport}
+            >
+              <FileSpreadsheet className="mr-2 h-4 w-4" />
+              Generate Report
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </main>
+    </>
+  );
 }
