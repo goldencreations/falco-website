@@ -51,10 +51,12 @@ import {
   clearCustomerGuarantorPendingFiles,
   getCustomerGuarantorPendingFiles,
 } from "@/lib/customer-guarantor-pending-files";
-import type { Customer, LoanGroup, LoanMode, LoanProduct } from "@/lib/types";
+import type { Customer, LoanGroup, LoanMode, LoanProduct, RepaymentFrequency } from "@/lib/types";
 import { extractApplicationDetail } from "@/lib/application-adapters";
 import {
+ APPLICATION_REPAYMENT_FREQUENCIES,
  mapApplicationFormToFalcoBody,
+ normalizeApplicationRepaymentFrequency,
  validateApplicationAgainstProduct,
 } from "@/lib/application-payload";
 import { RequiredDocumentsFields } from "@/components/applications/required-documents-fields";
@@ -242,6 +244,7 @@ function NewApplicationPageContent() {
  amount: "",
  term: "",
  purpose: "",
+ repaymentFrequency: "weekly" as RepaymentFrequency,
  latitude: "",
  longitude: "",
  locationLabel: "",
@@ -355,6 +358,10 @@ function NewApplicationPageContent() {
  : "",
  term: String(app.term_days ?? ""),
  purpose: String(app.purpose ?? ""),
+ repaymentFrequency: normalizeApplicationRepaymentFrequency(
+  app.repayment_frequency,
+  "weekly"
+ ),
  latitude: editLatitude,
  longitude: editLongitude,
  locationLabel:
@@ -524,7 +531,10 @@ function NewApplicationPageContent() {
  selectedProduct.interest_rate_per_month ?? selectedProduct.interest_rate / 12,
  processingFeePercent: selectedProduct.processing_fee_percent,
  insuranceFeePercent: selectedProduct.insurance_fee_percent,
- repaymentFrequency: selectedProduct.repayment_frequency,
+ repaymentFrequency: normalizeApplicationRepaymentFrequency(
+  formData.repaymentFrequency,
+  selectedProduct.repayment_frequency
+ ),
  interestType: selectedProduct.interest_type,
  });
 
@@ -692,6 +702,10 @@ function NewApplicationPageContent() {
  requested_amount: amount,
  term_days: termDays,
  purpose: formData.purpose.trim() || "Working capital",
+ repayment_frequency: normalizeApplicationRepaymentFrequency(
+  formData.repaymentFrequency,
+  selectedProduct.repayment_frequency
+ ),
  collaterals: [],
  guarantors: guarantorsPayload,
  references: referencesPayload,
@@ -1135,11 +1149,19 @@ onValueChange={(value) => {
  )}
  <Select
  value={selectedProduct?.id || ""}
- onValueChange={(value) =>
- setSelectedProduct(
- activeLoanProducts.find((p) => String(p.id) === String(value)) || null
- )
+ onValueChange={(value) => {
+ const next = activeLoanProducts.find((p) => String(p.id) === String(value)) || null;
+ setSelectedProduct(next);
+ if (next) {
+ setFormData((prev) => ({
+ ...prev,
+ repaymentFrequency: normalizeApplicationRepaymentFrequency(
+  next.repayment_frequency,
+  prev.repaymentFrequency
+ ),
+ }));
  }
+ }}
  disabled={!hasBorrower || productsLoading}
  onOpenChange={(open) => {
  if (open) void loadLoanProducts();
@@ -1211,6 +1233,38 @@ onValueChange={(value) => {
  />
  </Field>
  </div>
+
+ <Field>
+ <FieldLabel>Repayment frequency</FieldLabel>
+ <Select
+ value={formData.repaymentFrequency}
+ onValueChange={(value) =>
+ setFormData({
+ ...formData,
+ repaymentFrequency: normalizeApplicationRepaymentFrequency(value),
+ })
+ }
+ disabled={!selectedProduct}
+ >
+ <SelectTrigger>
+ <SelectValue placeholder="Select frequency" />
+ </SelectTrigger>
+ <SelectContent>
+ {APPLICATION_REPAYMENT_FREQUENCIES.map((frequency) => (
+ <SelectItem key={frequency} value={frequency}>
+ {frequency === "daily"
+ ? "Daily"
+ : frequency === "weekly"
+ ? "Weekly"
+ : "Monthly"}
+ </SelectItem>
+ ))}
+ </SelectContent>
+ </Select>
+ <p className="mt-1 text-xs text-muted-foreground">
+ Defaults from the product; change if this loan should repay on a different schedule.
+ </p>
+ </Field>
 
  <Field>
  <FieldLabel>Purpose of Loan</FieldLabel>

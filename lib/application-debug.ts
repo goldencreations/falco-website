@@ -26,6 +26,7 @@ export function summarizeApplicationBody(body: Record<string, unknown>) {
     requested_amount: body.requested_amount,
     term_days: body.term_days,
     purpose: typeof body.purpose === "string" ? body.purpose.slice(0, 80) : body.purpose,
+    repayment_frequency: body.repayment_frequency,
     collaterals_count: Array.isArray(body.collaterals) ? body.collaterals.length : 0,
     guarantors_count: Array.isArray(body.guarantors) ? body.guarantors.length : 0,
     references_count: Array.isArray(body.references) ? body.references.length : 0,

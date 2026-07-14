@@ -369,6 +369,20 @@ export function ApplicationDetailPanel({
                     <DetailRow label="Approved amount" value={formatCurrency(application.approved_amount)} />
                   ) : null}
                   <DetailRow label="Term" value={formatTermDays(application.term_days)} />
+                  <DetailRow
+                    label="Repayment frequency"
+                    value={
+                      application.repayment_frequency === "daily"
+                        ? "Daily"
+                        : application.repayment_frequency === "weekly"
+                          ? "Weekly"
+                          : application.repayment_frequency === "bi_weekly"
+                            ? "Bi-weekly"
+                            : application.repayment_frequency === "monthly"
+                              ? "Monthly"
+                              : "—"
+                    }
+                  />
                   {application.installment_amount ? (
                     <DetailRow
                       label="Installment"

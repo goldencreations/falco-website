@@ -33,6 +33,7 @@ Branch scope: applications inherit the customer branch. Super admins may work ac
   "requested_amount": 1000000,
   "term_days": 90,
   "purpose": "Working capital",
+  "repayment_frequency": "weekly",
   "collaterals": [{ "type": "inventory", "description": "Retail stock", "estimated_value": 2500000 }],
   "guarantors": [{ "full_name": "Jane Doe", "phone": "255712345678", "relationship": "business_partner" }],
   "references": [{ "full_name": "John Doe", "relationship": "supplier", "phone": "255798765432" }],
@@ -40,7 +41,7 @@ Branch scope: applications inherit the customer branch. Super admins may work ac
 }
 ```
 
-`PATCH /applications/{id}` supports `requested_amount`, `term_days`, `purpose`, `metadata`, `location`, `collaterals`, `guarantors`, and `references`. Child arrays use full replacement when included.
+`PATCH /applications/{id}` supports `requested_amount`, `term_days`, `purpose`, `repayment_frequency`, `metadata`, `location`, `collaterals`, `guarantors`, and `references`. Child arrays use full replacement when included.
 
 `POST /applications/{id}/documents` accepts multipart `file`, `type`, `name`, or JSON `url`, `type`, `name`.
 

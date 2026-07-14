@@ -1,4 +1,4 @@
-import type { LoanMode, LoanProduct } from "@/lib/types";
+import type { LoanMode, LoanProduct, RepaymentFrequency } from "@/lib/types";
 
 export type ApplicationFormInput = {
  customer_id: string;
@@ -8,6 +8,7 @@ export type ApplicationFormInput = {
  requested_amount: number;
  term_days: number;
  purpose: string;
+ repayment_frequency: RepaymentFrequency;
  collaterals: Array<{ type: string; description: string; estimated_value: number }>;
  guarantors: Array<{
   full_name: string;
@@ -23,6 +24,24 @@ export type ApplicationFormInput = {
  location?: { latitude: string; longitude: string; captured_at: string };
 };
 
+const APPLICATION_REPAYMENT_FREQUENCIES: RepaymentFrequency[] = [
+ "daily",
+ "weekly",
+ "monthly",
+];
+
+export function normalizeApplicationRepaymentFrequency(
+ value: unknown,
+ fallback: RepaymentFrequency = "weekly"
+): RepaymentFrequency {
+ const raw = String(value ?? "")
+  .trim()
+  .toLowerCase();
+ if (raw === "daily" || raw === "weekly" || raw === "monthly") return raw;
+ if (raw === "bi_weekly") return "weekly";
+ return fallback;
+}
+
 /** Map UI form → Falco `POST/PATCH /applications` body (`loan-applications-controller.md`). */
 export function mapApplicationFormToFalcoBody(input: ApplicationFormInput): Record<string, unknown> {
  const body: Record<string, unknown> = {
@@ -32,6 +51,7 @@ export function mapApplicationFormToFalcoBody(input: ApplicationFormInput): Reco
  requested_amount: input.requested_amount,
  term_days: input.term_days,
  purpose: input.purpose.trim() || "Working capital",
+ repayment_frequency: normalizeApplicationRepaymentFrequency(input.repayment_frequency),
  };
 
  if (input.loan_mode === "group_based" && input.group_id) {
@@ -104,12 +124,15 @@ const ALLOWED_APPLICATION_KEYS = new Set([
  "requested_amount",
  "term_days",
  "purpose",
+ "repayment_frequency",
  "collaterals",
  "guarantors",
  "references",
  "location",
  "metadata",
 ]);
+
+export { APPLICATION_REPAYMENT_FREQUENCIES };
 
 /** Strip UI-only fields (`metadata`, `branch_id`, `is_draft`, …) before proxying to Falco. */
 export function sanitizeApplicationBodyFromClient(
