@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
  BarChart3,
+ Calculator,
  ClipboardCheck,
  ClipboardList,
  CreditCard,
@@ -36,6 +37,7 @@ const managerNav = [
  { title: "Vikundi", href: "/manager/groups", icon: Users },
  { title: "Customers", href: "/manager/customers", icon: UserSquare2 },
  { title: "Active Loans", href: "/manager/loans", icon: Wallet },
+ { title: "Loan Calculator", href: "/manager/loan-calculator", icon: Calculator },
  { title: "Loan Disbursement", href: "/manager/disbursements", icon: Send },
  { title: "Payments", href: "/manager/payments", icon: CreditCard },
  { title: "Reconciliation", href: "/manager/reconciliation", icon: Scale },
