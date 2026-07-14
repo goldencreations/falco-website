@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import {
  BarChart3,
  CreditCard,
@@ -28,6 +28,7 @@ import { Badge } from "@/components/ui/badge";
 import { useOptionalBranchAssignment } from "@/components/branch-assignment-context";
 import { useLanguage } from "@/components/language-provider";
 import { tLabel } from "@/lib/i18n/labels";
+import { invalidateFetchCache } from "@/lib/client-fetch-cache";
 import { cn } from "@/lib/utils";
 import type { SessionUser } from "@/lib/auth";
 
@@ -50,7 +51,6 @@ export function AccountantSidebar({
  branchLabel: string;
 }) {
  const pathname = usePathname();
- const router = useRouter();
  const branchCtx = useOptionalBranchAssignment();
  const { language } = useLanguage();
  const L = (text: string) => tLabel(text, language);
@@ -59,8 +59,8 @@ export function AccountantSidebar({
 
  const handleLogout = async () => {
  await fetch("/api/logout", { method: "POST" });
- router.push("/");
- router.refresh();
+ invalidateFetchCache();
+ window.location.assign("/");
  };
 
  return (

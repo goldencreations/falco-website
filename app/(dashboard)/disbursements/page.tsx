@@ -83,7 +83,9 @@ import {
  canApproveDisbursement as userCanApproveDisbursement,
  canPrepareDisbursement as userCanPrepareDisbursement,
 } from "@/lib/disbursement-permissions";
+import { canFinalApproveApplication } from "@/lib/application-workflow-permissions";
 import { useSessionUser } from "@/lib/use-session-user";
+import { resolvePortalHref } from "@/lib/portal-paths";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/formatters";
 import { formatApiResponseError } from "@/lib/falco-api";
 import { parseJsonResponse } from "@/lib/parse-json-response";
@@ -321,6 +323,13 @@ export default function DisbursementsPage() {
  permissions: user.permissions ?? [],
  })
  : false;
+ const canFinalizeApproval = user
+ ? canFinalApproveApplication({
+ role: user.role,
+ permissions: user.permissions ?? [],
+ })
+ : false;
+ const pendingReviewHref = resolvePortalHref(user?.role, "/applications/pending-review");
  const isBranchScoped =
  user?.role === "branch_manager" ||
  user?.role === "loan_officer" ||
@@ -444,13 +453,24 @@ export default function DisbursementsPage() {
  setFormLoan(loanId);
  }, []);
 
- /** Approved applications and any row with a linked loan. */
+ /** Applications with a loan account, or approved apps that this user can finalize into a loan. */
  const selectableApplications = useMemo(
  () =>
  eligibleApplications.filter(
- (a) => Boolean(a.loan_id) || a.status === "approved" || a.ready_for_disbursement
+ (a) =>
+ Boolean(a.loan_id) ||
+ a.ready_for_disbursement ||
+ (Boolean(a.needs_final_approval) && canFinalizeApproval)
  ),
- [eligibleApplications]
+ [eligibleApplications, canFinalizeApproval]
+ );
+
+ const awaitingAdminFinalApproval = useMemo(
+ () =>
+ eligibleApplications.filter(
+ (a) => Boolean(a.needs_final_approval) && !a.loan_id && !canFinalizeApproval
+ ),
+ [eligibleApplications, canFinalizeApproval]
  );
 
  const selectableLoans = useMemo(() => {
@@ -478,11 +498,11 @@ export default function DisbursementsPage() {
  }, [eligibleLoans, selectableApplications]);
 
  const approvedAwaitingLoan = selectableApplications.filter(
- (a) => (a.status === "approved" || a.ready_for_disbursement) && !a.loan_id
+ (a) => Boolean(a.needs_final_approval) && !a.loan_id && canFinalizeApproval
  );
  const canSelectForDisbursement =
  selectableLoans.length > 0 ||
- selectableApplications.length > 0 ||
+ selectableApplications.some((a) => a.loan_id || a.ready_for_disbursement) ||
  approvedAwaitingLoan.length > 0;
 
  useEffect(() => {
@@ -604,7 +624,22 @@ export default function DisbursementsPage() {
  setFormLoan(linked.id);
  return;
  }
- if (app.status !== "approved" && !app.ready_for_disbursement) return;
+
+ if (app.needs_final_approval && !canFinalizeApproval) {
+ setError(
+ "This application is manager-approved only. A super admin must give final approval on Pending Review before a loan account can be created for disbursement."
+ );
+ setFormLoan("");
+ return;
+ }
+
+ if (
+ !app.needs_final_approval &&
+ !app.ready_for_disbursement &&
+ app.status !== "approved"
+ ) {
+ return;
+ }
 
  setPreparingApplicationId(app.id);
  try {
@@ -617,7 +652,13 @@ export default function DisbursementsPage() {
  setPreparingApplicationId(null);
  }
  },
- [selectableLoans, prepareApplicationForDisbursement, loadEligibleLoans, addLoanToFormState]
+ [
+ selectableLoans,
+ prepareApplicationForDisbursement,
+ loadEligibleLoans,
+ addLoanToFormState,
+ canFinalizeApproval,
+ ]
  );
 
  useEffect(() => {
@@ -1051,6 +1092,21 @@ export default function DisbursementsPage() {
  </p>
  ) : (
  <>
+ {awaitingAdminFinalApproval.length > 0 ? (
+ <div className="mb-2 rounded-lg border border-amber-200/80 bg-amber-50/80 px-3 py-2 text-xs dark:border-amber-900/50 dark:bg-amber-950/30">
+ <p className="font-medium text-foreground">
+ {awaitingAdminFinalApproval.length} application
+ {awaitingAdminFinalApproval.length === 1 ? "" : "s"} await super-admin final approval
+ </p>
+ <p className="mt-1 text-muted-foreground">
+ Manager approval is done. Final approval on{" "}
+ <Link href={pendingReviewHref} className="text-primary hover:underline">
+ Pending Review
+ </Link>{" "}
+ creates the loan account before you can disburse.
+ </p>
+ </div>
+ ) : null}
  {selectableApplications.length > 0 ? (
  <p className="mb-2 text-xs text-muted-foreground">
  Click a ready row or use the selectors below ({selectableApplications.length} ready).
@@ -1068,17 +1124,20 @@ export default function DisbursementsPage() {
  </TableHeader>
  <TableBody>
  {eligibleApplications.map((app) => {
- const canSelect =
- app.status === "approved" ||
- app.ready_for_disbursement ||
- Boolean(
- app.loan_id ||
+ const hasLinkedLoan =
+ Boolean(app.loan_id) ||
  selectableLoans.some(
  (l) =>
  l.application_id === app.id ||
- l.application_number?.toLowerCase() === app.application_number.toLowerCase()
- )
+ l.application_number?.toLowerCase() ===
+ app.application_number.toLowerCase()
  );
+ const waitingForAdmin =
+ Boolean(app.needs_final_approval) && !hasLinkedLoan && !canFinalizeApproval;
+ const canSelect =
+ hasLinkedLoan ||
+ app.ready_for_disbursement ||
+ (Boolean(app.needs_final_approval) && canFinalizeApproval);
  const isPreparing = preparingApplicationId === app.id;
  return (
  <TableRow
@@ -1088,19 +1147,30 @@ export default function DisbursementsPage() {
  !canSelect && "opacity-70",
  formApplicationId === app.id && "bg-emerald-50/80 dark:bg-emerald-950/40"
  )}
- onClick={() => void selectApplication(app)}
+ onClick={() => {
+ if (!canSelect && waitingForAdmin) {
+ setFormApplicationId(app.id);
+ setError(
+ "This application is manager-approved only. A super admin must give final approval on Pending Review before a loan account can be created for disbursement."
+ );
+ return;
+ }
+ if (canSelect) void selectApplication(app);
+ }}
  title={
  isPreparing
  ? "Creating loan account…"
+ : waitingForAdmin
+ ? "Waiting for super-admin final approval"
  : !canSelect
  ? "Not ready for disbursement yet"
- : app.status === "approved" && !app.loan_id
- ? "Creates loan account and selects for disbursement"
+ : app.needs_final_approval && !app.loan_id
+ ? "Final-approve and create loan account for disbursement"
  : "Select this application for disbursement"
  }
  >
  <TableCell className="py-2 text-xs font-medium">{app.application_number}</TableCell>
-            <TableCell className="py-2 text-xs">{app.customer_display_name || "—"}</TableCell>
+ <TableCell className="py-2 text-xs">{app.customer_display_name || "—"}</TableCell>
  <TableCell className="py-2">
  <Badge
  variant={canSelect ? "default" : "secondary"}
@@ -1108,10 +1178,12 @@ export default function DisbursementsPage() {
  >
  {isPreparing
  ? "Preparing…"
- : app.loan_id
+ : hasLinkedLoan
  ? "Ready for disbursement"
- : app.status === "approved"
- ? "Approved"
+ : waitingForAdmin
+ ? "Awaiting admin approval"
+ : app.needs_final_approval
+ ? "Ready to finalize"
  : APPLICATION_STATUS_LABELS[app.status]}
  </Badge>
  </TableCell>
@@ -1137,8 +1209,22 @@ export default function DisbursementsPage() {
  </div>
  {!canSelectForDisbursement && !eligibleLoading ? (
  <div className="rounded-xl border border-amber-200/80 bg-amber-50/80 px-4 py-3 text-sm dark:border-amber-900/50 dark:bg-amber-950/30">
- <p className="font-medium text-foreground">No applications ready for disbursement</p>
+ <p className="font-medium text-foreground">
+ {awaitingAdminFinalApproval.length > 0
+ ? "Waiting for super-admin final approval"
+ : "No applications ready for disbursement"}
+ </p>
  <p className="mt-1 text-xs text-muted-foreground">
+ {awaitingAdminFinalApproval.length > 0 ? (
+ <>
+ These applications are manager-approved. A super admin must finalize them on{" "}
+ <Link href={pendingReviewHref} className="text-primary hover:underline">
+ Pending Review
+ </Link>{" "}
+ before disbursement.
+ </>
+ ) : (
+ <>
  Approve loan applications first, then{" "}
  <button
  type="button"
@@ -1148,9 +1234,11 @@ export default function DisbursementsPage() {
  refresh
  </button>
  .{" "}
- <Link href="/applications/pending-review" className="text-primary hover:underline">
+ <Link href={pendingReviewHref} className="text-primary hover:underline">
  Open pending review
  </Link>
+ </>
+ )}
  </p>
  </div>
  ) : null}
@@ -1158,7 +1246,7 @@ export default function DisbursementsPage() {
  <div className="rounded-xl border border-sky-200/80 bg-sky-50/80 px-4 py-3 text-sm dark:border-sky-900/50 dark:bg-sky-950/30">
  <p className="font-medium text-foreground">Select an approved application below</p>
  <p className="mt-1 text-xs text-muted-foreground">
- A loan account is created automatically when you pick an approved application.
+ As super admin, picking an application runs final approval and creates the loan account.
  </p>
  </div>
  ) : null}
@@ -1186,23 +1274,30 @@ export default function DisbursementsPage() {
  </SelectTrigger>
  <SelectContent>
  {eligibleApplications.map((app) => {
- const canPick =
- app.status === "approved" ||
- app.ready_for_disbursement ||
+ const hasLinkedLoan =
  Boolean(app.loan_id) ||
  selectableLoans.some(
  (l) =>
  l.application_id === app.id ||
  l.application_number?.toLowerCase() === app.application_number.toLowerCase()
  );
+ const canPick =
+ hasLinkedLoan ||
+ app.ready_for_disbursement ||
+ (Boolean(app.needs_final_approval) && canFinalizeApproval);
+ const waitingForAdmin =
+ Boolean(app.needs_final_approval) && !hasLinkedLoan && !canFinalizeApproval;
  return (
  <SelectItem key={app.id} value={app.id} disabled={!canPick || preparingApplicationId === app.id}>
  <span className="font-medium">{app.application_number}</span>
-              {app.customer_display_name ? (
-                <span className="text-muted-foreground"> · {app.customer_display_name}</span>
-              ) : null}
+ {app.customer_display_name ? (
+ <span className="text-muted-foreground"> · {app.customer_display_name}</span>
+ ) : null}
  {app.loan_number ? (
  <span className="text-muted-foreground"> · {app.loan_number}</span>
+ ) : null}
+ {waitingForAdmin ? (
+ <span className="text-muted-foreground"> · awaiting admin</span>
  ) : null}
  {preparingApplicationId === app.id ? (
  <span className="text-muted-foreground"> · preparing…</span>
@@ -1231,6 +1326,8 @@ export default function DisbursementsPage() {
  ? "Loading loans…"
  : selectableLoans.length === 0 && approvedAwaitingLoan.length > 0
  ? "Select application first (loan is created automatically)"
+ : selectableLoans.length === 0 && awaitingAdminFinalApproval.length > 0
+ ? "Waiting for super-admin final approval"
  : selectableLoans.length === 0
  ? "No loan accounts yet"
  : "Select loan"
@@ -1240,7 +1337,14 @@ export default function DisbursementsPage() {
  <SelectContent>
  {selectableLoans.length === 0 && approvedAwaitingLoan.length > 0 ? (
  <div className="px-2 py-3 text-xs text-muted-foreground">
- Pick an approved application above to create and select a loan account.
+ Pick an application above to run final approval and select the loan account.
+ </div>
+ ) : null}
+ {selectableLoans.length === 0 &&
+ awaitingAdminFinalApproval.length > 0 &&
+ approvedAwaitingLoan.length === 0 ? (
+ <div className="px-2 py-3 text-xs text-muted-foreground">
+ No loan accounts yet — waiting for super-admin final approval.
  </div>
  ) : null}
  {selectableLoans.map((l) => (
