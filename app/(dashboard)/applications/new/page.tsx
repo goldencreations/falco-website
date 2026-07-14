@@ -131,7 +131,11 @@ function NewApplicationPageContent() {
  ? "/officer/applications"
  : "/applications";
  const loanCalculatorPath =
- effectiveRole === "loan_officer" ? "/officer/loan-calculator" : "/loan-calculator";
+ effectiveRole === "loan_officer"
+ ? "/officer/loan-calculator"
+ : effectiveRole === "branch_manager"
+ ? "/manager/loan-calculator"
+ : "/loan-calculator";
  const creditAnalysisPath =
  effectiveRole === "loan_officer" ? "/officer/credit-analysis" : "/credit-analysis";
  const [customers, setCustomers] = useState<Customer[]>([]);
