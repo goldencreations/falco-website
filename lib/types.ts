@@ -205,12 +205,14 @@ export interface LoanApplication {
  approved_amount?: number;
  term_days: number;
  purpose: string;
+ repayment_frequency?: RepaymentFrequency;
  
  // Calculated Fields
  interest_amount?: number;
  total_fees?: number;
  total_repayment?: number;
  installment_amount?: number;
+ repayment_count?: number;
  
  // Collateral
  collateral_type?: string;

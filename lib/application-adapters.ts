@@ -445,7 +445,7 @@ export function applyCalculatedApplicationTerms(row: ApplicationViewRow): Applic
   interestRatePerMonth,
   processingFeePercent,
   insuranceFeePercent,
-  repaymentFrequency: row.productRepaymentFrequency ?? "monthly",
+  repaymentFrequency: row.repayment_frequency ?? row.productRepaymentFrequency ?? "monthly",
   interestType: row.productInterestType ?? "flat",
  });
 
@@ -665,10 +665,14 @@ export function adaptApiApplicationListRow(row: Record<string, unknown>): Applic
  approved_amount: app.approved_amount != null ? Number(app.approved_amount) : undefined,
  term_days: Number(app.term_days ?? 0),
  purpose: String(app.purpose ?? ""),
+ repayment_frequency: asProductRepaymentFrequency(
+  app.repayment_frequency ?? productRepaymentFrequency
+ ),
  interest_amount: app.interest_amount != null ? Number(app.interest_amount) : undefined,
  total_fees: app.total_fees != null ? Number(app.total_fees) : undefined,
  total_repayment: app.total_repayment != null ? Number(app.total_repayment) : undefined,
  installment_amount: app.installment_amount != null ? Number(app.installment_amount) : undefined,
+ repayment_count: app.repayment_count != null ? Number(app.repayment_count) : undefined,
  documents,
  status: asStatus(app.status ? String(app.status) : undefined),
  raw_status: rawApplicationStatus(app.status ? String(app.status) : undefined),
