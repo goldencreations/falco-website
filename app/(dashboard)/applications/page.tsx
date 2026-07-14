@@ -774,7 +774,7 @@ export default function ApplicationsPage() {
  ) : null}
             <p className="font-mono text-xs font-medium">{app.application_number}</p>
             </div>
-            {actionBusyId === app.id || app.status === "pending_disbursement" ? (
+            {actionBusyId === app.id ? (
               <StatusLoader />
             ) : (
               <Badge variant={status.variant} className="gap-1">
@@ -891,7 +891,7 @@ export default function ApplicationsPage() {
  {app.purpose}
  </TableCell>
             <TableCell>
-              {actionBusyId === app.id || app.status === "pending_disbursement" ? (
+              {actionBusyId === app.id ? (
                 <StatusLoader />
               ) : (
                 <Badge variant={status.variant} className="gap-1">

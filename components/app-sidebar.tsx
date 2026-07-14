@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useMemo, useState } from "react";
 import {
  LayoutDashboard,
@@ -47,6 +47,7 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useLanguage } from "@/components/language-provider";
 import { tLabel } from "@/lib/i18n/labels";
+import { invalidateFetchCache } from "@/lib/client-fetch-cache";
 import { useSessionUser } from "@/lib/use-session-user";
 
 type SidebarNavItem =
@@ -192,7 +193,6 @@ const navigation: { title: string; items: SidebarNavItem[] }[] = [
 
 export function AppSidebar() {
  const pathname = usePathname();
- const router = useRouter();
  const { user } = useSessionUser();
  const { language } = useLanguage();
  const L = (text: string) => tLabel(text, language);
@@ -216,9 +216,9 @@ export function AppSidebar() {
  try {
  await fetch("/api/logout", { method: "POST" });
  } finally {
- router.push("/");
- router.refresh();
- setIsLoggingOut(false);
+ invalidateFetchCache();
+ // Full navigation clears any leftover client session state from the previous account.
+ window.location.assign("/");
  }
  };
 

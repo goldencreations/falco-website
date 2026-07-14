@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import {
  Calculator,
  ClipboardList,
@@ -28,6 +28,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { useLanguage } from "@/components/language-provider";
 import { tLabel } from "@/lib/i18n/labels";
+import { invalidateFetchCache } from "@/lib/client-fetch-cache";
 import { cn } from "@/lib/utils";
 import type { SessionUser } from "@/lib/auth";
 
@@ -45,14 +46,13 @@ const officerNav = [
 
 export function OfficerSidebar({ user, branchLabel }: { user: SessionUser; branchLabel: string }) {
  const pathname = usePathname();
- const router = useRouter();
  const { language } = useLanguage();
  const L = (text: string) => tLabel(text, language);
 
  const handleLogout = async () => {
  await fetch("/api/logout", { method: "POST" });
- router.push("/");
- router.refresh();
+ invalidateFetchCache();
+ window.location.assign("/");
  };
 
  return (

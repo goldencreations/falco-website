@@ -198,7 +198,21 @@ async function cachedFetchImpl(
 
  if (method !== "GET") {
  const response = await fetchFn(input, cleanInit);
- if (response.ok) invalidateForMutation(url);
+ if (response.ok) {
+ // Auth changes must wipe the whole client cache — especially `/api/session` —
+ // otherwise the next login can show the previous user's name/role in the sidebar
+ // while cookies already belong to the new account.
+ try {
+ const pathname = new URL(url, "http://local").pathname;
+ if (pathname === "/api/login" || pathname === "/api/logout") {
+ invalidateFetchCache();
+ } else {
+ invalidateForMutation(url);
+ }
+ } catch {
+ invalidateForMutation(url);
+ }
+ }
  return response;
  }
 
