@@ -360,6 +360,7 @@ export default function DisbursementsPage() {
  const [formNotes, setFormNotes] = useState("");
 
  const [viewRow, setViewRow] = useState<DisbursementViewRow | null>(null);
+ const [approveRow, setApproveRow] = useState<DisbursementViewRow | null>(null);
  const [completeRow, setCompleteRow] = useState<DisbursementViewRow | null>(null);
  const [completeRef, setCompleteRef] = useState("");
  const [rejectRow, setRejectRow] = useState<DisbursementViewRow | null>(null);
@@ -750,6 +751,7 @@ export default function DisbursementsPage() {
  setError(formatApiResponseError(data, "Update failed"));
  return;
  }
+    setApproveRow(null);
     setCompleteRow(null);
     setRejectRow(null);
     setCompleteRef("");
@@ -1655,7 +1657,7 @@ export default function DisbursementsPage() {
  size="sm"
  variant="outline"
  disabled={actionLoading === row.id}
- onClick={() => patch(row.id, { action: "approve" })}
+ onClick={() => setApproveRow(row)}
  title={
  MOBILE_CHANNELS.includes(row.method) || BANK_CHANNELS.includes(row.method)
  ? "Approve and send this payout to ClickPesa"
@@ -1753,7 +1755,7 @@ export default function DisbursementsPage() {
  size="sm"
  className="flex-1"
  disabled={actionLoading === row.id}
- onClick={() => patch(row.id, { action: "approve" })}
+ onClick={() => setApproveRow(row)}
  title={
  MOBILE_CHANNELS.includes(row.method) || BANK_CHANNELS.includes(row.method)
  ? "Approve and send this payout to ClickPesa"
@@ -1810,6 +1812,86 @@ export default function DisbursementsPage() {
  onExportPdf={handleExportPdf}
  />
  ) : null}
+ </DialogContent>
+ </Dialog>
+
+ <Dialog open={!!approveRow} onOpenChange={(o) => !o && setApproveRow(null)}>
+ <DialogContent>
+ <DialogHeader>
+ <DialogTitle>Confirm disbursement</DialogTitle>
+ <DialogDescription>
+ {approveRow &&
+ (MOBILE_CHANNELS.includes(approveRow.method) ||
+ BANK_CHANNELS.includes(approveRow.method))
+ ? "Review the payout details below. Continuing will send this amount via ClickPesa."
+ : "Review the disbursement details below before approving."}
+ </DialogDescription>
+ </DialogHeader>
+ {approveRow ? (
+ <div className="space-y-4 py-2">
+ <div className="rounded-lg border bg-muted/30 p-4">
+ <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+ Recipient
+ </p>
+ <p className="mt-1 text-base font-semibold">
+ {approveRow.customer_display_name ?? "—"}
+ </p>
+ <p className="text-sm text-muted-foreground">
+ Loan {approveRow.loan_number ?? approveRow.loan_id}
+ </p>
+ </div>
+ <div className="rounded-lg border bg-muted/30 p-4">
+ <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+ Amount
+ </p>
+ <p className="mt-1 text-2xl font-bold tabular-nums">
+ {formatCurrency(approveRow.amount)}
+ </p>
+ <p className="mt-1 text-sm text-muted-foreground">
+ {DISBURSEMENT_CHANNEL_LABELS[approveRow.method]}
+ </p>
+ </div>
+ {(approveRow.account_name ||
+ approveRow.account_number ||
+ approveRow.bank_name) && (
+ <dl className="grid gap-2 rounded-lg border bg-muted/30 p-4 text-sm">
+ {approveRow.account_name && (
+ <div>
+ <dt className="text-muted-foreground">Account name</dt>
+ <dd className="font-medium">{approveRow.account_name}</dd>
+ </div>
+ )}
+ {approveRow.account_number && (
+ <div>
+ <dt className="text-muted-foreground">Account number</dt>
+ <dd className="font-mono">{approveRow.account_number}</dd>
+ </div>
+ )}
+ {approveRow.bank_name && (
+ <div>
+ <dt className="text-muted-foreground">Bank</dt>
+ <dd>{approveRow.bank_name}</dd>
+ </div>
+ )}
+ </dl>
+ )}
+ </div>
+ ) : null}
+ <DialogFooter>
+ <Button variant="outline" onClick={() => setApproveRow(null)}>
+ Cancel
+ </Button>
+ <Button
+ onClick={() => approveRow && patch(approveRow.id, { action: "approve" })}
+ disabled={!approveRow || actionLoading === approveRow?.id}
+ >
+ {approveRow &&
+ (MOBILE_CHANNELS.includes(approveRow.method) ||
+ BANK_CHANNELS.includes(approveRow.method))
+ ? "Continue & send"
+ : "Continue"}
+ </Button>
+ </DialogFooter>
  </DialogContent>
  </Dialog>
 
