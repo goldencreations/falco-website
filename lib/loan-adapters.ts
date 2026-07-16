@@ -1,4 +1,5 @@
 import { adaptApiCustomerRowToCustomer, resolveCustomerLoanOfficerId } from "@/lib/customer-adapters";
+import { resolveFirstPaymentDate, nextDueDateFromSchedule } from "@/lib/loan-due-date";
 import type {
  Customer,
  Loan,
@@ -167,6 +168,8 @@ export type LoanListRow = Loan & {
  productName: string;
  branchName: string;
  loanOfficerDisplayName: string;
+ /** Next unpaid installment due date (from schedule when enriched). */
+ next_due_date?: string;
  /** Completed payments recorded in LMS for this loan (from payments API). */
  payment_count?: number;
  payments_recorded_total?: number;
@@ -219,6 +222,16 @@ export function adaptApiLoanRow(raw: Record<string, unknown>): LoanListRow {
 
  const applicationId = str(row.application_id ?? row.applicationId ?? "");
 
+ const repayment_frequency = asRepaymentFrequency(
+  row.repayment_frequency ? str(row.repayment_frequency) : undefined
+ );
+ const disbursement_date = str(row.disbursement_date ?? row.disbursed_at ?? row.created_at, "1970-01-01");
+ const disbursedAtForDueDate =
+ str(row.disbursement_date ?? row.disbursed_at ?? "", "").trim() || undefined;
+ const embeddedSchedule = extractScheduleList(row.schedule ?? row.repayment_schedule);
+ const scheduleNextDue =
+ embeddedSchedule.length > 0 ? nextDueDateFromSchedule(embeddedSchedule) : undefined;
+
  return {
  id: str(row.id),
  loan_number: str(row.loan_number ?? row.loan_no ?? row.id),
@@ -251,10 +264,16 @@ export function adaptApiLoanRow(raw: Record<string, unknown>): LoanListRow {
  term_days: num(row.term_days, 0),
  interest_rate: num(row.interest_rate ?? row.annual_interest_rate, 0),
  installment_amount: num(row.installment_amount ?? row.monthly_installment, 0),
- repayment_frequency: asRepaymentFrequency(row.repayment_frequency ? str(row.repayment_frequency) : undefined),
+ repayment_frequency,
 
- disbursement_date: str(row.disbursement_date ?? row.disbursed_at ?? row.created_at, "1970-01-01"),
- first_payment_date: str(row.first_payment_date ?? row.first_due_date ?? row.disbursement_date, "1970-01-01"),
+ disbursement_date,
+ first_payment_date: resolveFirstPaymentDate({
+  disbursement_date: disbursedAtForDueDate,
+  first_payment_date:
+   row.first_payment_date ?? row.first_due_date ?? row.first_repayment_date,
+  repayment_frequency,
+ }),
+ next_due_date: scheduleNextDue,
  maturity_date: str(row.maturity_date ?? row.maturity_at ?? row.due_date, "1970-01-01"),
  last_payment_date: row.last_payment_date ? str(row.last_payment_date) : undefined,
 

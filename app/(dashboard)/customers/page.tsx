@@ -43,6 +43,7 @@ import { useTranslations } from "@/lib/i18n/use-translations";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import { formatApiResponseError } from "@/lib/falco-api";
 import { extractLoansList, type LoanListRow } from "@/lib/loan-adapters";
+import { daysUntilDate, earliestDueDate } from "@/lib/loan-due-date";
 import type { Customer, RiskGrade } from "@/lib/types";
 import { useSessionUser } from "@/lib/use-session-user";
 
@@ -65,20 +66,6 @@ type CustomerLoanStatus = {
 
 const ACTIVE_LOAN_STATUSES = new Set(["active", "in_arrears"]);
 
-function dateOnly(value?: string): Date | null {
- if (!value || value === "1970-01-01") return null;
- const date = new Date(`${value.slice(0, 10)}T00:00:00`);
- return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function daysUntil(value?: string): number | null {
- const due = dateOnly(value);
- if (!due) return null;
- const today = new Date();
- const current = new Date(today.getFullYear(), today.getMonth(), today.getDate());
- return Math.ceil((due.getTime() - current.getTime()) / 86_400_000);
-}
-
 function customerLoanStatus(loans: LoanListRow[]): CustomerLoanStatus {
  const active = loans.filter((loan) => ACTIVE_LOAN_STATUSES.has(loan.status));
  if (active.length === 0) {
@@ -87,18 +74,14 @@ function customerLoanStatus(loans: LoanListRow[]): CustomerLoanStatus {
 
  const outstanding = active.reduce((sum, loan) => sum + loan.total_outstanding, 0);
  const penalty = active.reduce((sum, loan) => sum + (loan.penalty_outstanding ?? loan.penalty ?? 0), 0);
- const dueCandidates = active
-  .map((loan) => loan.first_payment_date || loan.maturity_date)
-  .filter(Boolean)
-  .sort();
- const nextDueDate = dueCandidates[0];
- const dueInDays = daysUntil(nextDueDate);
- const overdue = active.some((loan) => loan.days_in_arrears > 0) || (dueInDays != null && dueInDays < 0);
+ const nextDueDate = earliestDueDate(active);
+ const dueInDays = daysUntilDate(nextDueDate);
+ const overdue = active.some((loan) => loan.days_in_arrears > 0);
 
  if (overdue) {
   return { count: active.length, outstanding, penalty, tone: "red", label: "Payment overdue", nextDueDate };
  }
- if (dueInDays != null && dueInDays <= 3) {
+ if (dueInDays != null && dueInDays >= 0 && dueInDays <= 3) {
   return { count: active.length, outstanding, penalty, tone: "yellow", label: "Payment due soon", nextDueDate };
  }
  return { count: active.length, outstanding, penalty, tone: "green", label: "Active loan", nextDueDate };
@@ -182,6 +165,7 @@ export default function CustomersPage() {
  let cancelled = false;
  const params = new URLSearchParams();
  params.set("page_size", "200");
+ params.set("include_next_due", "1");
  if (scopeBranchId) params.set("branch_id", scopeBranchId);
 
  void fetch(`/api/loans?${params.toString()}`, { credentials: "include", cache: "no-store" })
