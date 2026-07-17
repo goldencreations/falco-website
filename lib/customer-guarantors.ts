@@ -1,5 +1,7 @@
 import type { GuarantorFileRow } from "@/lib/application-linked-uploads";
 import { validateLocationPhoto, validateSupportingDocument } from "@/lib/customer-attachments";
+import type { CustomerIdType } from "@/lib/customer-id-types";
+import { normalizeCustomerIdType } from "@/lib/customer-id-types";
 import { parseCustomerMetadata } from "@/lib/customer-location";
 import { parseMoneyInput } from "@/lib/money-input";
 import { digitsOnly, TZ_NIDA_MAX_DIGITS, TZ_PHONE_MAX_DIGITS } from "@/lib/tz-form-inputs";
@@ -10,6 +12,7 @@ export type CustomerGuarantorRecord = {
   full_name: string;
   phone: string;
   national_id?: string;
+  id_type?: CustomerIdType | null;
   relationship: string;
   address?: string;
   collateral_type?: string;
@@ -31,6 +34,7 @@ export type CustomerGuarantorFormRow = {
   id?: string;
   name: string;
   phone: string;
+  idType: CustomerIdType;
   nationalId: string;
   relationship: string;
   otherRelationship: string;
@@ -57,6 +61,7 @@ export function emptyCustomerGuarantorRow(): CustomerGuarantorFormRow {
   return {
     name: "",
     phone: "",
+    idType: "NIDA",
     nationalId: "",
     relationship: "",
     otherRelationship: "",
@@ -173,6 +178,7 @@ export function customerGuarantorFormToRecord(row: CustomerGuarantorFormRow): Cu
   };
   const national_id = row.nationalId.trim();
   if (national_id) record.national_id = national_id;
+  record.id_type = normalizeCustomerIdType(row.idType);
   return appendOptionalGuarantorFields(record, row);
 }
 
@@ -243,6 +249,9 @@ function guarantorApiRecordFromRow(
 
   const national_id = String(item.national_id ?? item.nationalId ?? "").trim();
   if (national_id) record.national_id = national_id;
+  if (item.id_type != null && String(item.id_type).trim()) {
+    record.id_type = normalizeCustomerIdType(item.id_type);
+  }
 
   const frontId =
     field === "id_front_document_id" && documentId
@@ -365,6 +374,7 @@ export function customerGuarantorApiRecordsToForm(
       ...(record.id ? { id: record.id } : {}),
       name: record.full_name,
       phone: record.phone,
+      idType: normalizeCustomerIdType(record.id_type),
       nationalId: record.national_id ?? "",
       relationship: isStandard ? normalized : normalized ? "other" : "",
       otherRelationship: isStandard ? "" : record.relationship,
@@ -411,6 +421,9 @@ export function parseCustomerGuarantorApiRecordsFromRow(
     if (id) record.id = id;
     const national_id = String(o.national_id ?? o.nationalId ?? "").trim();
     if (national_id) record.national_id = national_id;
+    if (o.id_type != null && String(o.id_type).trim()) {
+      record.id_type = normalizeCustomerIdType(o.id_type);
+    }
 
     const frontId = String(o.id_front_document_id ?? "").trim();
     const backId = String(o.id_back_document_id ?? "").trim();
@@ -476,11 +489,14 @@ export function validateCustomerGuarantors(
     if (!row.nationalId.trim()) {
       return {
         ok: false,
-        error: `Guarantor ${i + 1}: enter the National ID number.`,
+        error: `Guarantor ${i + 1}: enter the ID number.`,
         field: `guarantors.${i}.nationalId`,
       };
     }
-    if (digitsOnly(row.nationalId).length !== TZ_NIDA_MAX_DIGITS) {
+    if (
+      normalizeCustomerIdType(row.idType) === "NIDA" &&
+      digitsOnly(row.nationalId).length !== TZ_NIDA_MAX_DIGITS
+    ) {
       return {
         ok: false,
         error: `Guarantor ${i + 1}: enter a complete 20 digit NIDA number.`,
@@ -589,6 +605,7 @@ export function customerGuarantorsToApplicationPayload(
   phone: string;
   relationship: string;
   national_id?: string;
+  id_type?: CustomerIdType;
   address?: string;
   collateral_type?: string;
   collateral_description?: string;
@@ -600,6 +617,7 @@ export function customerGuarantorsToApplicationPayload(
       phone: string;
       relationship: string;
       national_id?: string;
+      id_type?: CustomerIdType;
       address?: string;
       collateral_type?: string;
       collateral_description?: string;
@@ -610,6 +628,7 @@ export function customerGuarantorsToApplicationPayload(
       relationship: record.relationship,
     };
     if (record.national_id?.trim()) row.national_id = record.national_id.trim();
+    if (record.id_type) row.id_type = normalizeCustomerIdType(record.id_type);
     if (record.address?.trim()) row.address = record.address.trim();
     if (record.collateral_type?.trim()) row.collateral_type = record.collateral_type.trim();
     if (record.collateral_description?.trim()) {

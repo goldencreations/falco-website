@@ -16,6 +16,7 @@ import {
  DialogTitle,
 } from "@/components/ui/dialog";
 import { MoneyInput } from "@/components/forms/money-input";
+import { TzValidatedInput } from "@/components/forms/tz-validated-input";
 import { Input } from "@/components/ui/input";
 import { formatMoneyFromNumber, parseMoneyInput } from "@/lib/money-input";
 
@@ -79,6 +80,7 @@ import {
  activeBranchesForAssignment,
  loanOfficersForBranch,
 } from "@/lib/customer-assignment-options";
+import { CUSTOMER_ID_TYPE_OPTIONS, normalizeCustomerIdType } from "@/lib/customer-id-types";
 import type { Branch, Customer, User } from "@/lib/types";
 import { useSessionUser } from "@/lib/use-session-user";
 
@@ -170,8 +172,6 @@ const RISK_LEVEL_OPTIONS: Array<{ value: RiskLevel; label: string }> = [
  { value: "critical", label: "Critical" },
 ];
 
-const ID_TYPE_OPTIONS = ["NIDA", "Passport", "Driving License", "Voter ID"];
-
 function toEditForm(p: Record<string, unknown>): EditForm {
  return {
  first_name: String(p.first_name ?? ""),
@@ -192,7 +192,7 @@ function toEditForm(p: Record<string, unknown>): EditForm {
    ? Number(p.home_longitude)
    : null,
  national_id: String(p.national_id ?? ""),
- id_type: String(p.id_type ?? "NIDA"),
+ id_type: normalizeCustomerIdType(p.id_type),
  occupation: String(p.occupation ?? ""),
  employer_name: String(p.employer_name ?? ""),
  employer_address: String(p.employer_address ?? ""),
@@ -265,12 +265,9 @@ function formToPatchBody(form: EditForm): Record<string, unknown> {
  business_registration_no: form.business_registration_no,
  years_in_business: form.years_in_business,
  cheque_number: form.cheque_number,
- payment_reference: form.payment_reference,
- registration_fee_paid: form.registration_fee_paid,
  registration_fee_amount: form.registration_fee_amount
  ? parseMoneyInput(form.registration_fee_amount)
  : null,
- registration_fee_paid_at: form.registration_fee_paid_at,
  status: form.status,
  risk_level: form.risk_level,
  risk_score: form.risk_score,
@@ -470,7 +467,6 @@ export function CustomerEditDialog({
  if (!form.phone.trim()) return "Primary phone is required.";
  if (!form.physical_address.trim()) return "Physical address is required.";
  if (!form.national_id.trim()) return "National ID is required.";
- if (!form.payment_reference.trim()) return "Payment reference is required.";
  if (!form.branch_id) return "Please select a branch.";
  if (!form.loan_officer_id) return "Please assign a loan officer.";
  if (!form.date_of_birth.trim()) return "Date of birth is required.";
@@ -784,17 +780,30 @@ export function CustomerEditDialog({
  <SelectValue />
  </SelectTrigger>
  <SelectContent>
- {ID_TYPE_OPTIONS.map((t) => (
- <SelectItem key={t} value={t}>
- {t}
+ {CUSTOMER_ID_TYPE_OPTIONS.map((option) => (
+ <SelectItem key={option.value} value={option.value}>
+ {option.label}
  </SelectItem>
  ))}
  </SelectContent>
  </Select>
  </div>
  <div className="space-y-2">
- <Label htmlFor="edit-nid">National ID</Label>
- <Input id="edit-nid" value={form.national_id} onChange={(e) => updateField("national_id", e.target.value)} />
+ <Label htmlFor="edit-nid">ID number</Label>
+ {form.id_type === "NIDA" ? (
+  <TzValidatedInput
+   id="edit-nid"
+   kind="nida"
+   value={form.national_id}
+   onValueChange={(value) => updateField("national_id", value)}
+  />
+ ) : (
+  <Input
+   id="edit-nid"
+   value={form.national_id}
+   onChange={(e) => updateField("national_id", e.target.value)}
+  />
+ )}
  </div>
  </div>
 
@@ -997,7 +1006,8 @@ export function CustomerEditDialog({
  <Input
  id="edit-pay-ref"
  value={form.payment_reference}
- onChange={(e) => updateField("payment_reference", e.target.value)}
+readOnly
+disabled
  />
  </div>
  <div className="space-y-2">
@@ -1034,10 +1044,10 @@ export function CustomerEditDialog({
  <Checkbox
  id="edit-reg-paid"
  checked={form.registration_fee_paid}
- onCheckedChange={(c) => updateField("registration_fee_paid", c === true)}
+ disabled
  />
- <Label htmlFor="edit-reg-paid" className="font-normal">
- Registration fee paid
+ <Label htmlFor="edit-reg-paid" className="font-normal text-muted-foreground">
+ Registration fee paid (updated automatically by ClickPesa)
  </Label>
  </div>
  <div className="space-y-2">
@@ -1054,8 +1064,9 @@ export function CustomerEditDialog({
  id="edit-reg-at"
  type="datetime-local"
  value={form.registration_fee_paid_at}
- onChange={(e) => updateField("registration_fee_paid_at", e.target.value)}
+ disabled
  />
+ <p className="text-xs text-muted-foreground">Set by the backend when ClickPesa confirms payment.</p>
  </div>
  <div className="space-y-2">
  <Label htmlFor="edit-cheque">Cheque number</Label>

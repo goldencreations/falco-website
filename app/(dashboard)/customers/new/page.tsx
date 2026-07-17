@@ -20,12 +20,12 @@ import {
 import { CustomerAttachmentsFields } from "@/components/customers/customer-attachments-fields";
 import { CustomerCollateralFields } from "@/components/customers/customer-collateral-fields";
 import { CustomerGuarantorsFields } from "@/components/customers/customer-guarantors-fields";
+import { CustomerRegistrationFeePanel } from "@/components/customers/customer-registration-fee-panel";
 import { CustomerReferencesFields } from "@/components/customers/customer-references-fields";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -93,6 +93,7 @@ import {
 } from "@/lib/customer-location-photo-uploads";
 import { uploadCustomerPassportPhoto } from "@/lib/customer-photo-uploads";
 import { extractCustomerDetail } from "@/lib/customer-adapters";
+import { CUSTOMER_ID_TYPE_OPTIONS } from "@/lib/customer-id-types";
 import { parseNominatimAddress, reverseGeocodeNominatim } from "@/lib/nominatim";
 import { searchPlacesInTanzania, type PlaceSuggestion } from "@/lib/nominatim-search";
 import { useSessionUser } from "@/lib/use-session-user";
@@ -145,7 +146,6 @@ type CustomerCreateForm = {
  business_registration_no: string;
  years_in_business: string;
  cheque_number: string;
- payment_reference: string;
  registration_fee_paid: boolean;
  registration_fee_amount: string;
  registration_fee_paid_at: string;
@@ -172,8 +172,6 @@ const RISK_LEVEL_OPTIONS: Array<{ value: RiskLevel; label: string }> = [
  { value: "high", label: "High" },
  { value: "critical", label: "Critical" },
 ];
-
-const ID_TYPE_OPTIONS = ["NIDA", "Passport", "Driving License", "Voter ID"];
 
 const defaultForm: CustomerCreateForm = {
  full_name: "",
@@ -203,7 +201,6 @@ const defaultForm: CustomerCreateForm = {
  business_registration_no: "",
  years_in_business: "",
  cheque_number: "",
- payment_reference: "",
  registration_fee_paid: false,
  registration_fee_amount: "",
  registration_fee_paid_at: "",
@@ -262,6 +259,7 @@ function NewCustomerPageInner() {
  const [error, setError] = useState("");
  const [fieldErrors, setFieldErrors] = useState<FormFieldErrors>({});
  const [submitting, setSubmitting] = useState(false);
+ const [postCreateCustomerId, setPostCreateCustomerId] = useState<string | null>(null);
  const [placeSuggestions, setPlaceSuggestions] = useState<PlaceSuggestion[]>([]);
  const [streetSuggestions, setStreetSuggestions] = useState<PlaceSuggestion[]>([]);
  const [loadingPlaceSuggestions, setLoadingPlaceSuggestions] = useState(false);
@@ -679,13 +677,13 @@ function NewCustomerPageInner() {
  business_registration_no: form.business_registration_no.trim() || null,
  years_in_business: form.years_in_business ? Number(form.years_in_business) : null,
  cheque_number: form.cheque_number.trim() || null,
- payment_reference: form.payment_reference.trim(),
- registration_fee_paid: form.registration_fee_paid,
+ registration_fee_paid: false,
+ registration_fee_paid_amount: 0,
  registration_fee_amount: form.registration_fee_amount
  ? parseMoneyInput(form.registration_fee_amount)
  : null,
- registration_fee_paid_at: form.registration_fee_paid_at || null,
- status: form.status,
+ registration_fee_paid_at: null,
+ status: "pending_registration_fee",
  risk_level: form.risk_level,
  risk_score: Number(form.risk_score || 0),
  notes: form.notes.trim() || null,
@@ -804,6 +802,14 @@ function NewCustomerPageInner() {
   }
  }
 
+ const expectedRegistrationFee = form.registration_fee_amount
+  ? parseMoneyInput(form.registration_fee_amount)
+  : 0;
+ if (createdId && expectedRegistrationFee > 0) {
+  setPostCreateCustomerId(createdId);
+  return;
+ }
+
  router.replace(customersBasePath);
  } catch (submitError) {
  console.error("create customer request", payload, submitError);
@@ -835,6 +841,21 @@ function NewCustomerPageInner() {
  ) : (
  <main className="flex min-h-0 flex-1 overflow-y-auto overflow-x-hidden scroll-smooth p-4 pb-10 lg:p-6 lg:pb-8">
  <div className="mx-auto max-w-6xl space-y-6">
+ {postCreateCustomerId ? (
+  <>
+   <div className="rounded-xl border border-emerald-100 bg-gradient-to-r from-emerald-50 to-background p-4">
+    <p className="text-sm font-semibold text-emerald-800">Customer registered successfully</p>
+    <p className="text-xs text-muted-foreground">
+     Share the BillPay instructions below with the customer to collect the registration fee.
+    </p>
+   </div>
+   <CustomerRegistrationFeePanel
+    customerId={postCreateCustomerId}
+    customersBasePath={customersBasePath}
+   />
+  </>
+ ) : (
+ <>
  <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-100 bg-gradient-to-r from-emerald-50 to-background p-4">
  <div className="space-y-1">
  <p className="text-sm font-semibold text-emerald-800">Customer Onboarding Workspace</p>
@@ -994,18 +1015,6 @@ function NewCustomerPageInner() {
  </SelectContent>
  </Select>
  </div>
- <div className="space-y-2" data-form-field="payment_reference">
- <Label htmlFor="payment-reference">Payment Reference</Label>
- <Input
- id="payment-reference"
- value={form.payment_reference}
- className={formControlErrorClass(Boolean(fieldErrors.payment_reference))}
- {...formControlErrorProps(fieldErrors.payment_reference)}
- onChange={(event) => updateField("payment_reference", event.target.value)}
- placeholder="e.g., REF-FFS-2026-00012"
- />
- <FormFieldMessage message={fieldErrors.payment_reference} />
- </div>
  </div>
  </CardContent>
  </Card>
@@ -1072,9 +1081,9 @@ function NewCustomerPageInner() {
  <SelectValue placeholder="Choose ID type" />
  </SelectTrigger>
  <SelectContent>
- {ID_TYPE_OPTIONS.map((idType) => (
- <SelectItem key={idType} value={idType}>
- {idType}
+ {CUSTOMER_ID_TYPE_OPTIONS.map((option) => (
+ <SelectItem key={option.value} value={option.value}>
+ {option.label}
  </SelectItem>
  ))}
  </SelectContent>
@@ -1555,26 +1564,10 @@ function NewCustomerPageInner() {
  onValueChange={(value) => updateField("registration_fee_amount", value)}
  placeholder="e.g., 50,000"
  />
+ <p className="text-xs text-muted-foreground">
+ Payment is confirmed automatically by ClickPesa after the customer pays the BillPay number.
+ </p>
  </div>
- <div className="space-y-2">
- <Label htmlFor="registration-fee-paid-at">Registration Fee Paid At</Label>
- <Input
- id="registration-fee-paid-at"
- type="datetime-local"
- value={form.registration_fee_paid_at}
- onChange={(event) => updateField("registration_fee_paid_at", event.target.value)}
- />
- </div>
- </div>
- <div className="flex items-center gap-2 rounded-md border border-border p-3">
- <Checkbox
- id="registration-fee-paid"
- checked={form.registration_fee_paid}
- onCheckedChange={(checked) => updateField("registration_fee_paid", checked === true)}
- />
- <Label htmlFor="registration-fee-paid" className="cursor-pointer">
- Registration fee paid
- </Label>
  </div>
  <div className="space-y-2">
  <Label htmlFor="notes">Notes</Label>
@@ -1685,12 +1678,14 @@ function NewCustomerPageInner() {
  </Card>
  </div>
  </div>
-  </form>
-  </div>
-  </main>
-  )}
-  </>
-  );
+ </form>
+ </>
+ )}
+ </div>
+ </main>
+ )}
+ </>
+ );
 }
 
 export default function NewCustomerPage() {

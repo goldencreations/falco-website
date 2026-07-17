@@ -1,3 +1,5 @@
+import type { CustomerIdType } from "@/lib/customer-id-types";
+import { normalizeCustomerIdType } from "@/lib/customer-id-types";
 import type { LoanMode, LoanProduct, RepaymentFrequency } from "@/lib/types";
 
 export type ApplicationFormInput = {
@@ -15,6 +17,7 @@ export type ApplicationFormInput = {
   phone: string;
   relationship: string;
   national_id?: string;
+  id_type?: CustomerIdType;
   address?: string;
   collateral_type?: string;
   collateral_description?: string;
@@ -75,6 +78,7 @@ export function mapApplicationFormToFalcoBody(input: ApplicationFormInput): Reco
  relationship: g.relationship.trim(),
  };
  if (g.national_id?.trim()) row.national_id = g.national_id.trim();
+ if (g.id_type) row.id_type = normalizeCustomerIdType(g.id_type);
  if (g.address?.trim()) row.address = g.address.trim();
  if (g.collateral_type?.trim()) row.collateral_type = g.collateral_type.trim();
  if (g.collateral_description?.trim()) row.collateral_description = g.collateral_description.trim();
