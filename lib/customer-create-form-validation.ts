@@ -12,6 +12,7 @@ import {
   validateCustomerReferences,
   type CustomerReferenceFormRow,
 } from "@/lib/customer-references";
+import { normalizeCustomerIdType } from "@/lib/customer-id-types";
 import type { FormFieldErrors } from "@/lib/customer-form-errors";
 import { digitsOnly, TZ_NIDA_MAX_DIGITS, TZ_PHONE_MAX_DIGITS } from "@/lib/tz-form-inputs";
 
@@ -24,7 +25,6 @@ export type CustomerCreateFormValidationInput = {
     physical_address: string;
     national_id: string;
     id_type: string;
-    payment_reference: string;
     years_in_business: string;
     risk_score: string;
     branch_id: string;
@@ -76,10 +76,9 @@ export function validateCustomerCreateForm(
   if (!input.form.physical_address.trim()) errors.physical_address = "Enter where the customer lives.";
   if (!input.form.national_id.trim()) {
     errors.national_id = "Enter the customer's ID number.";
-  } else if (input.form.id_type === "NIDA" && nationalIdDigits.length !== TZ_NIDA_MAX_DIGITS) {
+  } else if (normalizeCustomerIdType(input.form.id_type) === "NIDA" && nationalIdDigits.length !== TZ_NIDA_MAX_DIGITS) {
     errors.national_id = "Enter a complete 20 digit NIDA number.";
   }
-  if (!input.form.payment_reference.trim()) errors.payment_reference = "Enter the payment reference.";
   if (yearsInBusiness && Number(yearsInBusiness) < 0) {
     errors.years_in_business = "Years in business cannot be less than zero.";
   }

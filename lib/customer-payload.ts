@@ -1,3 +1,4 @@
+import { normalizeCustomerIdType } from "@/lib/customer-id-types";
 import { parseMoneyInput } from "@/lib/money-input";
 import type { Customer, EmploymentType } from "@/lib/types";
 
@@ -184,6 +185,13 @@ export function mapFormPayloadToCustomerApi(input: Record<string, unknown>): Rec
  const emailTrim = input.email ? String(input.email).trim() : "";
  const email = emailTrim.length > 0 ? emailTrim : undefined;
 
+ const registrationFeeAmount =
+  input.registration_fee_amount != null && input.registration_fee_amount !== ""
+   ? typeof input.registration_fee_amount === "number"
+     ? input.registration_fee_amount
+     : parseMoneyInput(String(input.registration_fee_amount))
+   : null;
+
  const guarantors = Array.isArray(input.guarantors)
   ? (input.guarantors as Array<Record<string, unknown>>)
       .map((row) => {
@@ -196,6 +204,10 @@ export function mapFormPayloadToCustomerApi(input: Record<string, unknown>): Rec
 
         const id = row.id != null ? String(row.id).trim() : "";
         const national_id = row.national_id != null ? String(row.national_id).trim() : "";
+        const id_type =
+          row.id_type != null && String(row.id_type).trim()
+            ? normalizeCustomerIdType(row.id_type)
+            : undefined;
         const id_front_document_id =
           row.id_front_document_id != null ? String(row.id_front_document_id).trim() : "";
         const id_back_document_id =
@@ -207,6 +219,7 @@ export function mapFormPayloadToCustomerApi(input: Record<string, unknown>): Rec
           phone,
           relationship,
           ...(national_id ? { national_id } : {}),
+          ...(id_type ? { id_type } : {}),
           attachments: Array.isArray(row.attachments) ? row.attachments : [],
           ...(id_front_document_id ? { id_front_document_id } : {}),
           ...(id_back_document_id ? { id_back_document_id } : {}),
@@ -286,14 +299,18 @@ export function mapFormPayloadToCustomerApi(input: Record<string, unknown>): Rec
  metadata: {
  monthly_income,
  street: input.street ?? null,
- payment_reference: input.payment_reference ?? null,
  loan_officer_id: input.loan_officer_id ?? null,
  created_by: input.created_by ?? null,
  notes: input.notes ?? null,
- registration_fee_paid: input.registration_fee_paid ?? null,
- registration_fee_amount: input.registration_fee_amount ?? null,
- registration_fee_paid_at: input.registration_fee_paid_at ?? null,
- id_type: input.id_type ?? null,
+ ...(registrationFeeAmount != null ? { registration_fee_amount: registrationFeeAmount } : {}),
+ ...(input.registration_fee_paid === false
+  ? {
+     registration_fee_paid: false,
+     registration_fee_paid_amount: 0,
+     registration_fee_paid_at: null,
+    }
+  : {}),
+ id_type: input.id_type ? normalizeCustomerIdType(input.id_type) : null,
  occupation: input.occupation ?? null,
  employer_name: input.employer_name ?? null,
  employer_address: input.employer_address ?? null,
@@ -314,6 +331,7 @@ export function mapFormPayloadToCustomerApi(input: Record<string, unknown>): Rec
  };
 
  if (collateral.length > 0) payload.collateral = collateral;
+ if (guarantors.length > 0) payload.guarantors = guarantors;
 
  if (email) payload.email = email;
  if (alternate_phone) payload.alternate_phone = alternate_phone;

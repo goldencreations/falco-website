@@ -18,6 +18,8 @@ import {
 } from "@/components/ui/select";
 import { formControlErrorClass, formControlErrorProps } from "@/components/forms/form-field-message";
 import { cn } from "@/lib/utils";
+import { CUSTOMER_ID_TYPE_OPTIONS } from "@/lib/customer-id-types";
+import type { CustomerIdType } from "@/lib/customer-id-types";
 
 import {
   MAX_CUSTOMER_GUARANTORS,
@@ -170,18 +172,53 @@ export function CustomerGuarantorsFields({ value, onChange, fieldErrors }: Props
                 <FieldError>{rowFieldError(fieldErrors, index, "name")}</FieldError>
               </Field>
               <Field
+                data-invalid={Boolean(rowFieldError(fieldErrors, index, "idType"))}
+                data-form-field={`guarantors.${index}.idType`}
+              >
+                <FieldLabel>ID type</FieldLabel>
+                <Select
+                  value={row.idType}
+                  onValueChange={(value) => updateRow(index, "idType", value as CustomerIdType)}
+                >
+                  <SelectTrigger
+                    className={formControlErrorClass(Boolean(rowFieldError(fieldErrors, index, "idType")))}
+                    {...formControlErrorProps(rowFieldError(fieldErrors, index, "idType"))}
+                  >
+                    <SelectValue placeholder="Select ID type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CUSTOMER_ID_TYPE_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FieldError>{rowFieldError(fieldErrors, index, "idType")}</FieldError>
+              </Field>
+              <Field
                 data-invalid={Boolean(rowFieldError(fieldErrors, index, "nationalId"))}
                 data-form-field={`guarantors.${index}.nationalId`}
               >
-                <FieldLabel>National ID</FieldLabel>
-                <TzValidatedInput
-                  kind="nida"
-                  value={row.nationalId}
-                  aria-invalid={Boolean(rowFieldError(fieldErrors, index, "nationalId"))}
-                  className={formControlErrorClass(Boolean(rowFieldError(fieldErrors, index, "nationalId")))}
-                  {...formControlErrorProps(rowFieldError(fieldErrors, index, "nationalId"))}
-                  onValueChange={(v) => updateRow(index, "nationalId", v)}
-                />
+                <FieldLabel>ID number</FieldLabel>
+                {row.idType === "NIDA" ? (
+                  <TzValidatedInput
+                    kind="nida"
+                    value={row.nationalId}
+                    aria-invalid={Boolean(rowFieldError(fieldErrors, index, "nationalId"))}
+                    className={formControlErrorClass(Boolean(rowFieldError(fieldErrors, index, "nationalId")))}
+                    {...formControlErrorProps(rowFieldError(fieldErrors, index, "nationalId"))}
+                    onValueChange={(v) => updateRow(index, "nationalId", v)}
+                  />
+                ) : (
+                  <Input
+                    placeholder="Enter the guarantor ID number"
+                    value={row.nationalId}
+                    className={formControlErrorClass(Boolean(rowFieldError(fieldErrors, index, "nationalId")))}
+                    {...formControlErrorProps(rowFieldError(fieldErrors, index, "nationalId"))}
+                    onChange={(e) => updateRow(index, "nationalId", e.target.value)}
+                  />
+                )}
                 <FieldError>{rowFieldError(fieldErrors, index, "nationalId")}</FieldError>
               </Field>
               <Field
