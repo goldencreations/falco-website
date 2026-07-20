@@ -21,6 +21,8 @@ export type LeadView = {
  status: LeadStatus;
  branchId?: string;
  createdBy?: string;
+ createdByName?: string;
+ createdByRole?: string;
  createdAt: string;
  convertedAt?: string;
 };
@@ -50,12 +52,23 @@ function str(v: unknown, fallback = ""): string {
  return String(v);
 }
 
+function readNestedUser(value: unknown): { id?: string; name?: string; role?: string } {
+ if (!value || typeof value !== "object") return {};
+ const row = value as Record<string, unknown>;
+ return {
+ id: row.id != null && String(row.id).trim() ? str(row.id) : undefined,
+ name: row.name != null && String(row.name).trim() ? str(row.name) : undefined,
+ role: row.role != null && String(row.role).trim() ? str(row.role) : undefined,
+ };
+}
+
 export function adaptApiLeadRow(raw: Record<string, unknown>): LeadView {
  const inner =
  raw.lead && typeof raw.lead === "object" ? (raw.lead as Record<string, unknown>) : raw;
  const rawNotes = str(inner.notes);
  const locationType = parseLocationTypeFromNotes(rawNotes);
  const notes = stripLocationTagFromNotes(rawNotes);
+ const createdByUser = readNestedUser(inner.created_by);
 
  return {
  id: str(inner.id),
@@ -75,7 +88,19 @@ export function adaptApiLeadRow(raw: Record<string, unknown>): LeadView {
  followUpDate: inner.follow_up_date ? str(inner.follow_up_date) : undefined,
  status: asLeadStatus(inner.status ? str(inner.status) : undefined),
  branchId: inner.branch_id ? str(inner.branch_id) : undefined,
- createdBy: inner.created_by ? str(inner.created_by) : undefined,
+ createdBy:
+ createdByUser.id ??
+ (inner.created_by != null && typeof inner.created_by !== "object" ? str(inner.created_by) : undefined),
+ createdByName:
+ createdByUser.name ??
+ (inner.created_by_name != null && String(inner.created_by_name).trim()
+ ? str(inner.created_by_name)
+ : undefined),
+ createdByRole:
+ createdByUser.role ??
+ (inner.created_by_role != null && String(inner.created_by_role).trim()
+ ? str(inner.created_by_role)
+ : undefined),
  createdAt: str(inner.created_at ?? new Date().toISOString()),
  convertedAt: inner.converted_at ? str(inner.converted_at) : undefined,
  };
