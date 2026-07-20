@@ -107,6 +107,20 @@ const locationTypeLabel: Record<LeadLocationType, string> = {
  sponsor: "Sponsor",
 };
 
+function roleDisplayLabel(role: string): string {
+  return role
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function leadCreatorLabel(lead: LeadView): string {
+  return lead.createdByName || lead.createdBy || "-";
+}
+
+function leadCreatorRoleLabel(lead: LeadView): string | null {
+  return lead.createdByRole ? roleDisplayLabel(lead.createdByRole) : null;
+}
+
 /** Local calendar date for `<input type="date">` (YYYY-MM-DD). */
 function todayInputDate(): string {
   const d = new Date();
@@ -846,6 +860,11 @@ export default function LeadsPage() {
  <Phone className="h-3 w-3" />
  {lead.phoneNumber}
  </p>
+ <div className="text-xs text-muted-foreground">
+ Created by{" "}
+ <span className="font-medium text-foreground">{leadCreatorLabel(lead)}</span>
+ {leadCreatorRoleLabel(lead) ? ` (${leadCreatorRoleLabel(lead)})` : ""}
+ </div>
               <div className="flex flex-wrap gap-2">
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -910,6 +929,7 @@ export default function LeadsPage() {
  <TableHead>Location</TableHead>
  <TableHead>Coordinates</TableHead>
  <TableHead>Date Added</TableHead>
+ <TableHead>Created By</TableHead>
  <TableHead>Status</TableHead>
  <TableHead className="text-right">Actions</TableHead>
  </TableRow>
@@ -917,7 +937,7 @@ export default function LeadsPage() {
  <TableBody>
  {visibleLeads.length === 0 ? (
  <TableRow>
- <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
+ <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
  No leads yet. Add a field lead to get started.
  </TableCell>
  </TableRow>
@@ -961,6 +981,14 @@ export default function LeadsPage() {
  )}
  </TableCell>
  <TableCell>{lead.followUpDate || "-"}</TableCell>
+ <TableCell>
+ <div className="flex max-w-56 flex-col">
+ <span className="truncate font-medium">{leadCreatorLabel(lead)}</span>
+ {leadCreatorRoleLabel(lead) && (
+ <span className="text-xs text-muted-foreground">{leadCreatorRoleLabel(lead)}</span>
+ )}
+ </div>
+ </TableCell>
  <TableCell>
  <Badge variant="outline">{statusLabel[lead.status]}</Badge>
  </TableCell>

@@ -36,7 +36,7 @@ export function leadsReportFilename(opts: { generatedByName: string; from: strin
   return `Leads-Report-${slugify(opts.generatedByName)}-${opts.from}-to-${opts.to}.xlsx`;
 }
 
-const LAST_COLUMN = "E";
+const LAST_COLUMN = "G";
 const BRAND_DARK = "FF065F46"; // emerald-800
 const BRAND_MID = "FF047857"; // emerald-700
 const HEADER_FILL = "FF059669"; // emerald-600
@@ -71,7 +71,15 @@ export async function buildLeadsReportWorkbook(opts: LeadsReportOptions): Promis
     views: [{ showGridLines: false }],
   });
 
-  sheet.columns = [{ width: 7 }, { width: 30 }, { width: 18 }, { width: 16 }, { width: 42 }];
+  sheet.columns = [
+    { width: 7 },
+    { width: 30 },
+    { width: 18 },
+    { width: 16 },
+    { width: 42 },
+    { width: 30 },
+    { width: 18 },
+  ];
 
   function bandRow(rowNumber: number, text: string, fill: string, size: number, height: number) {
     sheet.getRow(rowNumber).height = height;
@@ -108,7 +116,15 @@ export async function buildLeadsReportWorkbook(opts: LeadsReportOptions): Promis
   sheet.getRow(8).height = 8;
 
   const headerRowNumber = 9;
-  const headers = ["S/N", "Name of Customer", "Phone Number", "Date Added", "Location"];
+  const headers = [
+    "S/N",
+    "Name of Customer",
+    "Phone Number",
+    "Date Added",
+    "Location",
+    "Created By",
+    "Creator Role",
+  ];
   const headerRow = sheet.getRow(headerRowNumber);
   headerRow.height = 20;
   headers.forEach((label, idx) => {
@@ -140,6 +156,8 @@ export async function buildLeadsReportWorkbook(opts: LeadsReportOptions): Promis
         lead.phoneNumber || "-",
         dateAdded ? formatDate(dateAdded) : "-",
         lead.locationName || "-",
+        lead.createdByName || lead.createdBy || "-",
+        lead.createdByRole ? roleDisplayLabel(lead.createdByRole) : "-",
       ];
       values.forEach((value, colIdx) => {
         const cell = row.getCell(colIdx + 1);
@@ -147,7 +165,7 @@ export async function buildLeadsReportWorkbook(opts: LeadsReportOptions): Promis
         cell.alignment = {
           vertical: "middle",
           horizontal: colIdx === 0 ? "center" : "left",
-          wrapText: colIdx === 4,
+          wrapText: colIdx === 4 || colIdx === 5,
         };
         cell.border = THIN_BORDER;
         if (idx % 2 === 1) {
