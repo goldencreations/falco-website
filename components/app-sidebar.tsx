@@ -1,7 +1,5 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { useMemo, useState } from "react";
 import {
  LayoutDashboard,
@@ -49,6 +47,7 @@ import { useLanguage } from "@/components/language-provider";
 import { tLabel } from "@/lib/i18n/labels";
 import { invalidateFetchCache } from "@/lib/client-fetch-cache";
 import { useSessionUser } from "@/lib/use-session-user";
+import { NavigationLink, useNavigationTransition } from "@/components/navigation-transition-context";
 
 type SidebarNavItem =
  | {
@@ -192,11 +191,12 @@ const navigation: { title: string; items: SidebarNavItem[] }[] = [
 ];
 
 export function AppSidebar() {
- const pathname = usePathname();
+ const { activePath } = useNavigationTransition();
  const { user } = useSessionUser();
  const { language } = useLanguage();
  const L = (text: string) => tLabel(text, language);
  const [isLoggingOut, setIsLoggingOut] = useState(false);
+ const isActiveHref = (href: string) => activePath === href || activePath.startsWith(`${href}/`);
 
  const visibleNavigation = useMemo(() => {
  const role = user?.role ?? "loan_officer";
@@ -254,7 +254,7 @@ export function AppSidebar() {
  <SidebarMenuButton
  className={cn(
  "w-full transition-colors",
- pathname.startsWith(item.href) &&
+ isActiveHref(item.href) &&
  "bg-sidebar-primary/15 text-sidebar-primary font-medium"
  )}
  >
@@ -269,14 +269,14 @@ export function AppSidebar() {
  <SidebarMenuSubItem key={subItem.href}>
  <SidebarMenuSubButton
  asChild
- isActive={pathname === subItem.href || pathname.startsWith(`${subItem.href}/`)}
+ isActive={isActiveHref(subItem.href)}
  className={cn(
- (pathname === subItem.href || pathname.startsWith(`${subItem.href}/`)) && "text-sidebar-primary font-medium"
+ isActiveHref(subItem.href) && "text-sidebar-primary font-medium"
  )}
  >
- <Link href={subItem.href}>
+ <NavigationLink href={subItem.href}>
  {L(subItem.title)}
- </Link>
+ </NavigationLink>
  </SidebarMenuSubButton>
  </SidebarMenuSubItem>
  ))}
@@ -288,16 +288,16 @@ export function AppSidebar() {
  <SidebarMenuItem key={item.title}>
  <SidebarMenuButton
  asChild
- isActive={pathname === item.href}
+ isActive={isActiveHref(item.href)}
  className={cn(
  "transition-colors",
- pathname === item.href && "bg-sidebar-primary/15 text-sidebar-primary font-medium"
+ isActiveHref(item.href) && "bg-sidebar-primary/15 text-sidebar-primary font-medium"
  )}
  >
- <Link href={item.href}>
+ <NavigationLink href={item.href}>
  <item.icon className="h-4 w-4" />
  <span>{L(item.title)}</span>
- </Link>
+ </NavigationLink>
  </SidebarMenuButton>
  </SidebarMenuItem>
  )

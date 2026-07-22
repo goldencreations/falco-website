@@ -188,27 +188,13 @@ export default function CustomersPage() {
  const [searchQuery, setSearchQuery] = useState("");
  const [typeFilter, setTypeFilter] = useState<string>("all");
  const [riskFilter, setRiskFilter] = useState<string>("all");
+ const [loanStatusFilter, setLoanStatusFilter] = useState<string>("all");
  const [deleteTarget, setDeleteTarget] = useState<Customer | null>(null);
  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
  const visibleCustomers =
  scopeBranchId
  ? customers.filter((customer) => customer.branch_id === scopeBranchId)
  : customers;
-
- const filteredCustomers = visibleCustomers.filter((customer) => {
- const matchesSearch =
- searchQuery === "" ||
- customer.first_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
- customer.last_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
- customer.customer_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
- customer.phone_primary.includes(searchQuery) ||
- customer.national_id.includes(searchQuery);
-
- const matchesType = typeFilter === "all" || customer.customer_type === typeFilter;
- const matchesRisk = riskFilter === "all" || customer.risk_grade === riskFilter;
-
- return matchesSearch && matchesType && matchesRisk;
- });
 
  const loanStatusByCustomer = useMemo(() => {
  const map = new Map<string, LoanListRow[]>();
@@ -224,6 +210,27 @@ export default function CustomersPage() {
 
  const activeLoansForCustomer = (customerId: string) =>
  customerLoanStatus(loanStatusByCustomer.get(customerId) ?? []);
+
+ const filteredCustomers = visibleCustomers.filter((customer) => {
+ const loanStatus = activeLoansForCustomer(customer.id);
+ const matchesSearch =
+ searchQuery === "" ||
+ customer.first_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+ customer.last_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+ customer.customer_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
+ customer.phone_primary.includes(searchQuery) ||
+ customer.national_id.includes(searchQuery);
+
+ const matchesType = typeFilter === "all" || customer.customer_type === typeFilter;
+ const matchesRisk = riskFilter === "all" || customer.risk_grade === riskFilter;
+ const matchesLoanStatus =
+ loanStatusFilter === "all" ||
+ (loanStatusFilter === "due_soon" && loanStatus.tone === "yellow") ||
+ (loanStatusFilter === "overdue" && loanStatus.tone === "red") ||
+ (loanStatusFilter === "none" && loanStatus.tone === "none");
+
+ return matchesSearch && matchesType && matchesRisk && matchesLoanStatus;
+ });
 
  const totalCustomers = visibleCustomers.length;
  const individualCount = visibleCustomers.filter((c) => c.customer_type === "individual").length;
@@ -369,6 +376,17 @@ export default function CustomersPage() {
  <SelectItem value="B">Grade B</SelectItem>
  <SelectItem value="C">Grade C</SelectItem>
  <SelectItem value="D">Grade D</SelectItem>
+ </SelectContent>
+ </Select>
+ <Select value={loanStatusFilter} onValueChange={setLoanStatusFilter}>
+ <SelectTrigger className="w-full min-[420px]:w-44 sm:w-44">
+ <SelectValue placeholder="Loan status" />
+ </SelectTrigger>
+ <SelectContent>
+ <SelectItem value="all">All Loan Statuses</SelectItem>
+ <SelectItem value="due_soon">Payment due soon</SelectItem>
+ <SelectItem value="overdue">Payment overdue</SelectItem>
+ <SelectItem value="none">No active loans</SelectItem>
  </SelectContent>
  </Select>
  </div>

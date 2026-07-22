@@ -1,11 +1,19 @@
 import { adaptApiLoanRow, extractLoansList } from "@/lib/loan-adapters";
 import type { Disbursement, DisbursementPaymentChannel, DisbursementStatus } from "@/lib/disbursement-types";
 
-const STATUSES: DisbursementStatus[] = ["pending_approval", "approved", "completed", "rejected"];
+const STATUSES: DisbursementStatus[] = [
+ "pending_approval",
+ "approved",
+ "processing",
+ "completed",
+ "rejected",
+];
 
 function asStatus(v: string | undefined): DisbursementStatus {
  const s = (v ?? "pending_approval").toLowerCase().replace(/-/g, "_").replace(/\s+/g, "_");
- if (s === "pending" || s === "awaiting_approval") return "pending_approval";
+ if (s === "awaiting_approval") return "pending_approval";
+ // Gateway payout in flight — keep distinct from console "pending_approval".
+ if (s === "pending" || s === "processing" || s === "submitted") return "processing";
  return STATUSES.includes(s as DisbursementStatus) ? (s as DisbursementStatus) : "pending_approval";
 }
 
@@ -392,23 +400,38 @@ const BLOCKING_DISBURSEMENT_STATUSES = new Set([
  "processing",
 ]);
 
+function isAmbiguousRejectedDisbursement(d: DisbursementViewRow): boolean {
+ if (d.status !== "rejected") return false;
+ const err = d.metadata?.gateway_error;
+ const text = typeof err === "string" ? err : "";
+ return /cURL error 28|timed out|timeout|ambiguous/i.test(text);
+}
+
 /** Loans that already have an active disbursement attempt (`disbursements-controller.md`). */
 export function loanIdsWithBlockingDisbursement(disbursements: DisbursementViewRow[]): Set<string> {
  const ids = new Set<string>();
  for (const d of disbursements) {
  if (!d.loan_id) continue;
  const status = String(d.status).toLowerCase().replace(/-/g, "_");
- if (BLOCKING_DISBURSEMENT_STATUSES.has(status)) ids.add(d.loan_id);
+ if (BLOCKING_DISBURSEMENT_STATUSES.has(status) || isAmbiguousRejectedDisbursement(d)) {
+ ids.add(d.loan_id);
+ }
  }
  return ids;
 }
 
-/** Principal reserved by in-flight console rows (pending approval / approved). */
+/** Principal reserved by in-flight console rows (pending approval / ClickPesa in flight). */
 export function inFlightReservedByLoanId(disbursements: DisbursementViewRow[]): Map<string, number> {
  const map = new Map<string, number>();
  for (const d of disbursements) {
  if (!d.loan_id || d.status === "rejected") continue;
- if (d.status !== "pending_approval" && d.status !== "approved") continue;
+ if (
+ d.status !== "pending_approval" &&
+ d.status !== "approved" &&
+ d.status !== "processing"
+ ) {
+ continue;
+ }
  map.set(d.loan_id, (map.get(d.loan_id) ?? 0) + d.amount);
  }
  return map;

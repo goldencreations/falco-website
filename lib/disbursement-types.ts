@@ -27,6 +27,7 @@ export const DISBURSEMENT_CHANNEL_LABELS: Record<DisbursementPaymentChannel, str
 export type DisbursementStatus =
  | "pending_approval"
  | "approved"
+ | "processing"
  | "completed"
  | "rejected";
 
