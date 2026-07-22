@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
+ ChevronDown,
  Loader2,
  Plus,
  RefreshCcw,
@@ -16,6 +17,9 @@ import {
  Banknote,
  FileText,
  Sparkles,
+ MoreHorizontal,
+ CheckCircle2,
+ XCircle,
 } from "lucide-react";
 import {
  Bar,
@@ -57,6 +61,14 @@ import {
  DialogTitle,
 } from "@/components/ui/dialog";
 import {
+ DropdownMenu,
+ DropdownMenuContent,
+ DropdownMenuItem,
+ DropdownMenuLabel,
+ DropdownMenuSeparator,
+ DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
  Field,
  FieldGroup,
  FieldLabel,
@@ -93,6 +105,7 @@ import { parseJsonResponse } from "@/lib/parse-json-response";
 const STATUS_ORDER: Disbursement["status"][] = [
  "pending_approval",
  "approved",
+ "processing",
  "completed",
  "rejected",
 ];
@@ -101,10 +114,11 @@ const statusConfig: Record<
  Disbursement["status"],
  { label: string; variant: "default" | "secondary" | "destructive" | "outline" }
 > = {
- pending_approval: { label: "Pending approval", variant: "secondary" },
- approved: { label: "Approved", variant: "default" },
- completed: { label: "Completed", variant: "default" },
- rejected: { label: "Rejected", variant: "destructive" },
+ pending_approval: { label: "Awaiting approval", variant: "secondary" },
+ approved: { label: "Processing with ClickPesa", variant: "default" },
+ processing: { label: "Processing with ClickPesa", variant: "default" },
+ completed: { label: "Disbursed", variant: "default" },
+ rejected: { label: "Payout rejected", variant: "destructive" },
 };
 
 const MOBILE_CHANNELS: DisbursementPaymentChannel[] = [
@@ -136,6 +150,138 @@ function staffDisplayLabel(name: string | undefined, userId: string | undefined)
  if (userId && label === userId) return "—";
  if (/^\d+$/.test(label)) return "—";
  return label;
+}
+
+function isGatewayChannel(method: DisbursementPaymentChannel): boolean {
+ return MOBILE_CHANNELS.includes(method) || BANK_CHANNELS.includes(method);
+}
+
+function rawGatewayError(row: DisbursementViewRow): string {
+ const value = row.metadata?.gateway_error;
+ return typeof value === "string" ? value.trim() : "";
+}
+
+/** Timeout / ambiguous gateway outcomes must not be treated as confirmed rejections. */
+function isAmbiguousGatewayOutcome(row: DisbursementViewRow): boolean {
+ if (row.status !== "rejected") return false;
+ return /cURL error 28|timed out|timeout|ambiguous/i.test(rawGatewayError(row));
+}
+
+/** Confirmed backend rejection only — timeouts stay as awaiting confirmation. */
+function isConfirmedRejection(row: DisbursementViewRow): boolean {
+ return row.status === "rejected" && !isAmbiguousGatewayOutcome(row);
+}
+
+function isAwaitingClickPesaConfirmation(row: DisbursementViewRow): boolean {
+ if (isAmbiguousGatewayOutcome(row)) return true;
+ if (row.status === "processing") return true;
+ if (row.status === "approved" && (Boolean(row.gateway) || isGatewayChannel(row.method))) {
+ return true;
+ }
+ return false;
+}
+
+function displayStatus(row: DisbursementViewRow): {
+ label: string;
+ variant: "default" | "secondary" | "destructive" | "outline";
+} {
+ if (isAwaitingClickPesaConfirmation(row)) {
+ return { label: "Processing with ClickPesa", variant: "default" };
+ }
+ if (row.status === "approved" && !row.gateway && !isGatewayChannel(row.method)) {
+ return { label: "Approved", variant: "default" };
+ }
+ return statusConfig[row.status] ?? statusConfig.pending_approval;
+}
+
+function rejectedExplanation(row: DisbursementViewRow): string {
+ const manualReason = row.rejection_reason?.trim();
+ if (manualReason) return manualReason;
+
+ const gatewayError = rawGatewayError(row);
+ if (gatewayError) {
+ return "ClickPesa could not complete this payment. Check this reference in ClickPesa before creating a new disbursement.";
+ }
+
+ return "No reason was recorded. Check this reference in ClickPesa before creating a new disbursement.";
+}
+
+function DisbursementRowActions({
+ row,
+ canApprove,
+ actionLoading,
+ onView,
+ onApprove,
+ onReject,
+ onComplete,
+}: {
+ row: DisbursementViewRow;
+ canApprove: boolean;
+ actionLoading: boolean;
+ onView: () => void;
+ onApprove: () => void;
+ onReject: () => void;
+ onComplete: () => void;
+}) {
+ const canApprovePending = canApprove && row.status === "pending_approval";
+ const canCompleteCash =
+ canApprove &&
+ row.status === "approved" &&
+ !row.gateway &&
+ !isGatewayChannel(row.method);
+ const approveLabel = isGatewayChannel(row.method)
+ ? "Approve & send"
+ : "Approve & activate";
+
+ return (
+ <DropdownMenu>
+ <DropdownMenuTrigger asChild>
+ <Button
+ type="button"
+ size="icon"
+ variant="ghost"
+ className="h-8 w-8"
+ disabled={actionLoading}
+ aria-label="Open actions"
+ >
+ {actionLoading ? (
+ <Loader2 className="h-4 w-4 animate-spin" />
+ ) : (
+ <MoreHorizontal className="h-4 w-4" />
+ )}
+ </Button>
+ </DropdownMenuTrigger>
+ <DropdownMenuContent align="end" className="w-48">
+ <DropdownMenuLabel>Actions</DropdownMenuLabel>
+ <DropdownMenuSeparator />
+ <DropdownMenuItem onClick={onView}>
+ <Eye className="mr-2 h-4 w-4" />
+ View details
+ </DropdownMenuItem>
+ {canApprovePending ? (
+ <>
+ <DropdownMenuItem onClick={onApprove}>
+ <CheckCircle2 className="mr-2 h-4 w-4" />
+ {approveLabel}
+ </DropdownMenuItem>
+ <DropdownMenuItem
+ className="text-destructive focus:text-destructive"
+ onClick={onReject}
+ >
+ <XCircle className="mr-2 h-4 w-4" />
+ Reject
+ </DropdownMenuItem>
+ </>
+ ) : null}
+ {canCompleteCash ? (
+ <DropdownMenuItem onClick={onComplete}>
+ <CheckCircle2 className="mr-2 h-4 w-4" />
+ Complete
+ </DropdownMenuItem>
+ ) : null}
+ </DropdownMenuContent>
+ </DropdownMenu>
+ );
 }
 
 function MiniSpark({ className }: { className?: string }) {
@@ -172,7 +318,9 @@ function DisbursementDetailPanel({
  const prepared = staffDisplayLabel(row.prepared_by_name, row.prepared_by);
  const approved = staffDisplayLabel(row.approved_by_name, row.approved_by ?? undefined) || "—";
  const rejectedU = staffDisplayLabel(row.rejected_by_name, row.rejected_by ?? undefined) || "—";
- const sc = statusConfig[row.status];
+ const sc = displayStatus(row);
+ const awaitingClickPesa = isAwaitingClickPesaConfirmation(row);
+ const confirmedRejected = isConfirmedRejection(row);
 
  return (
  <>
@@ -204,11 +352,27 @@ function DisbursementDetailPanel({
  </div>
  </div>
  <p className="pointer-events-none absolute bottom-2 right-4 hidden rotate-[-8deg] select-none border-2 border-white/25 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-white/30 sm:block">
- {row.status.replace(/_/g, " ")}
+ {sc.label}
  </p>
  </div>
 
  <div className="max-h-[55vh] overflow-y-auto overscroll-contain px-6 py-5">
+ {awaitingClickPesa ? (
+ <div className="mb-5 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">
+ <p className="font-medium">ClickPesa confirmation is pending. Do not submit another payout.</p>
+ <p className="mt-1 text-sky-900/80">
+ Status updates only when ClickPesa confirms via webhook or scheduled reconciliation.
+ </p>
+ {(row.order_reference || row.transaction_reference) && (
+ <p className="mt-2 text-xs text-sky-900/70">
+ Reference{" "}
+ <span className="font-mono text-sky-950">
+ {row.order_reference ?? row.transaction_reference}
+ </span>
+ </p>
+ )}
+ </div>
+ ) : null}
  <div className="grid gap-6 md:grid-cols-2">
  <div className="space-y-4">
  <div>
@@ -281,11 +445,11 @@ function DisbursementDetailPanel({
  <div className="rounded-lg border border-border/60 bg-card/50 px-3 py-2 sm:col-span-2">
  <p className="text-[11px] uppercase text-muted-foreground">Rejected</p>
  <p className="font-medium">
- {row.rejected_at ? formatDateTime(row.rejected_at) : "—"}
+ {confirmedRejected && row.rejected_at ? formatDateTime(row.rejected_at) : "—"}
  </p>
- {row.rejection_reason && (
+ {confirmedRejected && row.rejection_reason ? (
  <p className="mt-2 text-destructive">{row.rejection_reason}</p>
- )}
+ ) : null}
  </div>
  </div>
 
@@ -365,10 +529,13 @@ export default function DisbursementsPage() {
  const [completeRef, setCompleteRef] = useState("");
  const [rejectRow, setRejectRow] = useState<DisbursementViewRow | null>(null);
  const [rejectReason, setRejectReason] = useState("");
+ const [expandedRejectedRows, setExpandedRejectedRows] = useState<Set<string>>(new Set());
 
- const load = useCallback(async () => {
+ const load = useCallback(async (opts?: { silent?: boolean }) => {
+ if (!opts?.silent) {
  setLoading(true);
  setError(null);
+ }
  try {
  const params = new URLSearchParams();
  params.set("include_eligible", "0");
@@ -376,6 +543,7 @@ export default function DisbursementsPage() {
  if (searchQuery.trim()) params.set("search", searchQuery.trim());
  const res = await fetch(`/api/disbursements?${params.toString()}`, {
  credentials: "include",
+ cache: "no-store",
  });
  const { data } = await parseJsonResponse<{
  disbursements?: DisbursementViewRow[];
@@ -396,15 +564,30 @@ export default function DisbursementsPage() {
  setRows(Array.isArray(data.disbursements) ? data.disbursements : []);
  setKpis(data.kpis && typeof data.kpis === "object" ? data.kpis : null);
  } catch (e) {
+ if (!opts?.silent) {
  setError(e instanceof Error ? e.message : "Load failed");
+ }
  } finally {
- setLoading(false);
+ if (!opts?.silent) setLoading(false);
  }
  }, [statusFilter, searchQuery]);
 
  useEffect(() => {
- load();
+ void load();
  }, [load]);
+
+ const shouldPollClickPesa = useMemo(
+ () => rows.some((row) => isAwaitingClickPesaConfirmation(row)),
+ [rows]
+ );
+
+ useEffect(() => {
+ if (!shouldPollClickPesa) return;
+ const timer = window.setInterval(() => {
+ void load({ silent: true });
+ }, 12_000);
+ return () => window.clearInterval(timer);
+ }, [shouldPollClickPesa, load]);
 
  const loadEligibleLoans = useCallback(async () => {
  setEligibleLoading(true);
@@ -768,6 +951,15 @@ export default function DisbursementsPage() {
   }
 };
 
+ const toggleRejectedExplanation = useCallback((id: string) => {
+ setExpandedRejectedRows((current) => {
+ const next = new Set(current);
+ if (next.has(id)) next.delete(id);
+ else next.add(id);
+ return next;
+ });
+ }, []);
+
  const canApprove = user
  ? userCanApproveDisbursement({ ...user, permissions: user.permissions ?? [] })
  : false;
@@ -776,8 +968,8 @@ export default function DisbursementsPage() {
  if (!kpis) return [];
  return [
  { name: "Pending", short: "Pend.", count: kpis.pending_approval, fill: "#ea580c" },
- { name: "Approved", short: "Appr.", count: kpis.approved, fill: "#0284c7" },
- { name: "Completed", short: "Done", count: kpis.completed, fill: "#059669" },
+ { name: "Processing", short: "Proc.", count: kpis.approved, fill: "#0284c7" },
+ { name: "Disbursed", short: "Done", count: kpis.completed, fill: "#059669" },
  { name: "Rejected", short: "Rej.", count: kpis.rejected, fill: "#e11d48" },
  ];
  }, [kpis]);
@@ -1011,7 +1203,9 @@ export default function DisbursementsPage() {
  placeholder="Search loan number or customer..."
  value={searchQuery}
  onChange={(e) => setSearchQuery(e.target.value)}
- onKeyDown={(e) => e.key === "Enter" && load()}
+ onKeyDown={(e) => {
+ if (e.key === "Enter") void load();
+ }}
  className="pl-9"
  />
  </div>
@@ -1030,7 +1224,13 @@ export default function DisbursementsPage() {
  </Select>
  </div>
  <div className="flex flex-wrap gap-2">
- <Button type="button" variant="outline" size="sm" onClick={() => forceCachedReload(load)} disabled={loading}>
+ <Button
+ type="button"
+ variant="outline"
+ size="sm"
+ onClick={() => forceCachedReload(() => load())}
+ disabled={loading}
+ >
  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
  <span className="ml-2">Refresh</span>
  </Button>
@@ -1617,9 +1817,13 @@ export default function DisbursementsPage() {
  </TableRow>
  ) : (
  rows.map((row) => {
- const sc = statusConfig[row.status];
+ const sc = displayStatus(row);
+ const rejectedOpen = expandedRejectedRows.has(row.id);
+ const awaitingClickPesa = isAwaitingClickPesaConfirmation(row);
+ const confirmedRejected = isConfirmedRejection(row);
  return (
- <TableRow key={row.id}>
+ <Fragment key={row.id}>
+ <TableRow>
  <TableCell className="font-medium">
  <Link className="text-primary hover:underline" href="/loans">
  {row.loan_number ?? row.loan_id}
@@ -1631,9 +1835,31 @@ export default function DisbursementsPage() {
  </TableCell>
  <TableCell>{DISBURSEMENT_CHANNEL_LABELS[row.method]}</TableCell>
  <TableCell>
- <Badge variant={sc.variant}>
- {row.status === "approved" && row.gateway ? "ClickPesa processing" : sc.label}
- </Badge>
+ <div className="flex flex-col items-start gap-1">
+ <div className="flex items-center gap-1.5">
+ <Badge variant={sc.variant}>{sc.label}</Badge>
+ {confirmedRejected && (
+ <Button
+ type="button"
+ size="icon"
+ variant="ghost"
+ className="h-6 w-6 rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive"
+ aria-expanded={rejectedOpen}
+ aria-label={rejectedOpen ? "Hide rejection reason" : "Show rejection reason"}
+ onClick={() => toggleRejectedExplanation(row.id)}
+ >
+ <ChevronDown
+ className={cn("h-3.5 w-3.5 transition-transform", rejectedOpen && "rotate-180")}
+ />
+ </Button>
+ )}
+ </div>
+ {awaitingClickPesa ? (
+ <p className="max-w-[16rem] text-[11px] leading-snug text-muted-foreground">
+ ClickPesa confirmation is pending. Do not submit another payout.
+ </p>
+ ) : null}
+ </div>
  </TableCell>
  <TableCell className="text-sm">
  {staffDisplayLabel(row.prepared_by_name, row.prepared_by)}
@@ -1641,61 +1867,54 @@ export default function DisbursementsPage() {
  <TableCell className="text-xs text-muted-foreground">
  <div className="space-y-0.5">
  {row.approved_at && <div>Approved {formatDate(row.approved_at)}</div>}
- {row.rejected_at && <div>Rejected {formatDate(row.rejected_at)}</div>}
+ {confirmedRejected && row.rejected_at && (
+ <div>Rejected {formatDate(row.rejected_at)}</div>
+ )}
  {row.disbursed_at && <div>Disbursed {formatDateTime(row.disbursed_at)}</div>}
- {!row.approved_at && !row.rejected_at && !row.disbursed_at && "—"}
+ {!row.approved_at && !(confirmedRejected && row.rejected_at) && !row.disbursed_at && "—"}
  </div>
  </TableCell>
  <TableCell className="text-right">
- <div className="flex justify-end gap-1">
- <Button size="sm" variant="ghost" onClick={() => setViewRow(row)}>
- <Eye className="h-4 w-4" />
- </Button>
- {canApprove && row.status === "pending_approval" && (
- <>
- <Button
- size="sm"
- variant="outline"
- disabled={actionLoading === row.id}
- onClick={() => setApproveRow(row)}
- title={
- MOBILE_CHANNELS.includes(row.method) || BANK_CHANNELS.includes(row.method)
- ? "Approve and send this payout to ClickPesa"
- : "Approve and activate this cash/manual disbursement"
- }
- >
- {MOBILE_CHANNELS.includes(row.method) || BANK_CHANNELS.includes(row.method)
- ? "Approve & send"
- : "Approve & activate"}
- </Button>
- <Button
- size="sm"
- variant="destructive"
- disabled={actionLoading === row.id}
- onClick={() => {
+ <div className="flex justify-end">
+ <DisbursementRowActions
+ row={row}
+ canApprove={canApprove}
+ actionLoading={actionLoading === row.id}
+ onView={() => setViewRow(row)}
+ onApprove={() => setApproveRow(row)}
+ onReject={() => {
  setRejectRow(row);
  setRejectReason("");
  }}
- >
- Reject
- </Button>
- </>
- )}
- {canApprove && row.status === "approved" && !row.gateway && (
- <Button
- size="sm"
- onClick={() => {
+ onComplete={() => {
  setCompleteRow(row);
  setCompleteRef(row.transaction_reference ?? "");
  }}
- disabled={actionLoading === row.id}
- >
- Complete
- </Button>
+ />
+ </div>
+ </TableCell>
+ </TableRow>
+ {confirmedRejected && rejectedOpen && (
+ <TableRow className="bg-destructive/5 hover:bg-destructive/5">
+ <TableCell colSpan={8} className="sticky left-0 px-4 py-3">
+ <div className="box-border w-[calc(100vw-20rem)] min-w-0 max-w-[calc(100vw-20rem)] overflow-hidden rounded-md border border-destructive/20 bg-background px-4 py-3 text-sm">
+ <p className="font-medium text-destructive">Why this was rejected</p>
+ <p className="mt-1 max-w-3xl whitespace-normal break-words leading-5 text-muted-foreground [overflow-wrap:anywhere]">
+ {rejectedExplanation(row)}
+ </p>
+ {(row.order_reference || row.transaction_reference) && (
+ <p className="mt-2 whitespace-normal break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
+ Reference{" "}
+ <span className="font-mono text-foreground">
+ {row.order_reference ?? row.transaction_reference}
+ </span>
+ </p>
  )}
  </div>
  </TableCell>
  </TableRow>
+ )}
+ </Fragment>
  );
  })
  )}
@@ -1717,7 +1936,10 @@ export default function DisbursementsPage() {
  </p>
  ) : (
  rows.map((row) => {
- const sc = statusConfig[row.status];
+ const sc = displayStatus(row);
+ const rejectedOpen = expandedRejectedRows.has(row.id);
+ const awaitingClickPesa = isAwaitingClickPesaConfirmation(row);
+ const confirmedRejected = isConfirmedRejection(row);
  return (
  <Card key={row.id}>
  <CardHeader className="pb-2">
@@ -1726,12 +1948,47 @@ export default function DisbursementsPage() {
  <CardTitle className="text-base">{row.loan_number ?? row.loan_id}</CardTitle>
  <p className="text-sm text-muted-foreground">{row.customer_display_name ?? "—"}</p>
  </div>
- <Badge variant={sc.variant}>
- {row.status === "approved" && row.gateway ? "ClickPesa processing" : sc.label}
- </Badge>
+ <div className="flex items-center gap-1.5">
+ <Badge variant={sc.variant}>{sc.label}</Badge>
+ {confirmedRejected && (
+ <Button
+ type="button"
+ size="icon"
+ variant="ghost"
+ className="h-6 w-6 rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive"
+ aria-expanded={rejectedOpen}
+ aria-label={rejectedOpen ? "Hide rejection reason" : "Show rejection reason"}
+ onClick={() => toggleRejectedExplanation(row.id)}
+ >
+ <ChevronDown
+ className={cn("h-3.5 w-3.5 transition-transform", rejectedOpen && "rotate-180")}
+ />
+ </Button>
+ )}
+ <DisbursementRowActions
+ row={row}
+ canApprove={canApprove}
+ actionLoading={actionLoading === row.id}
+ onView={() => setViewRow(row)}
+ onApprove={() => setApproveRow(row)}
+ onReject={() => {
+ setRejectRow(row);
+ setRejectReason("");
+ }}
+ onComplete={() => {
+ setCompleteRow(row);
+ setCompleteRef(row.transaction_reference ?? "");
+ }}
+ />
+ </div>
  </div>
  </CardHeader>
  <CardContent className="space-y-3 text-sm">
+ {awaitingClickPesa ? (
+ <p className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950">
+ ClickPesa confirmation is pending. Do not submit another payout.
+ </p>
+ ) : null}
  <div className="flex justify-between">
  <span className="text-muted-foreground">Amount</span>
  <span className="font-semibold">{formatCurrency(row.amount)}</span>
@@ -1744,56 +2001,22 @@ export default function DisbursementsPage() {
  <span className="text-muted-foreground">Prepared by</span>
  <span>{staffDisplayLabel(row.prepared_by_name, row.prepared_by)}</span>
  </div>
- <div className="flex flex-wrap gap-2 pt-1">
- <Button size="sm" variant="outline" className="flex-1" onClick={() => setViewRow(row)}>
- <Eye className="mr-1 h-4 w-4" />
- View
- </Button>
- {canApprove && row.status === "pending_approval" && (
- <>
- <Button
- size="sm"
- className="flex-1"
- disabled={actionLoading === row.id}
- onClick={() => setApproveRow(row)}
- title={
- MOBILE_CHANNELS.includes(row.method) || BANK_CHANNELS.includes(row.method)
- ? "Approve and send this payout to ClickPesa"
- : "Approve and activate this cash/manual disbursement"
- }
- >
- {MOBILE_CHANNELS.includes(row.method) || BANK_CHANNELS.includes(row.method)
- ? "Approve & send"
- : "Approve & activate"}
- </Button>
- <Button
- size="sm"
- variant="destructive"
- className="flex-1"
- disabled={actionLoading === row.id}
- onClick={() => {
- setRejectRow(row);
- setRejectReason("");
- }}
- >
- Reject
- </Button>
- </>
- )}
- {canApprove && row.status === "approved" && !row.gateway && (
- <Button
- size="sm"
- className="flex-1"
- disabled={actionLoading === row.id}
- onClick={() => {
- setCompleteRow(row);
- setCompleteRef(row.transaction_reference ?? "");
- }}
- >
- Complete
- </Button>
+ {confirmedRejected && rejectedOpen && (
+ <div className="min-w-0 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2">
+ <p className="font-medium text-destructive">Why this was rejected</p>
+ <p className="mt-1 whitespace-normal break-words leading-5 text-muted-foreground [overflow-wrap:anywhere]">
+ {rejectedExplanation(row)}
+ </p>
+ {(row.order_reference || row.transaction_reference) && (
+ <p className="mt-2 whitespace-normal break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
+ Reference{" "}
+ <span className="font-mono text-foreground">
+ {row.order_reference ?? row.transaction_reference}
+ </span>
+ </p>
  )}
  </div>
+ )}
  </CardContent>
  </Card>
  );
@@ -1820,10 +2043,8 @@ export default function DisbursementsPage() {
  <DialogHeader>
  <DialogTitle>Confirm disbursement</DialogTitle>
  <DialogDescription>
- {approveRow &&
- (MOBILE_CHANNELS.includes(approveRow.method) ||
- BANK_CHANNELS.includes(approveRow.method))
- ? "Review the payout details below. Continuing will send this amount via ClickPesa."
+ {approveRow && isGatewayChannel(approveRow.method)
+ ? "Review the payout details below. Continuing will send this amount via ClickPesa. After that, wait for confirmation — do not submit another payout."
  : "Review the disbursement details below before approving."}
  </DialogDescription>
  </DialogHeader>
@@ -1885,9 +2106,7 @@ export default function DisbursementsPage() {
  onClick={() => approveRow && patch(approveRow.id, { action: "approve" })}
  disabled={!approveRow || actionLoading === approveRow?.id}
  >
- {approveRow &&
- (MOBILE_CHANNELS.includes(approveRow.method) ||
- BANK_CHANNELS.includes(approveRow.method))
+ {approveRow && isGatewayChannel(approveRow.method)
  ? "Continue & send"
  : "Continue"}
  </Button>

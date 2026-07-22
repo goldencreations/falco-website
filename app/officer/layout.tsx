@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
-import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { DashboardNavigationShell } from "@/components/dashboard-navigation-shell";
+import { SidebarProvider } from "@/components/ui/sidebar";
 import { BranchAssignmentProvider } from "@/components/branch-assignment-context";
 import { OfficerPortalGate } from "@/components/officer-portal-gate";
 import { OfficerSessionProvider } from "@/components/officer-session-context";
@@ -19,12 +20,11 @@ export default async function OfficerLayout({ children }: { children: React.Reac
  return (
  <BranchAssignmentProvider mode="light" sessionUser={user}>
  <SidebarProvider>
- <OfficerSidebar user={user} branchLabel={branchLabel} />
- <SidebarInset className="flex min-h-0 flex-1 flex-col overflow-hidden">
+ <DashboardNavigationShell sidebar={<OfficerSidebar user={user} branchLabel={branchLabel} />}>
  <OfficerSessionProvider user={user}>
  <OfficerPortalGate>{children}</OfficerPortalGate>
  </OfficerSessionProvider>
- </SidebarInset>
+ </DashboardNavigationShell>
  </SidebarProvider>
  </BranchAssignmentProvider>
  );
