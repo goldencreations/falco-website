@@ -366,64 +366,70 @@ export default function LoansPage() {
  <p className="text-[11px] text-muted-foreground">Disbursed</p>
  <p className="text-sm font-semibold">{formatCurrency(totalPrincipal)}</p>
  </div>
- <div className="rounded-lg border border-emerald-200/70 bg-emerald-100/60 p-3 ">
- <p className="text-[11px] text-muted-foreground">Outstanding</p>
- <p className="text-sm font-semibold">{formatCurrency(totalOutstanding)}</p>
- {totalPenaltyOutstanding > 0 ? (
- <p className="text-[11px] text-destructive">
- Penalty {formatCurrency(totalPenaltyOutstanding)}
- </p>
- ) : null}
- </div>
- </div>
+              <div className="rounded-lg border border-emerald-200/70 bg-emerald-100/60 p-3 ">
+                <p className="text-[11px] text-muted-foreground">Outstanding</p>
+                <p className="text-sm font-semibold">{formatCurrency(totalOutstanding)}</p>
+              </div>
+              <div className="rounded-lg border border-emerald-200/70 bg-emerald-100/60 p-3 ">
+                <p className="text-[11px] text-muted-foreground">Total Penalty</p>
+                <p className="text-sm font-semibold text-destructive">
+                  {formatCurrency(totalPenaltyOutstanding)}
+                </p>
+              </div>
+            </div>
  <p className="text-xs text-muted-foreground">
  {activeLoans} active loans and {inArrearsLoans} in arrears.
  </p>
  </CardContent>
  </Card>
 
- <div className="hidden gap-4 sm:grid sm:grid-cols-2 lg:grid-cols-4">
- <Card>
- <CardHeader className="pb-2">
- <CardTitle className="text-sm font-medium text-muted-foreground">Total Loans</CardTitle>
- </CardHeader>
- <CardContent>
- <div className="text-2xl font-bold">{listLoading ? "…" : visibleLoans.length}</div>
- <p className="text-sm text-muted-foreground">
- {activeLoans} active, {inArrearsLoans} in arrears
- </p>
- </CardContent>
- </Card>
- <Card>
- <CardHeader className="pb-2">
- <CardTitle className="text-sm font-medium text-muted-foreground">Total Outstanding</CardTitle>
- </CardHeader>
- <CardContent>
- <div className="text-2xl font-bold">{formatCurrency(totalOutstanding)}</div>
- {totalPenaltyOutstanding > 0 ? (
- <p className="text-sm text-destructive">
- Penalty {formatCurrency(totalPenaltyOutstanding)}
- </p>
- ) : null}
- </CardContent>
- </Card>
- <Card>
- <CardHeader className="pb-2">
- <CardTitle className="text-sm font-medium text-muted-foreground">Total Disbursed</CardTitle>
- </CardHeader>
- <CardContent>
- <div className="text-2xl font-bold">{formatCurrency(totalPrincipal)}</div>
- </CardContent>
- </Card>
- <Card>
- <CardHeader className="pb-2">
- <CardTitle className="text-sm font-medium text-muted-foreground">Recovery Rate</CardTitle>
- </CardHeader>
- <CardContent>
- <div className="text-2xl font-bold text-accent">{recoveryRate}%</div>
- </CardContent>
- </Card>
- </div>
+          <div className="hidden gap-4 sm:grid sm:grid-cols-2 lg:grid-cols-5">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Total Loans</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{listLoading ? "…" : visibleLoans.length}</div>
+                <p className="text-sm text-muted-foreground">
+                  {activeLoans} active, {inArrearsLoans} in arrears
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Total Outstanding</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{formatCurrency(totalOutstanding)}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Total Penalty</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-destructive">
+                  {formatCurrency(totalPenaltyOutstanding)}
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Total Disbursed</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{formatCurrency(totalPrincipal)}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Recovery Rate</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-accent">{recoveryRate}%</div>
+              </CardContent>
+            </Card>
+          </div>
 
  {/* Filters */}
  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -614,15 +620,19 @@ export default function LoansPage() {
  <span className="text-muted-foreground">—</span>
  )}
  </TableCell>
- <TableCell>
- <div className="w-24">
- <Progress value={Math.min(100, paidPercent)} className="h-2" />
- <p className="mt-1 text-xs text-muted-foreground">
- {paidPercent.toFixed(0)}% paid
- {totalPaidDisplay > 0 ? ` · ${formatCurrency(totalPaidDisplay)}` : ""}
- </p>
- </div>
- </TableCell>
+                      <TableCell>
+                        <div className="w-24">
+                          <Progress value={Math.min(100, paidPercent)} className="h-2" />
+                          <p className="mt-1 text-xs text-muted-foreground leading-tight">
+                            {paidPercent.toFixed(0)}% paid
+                          </p>
+                          {totalPaidDisplay > 0 ? (
+                            <p className="text-xs text-muted-foreground leading-tight">
+                              {formatCurrency(totalPaidDisplay)}
+                            </p>
+                          ) : null}
+                        </div>
+                      </TableCell>
  <TableCell>
  <Badge variant={status.variant} className="gap-1">
  <StatusIcon className="h-3 w-3" />
