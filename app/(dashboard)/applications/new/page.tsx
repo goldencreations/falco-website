@@ -132,6 +132,12 @@ function NewApplicationPageContent() {
  : effectiveRole === "loan_officer"
  ? "/officer/applications"
  : "/applications";
+ const groupsBasePath =
+ effectiveRole === "branch_manager"
+ ? "/manager/groups"
+ : effectiveRole === "loan_officer"
+ ? "/officer/groups"
+ : "/groups";
  const loanCalculatorPath =
  effectiveRole === "loan_officer"
  ? "/officer/loan-calculator"
@@ -925,27 +931,25 @@ function NewApplicationPageContent() {
  </CardDescription>
  </CardHeader>
  <CardContent className="space-y-4">
+{!editId || loanMode === "individual" ? (
+<>
+<p className="rounded-md border border-emerald-100 bg-emerald-50/50 px-3 py-2 text-sm text-muted-foreground">
+Vikundi member loans are started from each member row under{" "}
+<Link href={groupsBasePath} className="font-medium text-foreground underline-offset-2 hover:underline">
+Vikundi / Groups
+</Link>
+{" "}
+(separate application and amount per member). This form is for individual customers.
+</p>
+</>
+) : (
 <Field>
 <FieldLabel>Application Type</FieldLabel>
-<Select
-value={loanMode}
-onValueChange={(value) => {
- setLoanMode(value as LoanMode);
- setSelectedCustomer(null);
- setSelectedGroup(null);
- setCustomerSearch("");
- setGroupSelectError("");
-}}
->
-<SelectTrigger>
-<SelectValue placeholder="Select application type" />
-</SelectTrigger>
-<SelectContent>
-<SelectItem value="individual">Individual</SelectItem>
-<SelectItem value="group_based">Group</SelectItem>
-</SelectContent>
-</Select>
+<p className="text-sm text-muted-foreground">
+Legacy group-level draft. Prefer creating new member loans from Vikundi member rows.
+</p>
 </Field>
+)}
  {groupSelectError ? (
  <p className="text-sm text-destructive">{groupSelectError}</p>
  ) : null}

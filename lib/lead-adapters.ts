@@ -2,6 +2,7 @@ import { digitsOnly, TZ_PHONE_MAX_DIGITS } from "@/lib/tz-form-inputs";
 
 export type LeadStatus = "new" | "follow_up" | "contacted" | "converted";
 export type LeadLocationType = "home" | "work" | "sponsor";
+export type LeadGender = "male" | "female" | "other";
 
 export type LeadView = {
  id: string;
@@ -9,6 +10,7 @@ export type LeadView = {
  fullName: string;
  phoneNumber: string;
  alternatePhone?: string;
+ gender?: LeadGender;
  locationType: LeadLocationType;
  locationName: string;
  region?: string;
@@ -26,6 +28,20 @@ export type LeadView = {
  createdAt: string;
  convertedAt?: string;
 };
+
+export const leadGenderLabel: Record<LeadGender, string> = {
+  male: "Male",
+  female: "Female",
+  other: "Other",
+};
+
+export function asLeadGender(v: unknown): LeadGender | undefined {
+  const s = String(v ?? "")
+    .trim()
+    .toLowerCase();
+  if (s === "male" || s === "female" || s === "other") return s;
+  return undefined;
+}
 
 const LOC_TAG_RE = /^\[LOC:(home|work|sponsor)\]\s*/i;
 
@@ -76,6 +92,7 @@ export function adaptApiLeadRow(raw: Record<string, unknown>): LeadView {
  fullName: str(inner.full_name),
  phoneNumber: str(inner.phone_number),
  alternatePhone: inner.alternate_phone ? str(inner.alternate_phone) : undefined,
+ gender: asLeadGender(inner.gender),
  locationType,
  locationName: str(inner.location_name),
  region: inner.region ? str(inner.region) : undefined,
@@ -128,6 +145,7 @@ export function mapUiLeadCreateToApi(form: {
  fullName: string;
  phoneNumber: string;
  alternatePhone?: string;
+ gender?: LeadGender | "";
  locationType: LeadLocationType;
  locationName: string;
  region?: string;
@@ -157,6 +175,8 @@ export function mapUiLeadCreateToApi(form: {
 
   const alt = form.alternatePhone?.trim();
   if (alt) payload.alternate_phone = normalizePhone(alt);
+  const gender = asLeadGender(form.gender);
+  if (gender) payload.gender = gender;
   if (form.followUpDate?.trim()) payload.follow_up_date = form.followUpDate.trim();
 
   if (form.region?.trim()) payload.region = form.region.trim();

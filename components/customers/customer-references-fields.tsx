@@ -5,8 +5,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formControlErrorClass, formControlErrorProps } from "@/components/forms/form-field-message";
 import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { TzValidatedInput } from "@/components/forms/tz-validated-input";
-import { type CustomerReferenceFormRow } from "@/lib/customer-references";
+import type { CustomerSex } from "@/lib/customer-guarantors";
+import { emptyCustomerReferenceRow, type CustomerReferenceFormRow } from "@/lib/customer-references";
 
 type Props = {
   value: CustomerReferenceFormRow[];
@@ -28,12 +36,12 @@ export function CustomerReferencesFields({ value, onChange, fieldErrors }: Props
   };
 
   const addRow = () => {
-    onChange([...value, { name: "", phone: "", relationship: "", address: "" }]);
+    onChange([...value, emptyCustomerReferenceRow()]);
   };
 
   const removeRow = (index: number) => {
     if (value.length <= 1) {
-      onChange([{ name: "", phone: "", relationship: "", address: "" }]);
+      onChange([emptyCustomerReferenceRow()]);
       return;
     }
     onChange(value.filter((_, i) => i !== index));
@@ -68,6 +76,26 @@ export function CustomerReferencesFields({ value, onChange, fieldErrors }: Props
                 />
                 <FieldError>{rowFieldError(fieldErrors, index, "name")}</FieldError>
               </Field>
+              <Field data-invalid={Boolean(rowFieldError(fieldErrors, index, "sex"))}>
+                <FieldLabel>Sex</FieldLabel>
+                <Select
+                  value={row.sex || undefined}
+                  onValueChange={(v) => updateRow(index, "sex", v as CustomerSex)}
+                >
+                  <SelectTrigger
+                    className={formControlErrorClass(Boolean(rowFieldError(fieldErrors, index, "sex")))}
+                    {...formControlErrorProps(rowFieldError(fieldErrors, index, "sex"))}
+                  >
+                    <SelectValue placeholder="Select sex" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="male">Male</SelectItem>
+                    <SelectItem value="female">Female</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+                <FieldError>{rowFieldError(fieldErrors, index, "sex")}</FieldError>
+              </Field>
               <Field data-invalid={Boolean(rowFieldError(fieldErrors, index, "relationship"))}>
                 <FieldLabel>Relationship</FieldLabel>
                 <Input
@@ -92,7 +120,7 @@ export function CustomerReferencesFields({ value, onChange, fieldErrors }: Props
                 />
                 <FieldError>{rowFieldError(fieldErrors, index, "phone")}</FieldError>
               </Field>
-              <Field>
+              <Field className="sm:col-span-2">
                 <FieldLabel>Address / location</FieldLabel>
                 <Input
                   placeholder="Where this reference can be found"

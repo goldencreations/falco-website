@@ -68,6 +68,8 @@ export interface Customer {
  // Contact Information
  phone_primary: string;
  phone_secondary?: string;
+ /** Combined phone list from API (`phone_numbers`). */
+ phone_numbers?: string[];
  email?: string;
  
  // Address
@@ -81,9 +83,9 @@ export interface Customer {
  /** Map pin for the customer's business premises. */
  business_latitude?: number | null;
  business_longitude?: number | null;
- /** Up to two guarantors registered at customer onboarding (stored in API metadata). */
+ /** Guarantors registered at customer onboarding. */
  guarantors?: CustomerGuarantorRecord[];
- /** Personal references registered at customer onboarding (stored in API metadata). */
+ /** Personal references registered at customer onboarding. */
  references?: CustomerReferenceRecord[];
  
  // Employment & Income

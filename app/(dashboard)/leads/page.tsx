@@ -69,8 +69,10 @@ import { forceCachedReload } from "@/lib/client-fetch-cache";
 import {
   extractLeadDetail,
   extractLeadsList,
+  leadGenderLabel,
   mapUiLeadCreateToApi,
   stripLocationTagFromNotes,
+  type LeadGender,
   type LeadLocationType,
   type LeadStatus,
   type LeadView,
@@ -106,6 +108,12 @@ const locationTypeLabel: Record<LeadLocationType, string> = {
  work: "Work",
  sponsor: "Sponsor",
 };
+
+const GENDER_NONE = "none";
+
+function genderDisplay(gender?: LeadGender): string {
+  return gender ? leadGenderLabel[gender] : "—";
+}
 
 function roleDisplayLabel(role: string): string {
   return role
@@ -275,6 +283,7 @@ const initialLeadFormData = {
   fullName: "",
   phoneNumber: "",
   alternatePhone: "",
+  gender: GENDER_NONE as LeadGender | typeof GENDER_NONE,
   locationType: "home" as LeadLocationType,
   locationName: "",
   region: "",
@@ -321,6 +330,7 @@ export default function LeadsPage() {
     fullName: "",
     phoneNumber: "",
     alternatePhone: "",
+    gender: GENDER_NONE as LeadGender | typeof GENDER_NONE,
     locationType: "home" as LeadLocationType,
     locationName: "",
     region: "",
@@ -524,6 +534,7 @@ export default function LeadsPage() {
  fullName: formData.fullName,
  phoneNumber: formData.phoneNumber,
  alternatePhone: formData.alternatePhone || undefined,
+ gender: formData.gender === GENDER_NONE ? undefined : formData.gender,
  locationType: formData.locationType,
  locationName: formData.locationName,
  region: formData.region || undefined,
@@ -637,6 +648,7 @@ export default function LeadsPage() {
       fullName: lead.fullName,
       phoneNumber: lead.phoneNumber,
       alternatePhone: lead.alternatePhone ?? "",
+      gender: lead.gender ?? GENDER_NONE,
       locationType: lead.locationType,
       locationName: lead.locationName,
       region: lead.region ?? "",
@@ -675,6 +687,7 @@ export default function LeadsPage() {
         fullName: editFormData.fullName,
         phoneNumber: editFormData.phoneNumber,
         alternatePhone: editFormData.alternatePhone || undefined,
+        gender: editFormData.gender === GENDER_NONE ? undefined : editFormData.gender,
         locationType: editFormData.locationType,
         locationName: editFormData.locationName,
         region: editFormData.region || undefined,
@@ -860,6 +873,7 @@ export default function LeadsPage() {
  <Phone className="h-3 w-3" />
  {lead.phoneNumber}
  </p>
+ <p className="text-xs text-muted-foreground">Gender: {genderDisplay(lead.gender)}</p>
  <div className="text-xs text-muted-foreground">
  Created by{" "}
  <span className="font-medium text-foreground">{leadCreatorLabel(lead)}</span>
@@ -925,6 +939,7 @@ export default function LeadsPage() {
  <TableRow>
  <TableHead>Name</TableHead>
  <TableHead>Phone</TableHead>
+ <TableHead>Gender</TableHead>
  <TableHead>Type</TableHead>
  <TableHead>Location</TableHead>
  <TableHead>Coordinates</TableHead>
@@ -937,7 +952,7 @@ export default function LeadsPage() {
  <TableBody>
  {visibleLeads.length === 0 ? (
  <TableRow>
- <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
+ <TableCell colSpan={10} className="py-8 text-center text-muted-foreground">
  No leads yet. Add a field lead to get started.
  </TableCell>
  </TableRow>
@@ -964,6 +979,7 @@ export default function LeadsPage() {
  )}
  </div>
  </TableCell>
+ <TableCell>{genderDisplay(lead.gender)}</TableCell>
  <TableCell>
  <Badge variant="secondary">{locationTypeLabel[lead.locationType]}</Badge>
  </TableCell>
@@ -1053,12 +1069,14 @@ export default function LeadsPage() {
  </Card>
 
           {editingLead && (
-            <Card ref={editFormRef} className="border-amber-200">
-              <CardHeader className="rounded-t-xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-white">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <CardTitle>Edit Lead — {editingLead.fullName}</CardTitle>
-                    <CardDescription className="text-amber-100">
+            <Card ref={editFormRef} className="gap-0 overflow-hidden border-amber-200 py-0 shadow-sm">
+              <CardHeader className="block space-y-0 border-b border-amber-400/40 bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 px-4 py-4 text-white sm:px-6 sm:py-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 space-y-1.5">
+                    <CardTitle className="text-base leading-snug text-white sm:text-lg">
+                      Edit Lead — {editingLead.fullName}
+                    </CardTitle>
+                    <CardDescription className="text-sm leading-relaxed text-amber-50/90">
                       Update the lead details then save
                     </CardDescription>
                   </div>
@@ -1066,14 +1084,14 @@ export default function LeadsPage() {
                     type="button"
                     size="sm"
                     variant="ghost"
-                    className="text-white hover:bg-amber-600"
+                    className="-mt-0.5 shrink-0 text-white hover:bg-amber-600/80 hover:text-white"
                     onClick={() => setEditingLead(null)}
                   >
                     Cancel
                   </Button>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-4 px-4 pt-4 sm:px-6">
+              <CardContent className="space-y-4 px-4 py-4 sm:px-6 sm:py-5">
                 <FieldGroup className="min-w-0">
                   <div className={leadFormGridClass}>
                     <Field>
@@ -1103,6 +1121,25 @@ export default function LeadsPage() {
                           setEditFormData((prev) => ({ ...prev, fullName: e.target.value }))
                         }
                       />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Gender (optional)</FieldLabel>
+                      <Select
+                        value={editFormData.gender}
+                        onValueChange={(value: LeadGender | typeof GENDER_NONE) =>
+                          setEditFormData((prev) => ({ ...prev, gender: value }))
+                        }
+                      >
+                        <SelectTrigger className={leadSelectTriggerClass}>
+                          <SelectValue placeholder="Select gender" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={GENDER_NONE}>Not specified</SelectItem>
+                          <SelectItem value="male">Male</SelectItem>
+                          <SelectItem value="female">Female</SelectItem>
+                          <SelectItem value="other">Other</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </Field>
                     <Field>
                       <FieldLabel>Phone Number</FieldLabel>
@@ -1261,8 +1298,8 @@ export default function LeadsPage() {
           )}
 
           {showAddLeadForm && (
-            <Card ref={addLeadFormRef} className="overflow-hidden border-emerald-100 shadow-sm scroll-mt-4">
- <CardHeader className="border-b border-emerald-100 bg-emerald-50/70 px-4 py-4 sm:px-6 sm:py-5">
+            <Card ref={addLeadFormRef} className="gap-0 overflow-hidden border-emerald-100 py-0 shadow-sm scroll-mt-4">
+ <CardHeader className="block space-y-0 border-b border-emerald-100 bg-emerald-50/70 px-4 py-4 sm:px-6 sm:py-5">
  <div className="flex items-start gap-3">
  <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-emerald-600 text-white shadow-sm">
  <Plus className="h-4 w-4" aria-hidden />
@@ -1275,7 +1312,7 @@ export default function LeadsPage() {
  </div>
  </div>
  </CardHeader>
- <CardContent className="space-y-4 px-4 pt-4 sm:px-6 sm:pt-5">
+ <CardContent className="space-y-4 px-4 py-4 sm:px-6 sm:py-5">
           {Object.keys(leadFieldErrors).length > 0 ? (
             <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
               <p className="font-medium">Please fix the highlighted fields.</p>
@@ -1357,6 +1394,23 @@ export default function LeadsPage() {
  onChange={(e) => updateLeadField("fullName", e.target.value)}
  />
  <FieldError>{leadFieldErrors.fullName}</FieldError>
+ </Field>
+ <Field>
+ <FieldLabel>Gender (optional)</FieldLabel>
+ <Select
+ value={formData.gender}
+ onValueChange={(value: LeadGender | typeof GENDER_NONE) => updateLeadField("gender", value)}
+ >
+ <SelectTrigger className={leadSelectTriggerClass}>
+ <SelectValue placeholder="Select gender" />
+ </SelectTrigger>
+ <SelectContent>
+ <SelectItem value={GENDER_NONE}>Not specified</SelectItem>
+ <SelectItem value="male">Male</SelectItem>
+ <SelectItem value="female">Female</SelectItem>
+ <SelectItem value="other">Other</SelectItem>
+ </SelectContent>
+ </Select>
  </Field>
  <Field data-invalid={Boolean(leadFieldErrors.phoneNumber)} data-lead-field="phoneNumber">
  <FieldLabel>Phone Number</FieldLabel>
@@ -1566,6 +1620,9 @@ export default function LeadsPage() {
  <span className="text-muted-foreground">
  {mapLead.locationName} ({locationTypeLabel[mapLead.locationType]})
  </span>
+ {mapLead.gender ? (
+ <span className="ml-2 text-muted-foreground">· {leadGenderLabel[mapLead.gender]}</span>
+ ) : null}
  {!parseLeadCoordinates(mapLead) && (
  <span className="ml-2 text-xs text-amber-700">(approximate — from address)</span>
  )}

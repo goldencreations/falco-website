@@ -150,7 +150,14 @@ export type CustomerGuarantorRow = {
   collateralType?: string;
   collateralDescription?: string;
   collateralEstimatedValue?: number;
+  /** National ID / legacy document photos. */
   documents: CustomerGuarantorDocument[];
+  /** From `guarantors[].photos`. */
+  photos: CustomerGuarantorDocument[];
+  /** From `guarantors[].attachments`. */
+  attachments: CustomerGuarantorDocument[];
+  /** From `guarantors[].collateral_image_attachments`. */
+  collateralImageAttachments: CustomerGuarantorDocument[];
 };
 
 function readDocumentField(
@@ -164,6 +171,132 @@ function readDocumentField(
     url: readUrl(d.url ?? d.download_url) ?? undefined,
     preview_url: readUrl(d.preview_url ?? d.signed_url) ?? undefined,
   };
+}
+
+function mediaDocumentsFromArray(
+  raw: unknown,
+  defaultName: string
+): CustomerGuarantorDocument[] {
+  if (!Array.isArray(raw)) return [];
+  const documents: CustomerGuarantorDocument[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const entry = raw[i];
+    if (typeof entry === "string") {
+      const url = readUrl(entry);
+      if (url) documents.push({ name: `${defaultName} ${i + 1}`, url });
+      continue;
+    }
+    if (!entry || typeof entry !== "object") continue;
+    const o = entry as Record<string, unknown>;
+    const nested =
+      o.document && typeof o.document === "object"
+        ? (o.document as Record<string, unknown>)
+        : null;
+    const url =
+      readUrl(o.url ?? o.download_url) ??
+      (nested ? readUrl(nested.url ?? nested.download_url) : null);
+    const previewUrl =
+      readUrl(o.preview_url ?? o.signed_url) ??
+      (nested ? readUrl(nested.preview_url ?? nested.signed_url) : null) ??
+      url;
+    if (!url && !previewUrl) continue;
+    const name =
+      String(o.name ?? o.file_name ?? o.filename ?? "").trim() ||
+      `${defaultName} ${i + 1}`;
+    documents.push({
+      name,
+      url: url ?? previewUrl ?? "",
+      previewUrl: previewUrl ?? url,
+    });
+  }
+  return documents.filter((d) => d.url);
+}
+
+function guarantorMediaFromApiItem(item: Record<string, unknown>): {
+  photos: CustomerGuarantorDocument[];
+  attachments: CustomerGuarantorDocument[];
+  collateralImageAttachments: CustomerGuarantorDocument[];
+} {
+  const photos = mediaDocumentsFromArray(item.photos, "Guarantor photo").map((doc, i) => {
+    const entry = Array.isArray(item.photos) ? item.photos[i] : null;
+    const type =
+      entry && typeof entry === "object"
+        ? String((entry as Record<string, unknown>).type ?? (entry as Record<string, unknown>).document_type ?? "")
+            .toLowerCase()
+        : "";
+    if (/passport|profile|guarantor_passport/.test(type) || /passport/i.test(doc.name)) {
+      return { ...doc, name: doc.name.toLowerCase().includes("passport") ? doc.name : "Passport photo" };
+    }
+    return doc;
+  });
+  // Also surface dedicated passport URL fields as a photo when photos[] is empty.
+  if (
+    photos.every((p) => !/passport/i.test(p.name)) &&
+    (item.passport_photo_url ||
+      item.photo_with_customer_url ||
+      (item.passport_photo_document && typeof item.passport_photo_document === "object") ||
+      (item.photo_with_customer_document && typeof item.photo_with_customer_document === "object"))
+  ) {
+    const url =
+      (typeof item.passport_photo_url === "string" && item.passport_photo_url.trim()) ||
+      (typeof item.photo_with_customer_url === "string" && item.photo_with_customer_url.trim()) ||
+      "";
+    const preview =
+      (typeof item.passport_photo_preview_url === "string" && item.passport_photo_preview_url.trim()) ||
+      (typeof item.photo_with_customer_preview_url === "string" &&
+        item.photo_with_customer_preview_url.trim()) ||
+      url;
+    const fromDoc =
+      item.passport_photo_document && typeof item.passport_photo_document === "object"
+        ? (item.passport_photo_document as Record<string, unknown>)
+        : item.photo_with_customer_document && typeof item.photo_with_customer_document === "object"
+          ? (item.photo_with_customer_document as Record<string, unknown>)
+          : null;
+    const docUrl =
+      url ||
+      (fromDoc
+        ? String(fromDoc.url ?? fromDoc.download_url ?? fromDoc.preview_url ?? "").trim()
+        : "");
+    const docPreview =
+      preview ||
+      (fromDoc ? String(fromDoc.preview_url ?? fromDoc.url ?? "").trim() : "") ||
+      docUrl;
+    if (docUrl) {
+      photos.unshift({
+        name: "Passport photo",
+        url: docUrl,
+        previewUrl: docPreview || docUrl,
+      });
+    }
+  }
+  const attachments = mediaDocumentsFromArray(item.attachments, "Guarantor attachment");
+  const collateralImageAttachments = mediaDocumentsFromArray(
+    item.collateral_image_attachments,
+    "Guarantor collateral photo"
+  );
+  return { photos, attachments, collateralImageAttachments };
+}
+
+function emptyGuarantorMedia(): Pick<
+  CustomerGuarantorRow,
+  "photos" | "attachments" | "collateralImageAttachments"
+> {
+  return { photos: [], attachments: [], collateralImageAttachments: [] };
+}
+
+function mergeGuarantorMediaLists(
+  base: CustomerGuarantorDocument[],
+  extra: CustomerGuarantorDocument[]
+): CustomerGuarantorDocument[] {
+  if (extra.length === 0) return base;
+  const seen = new Set(base.map((d) => d.url));
+  const merged = [...base];
+  for (const doc of extra) {
+    if (!doc.url || seen.has(doc.url)) continue;
+    merged.push(doc);
+    seen.add(doc.url);
+  }
+  return merged;
 }
 
 function guarantorDocumentsFromRow(g: GuarantorRow): CustomerGuarantorDocument[] {
@@ -190,6 +323,42 @@ function guarantorDocumentsFromRow(g: GuarantorRow): CustomerGuarantorDocument[]
   return documents;
 }
 
+function guarantorPhotosFromRow(g: GuarantorRow): CustomerGuarantorDocument[] {
+  const photos: CustomerGuarantorDocument[] = [];
+  if (g.photo_url || g.photo_preview_url) {
+    photos.push({
+      name: "Guarantor photo",
+      url: g.photo_url ?? g.photo_preview_url ?? "",
+      previewUrl: g.photo_preview_url ?? g.photo_url,
+    });
+  }
+  if (g.photo_with_customer_url || g.photo_with_customer_preview_url) {
+    photos.push({
+      name: "Passport photo",
+      url: g.photo_with_customer_url ?? g.photo_with_customer_preview_url ?? "",
+      previewUrl: g.photo_with_customer_preview_url ?? g.photo_with_customer_url,
+    });
+  }
+  return photos.filter((d) => d.url);
+}
+
+function guarantorAttachmentsFromRow(g: GuarantorRow): CustomerGuarantorDocument[] {
+  const attachments: CustomerGuarantorDocument[] = [];
+  if (g.ward_letter_url || g.ward_letter_preview_url) {
+    attachments.push({
+      name: "Ward letter",
+      url: g.ward_letter_url ?? g.ward_letter_preview_url ?? "",
+      previewUrl: g.ward_letter_preview_url ?? g.ward_letter_url,
+    });
+  }
+  for (let i = 0; i < (g.attachment_urls ?? []).length; i++) {
+    const url = g.attachment_urls?.[i];
+    if (!url) continue;
+    attachments.push({ name: `Guarantor attachment ${i + 1}`, url });
+  }
+  return attachments.filter((d) => d.url);
+}
+
 function guarantorMatchKey(name: string, phone: string, nationalId?: string): string {
   const n = name.trim().toLowerCase();
   const p = phone.replace(/\D/g, "");
@@ -201,21 +370,28 @@ function mergeGuarantorDocuments(
   base: CustomerGuarantorRow,
   extra: CustomerGuarantorRow
 ): CustomerGuarantorRow {
-  if (extra.documents.length === 0) return base;
+  const documents = mergeGuarantorMediaLists(base.documents, extra.documents);
+  const photos = mergeGuarantorMediaLists(base.photos, extra.photos);
+  const attachments = mergeGuarantorMediaLists(base.attachments, extra.attachments);
+  const collateralImageAttachments = mergeGuarantorMediaLists(
+    base.collateralImageAttachments,
+    extra.collateralImageAttachments
+  );
 
-  const seen = new Set(base.documents.map((d) => d.url));
-  const documents = [...base.documents];
-  for (const doc of extra.documents) {
-    if (!doc.url || seen.has(doc.url)) continue;
-    documents.push(doc);
-    seen.add(doc.url);
-  }
-
-  const merged: CustomerGuarantorRow = { ...base, documents };
+  const merged: CustomerGuarantorRow = {
+    ...base,
+    documents,
+    photos,
+    attachments,
+    collateralImageAttachments,
+  };
   if (
     base.applicationNumber === "Customer registration" &&
     extra.applicationNumber !== "Customer registration" &&
-    documents.length > 0
+    (documents.length > 0 ||
+      photos.length > 0 ||
+      attachments.length > 0 ||
+      collateralImageAttachments.length > 0)
   ) {
     merged.applicationNumber = extra.applicationNumber;
   }
@@ -365,6 +541,9 @@ export function extractGuarantorsFromApplications(
           collateralDescription: g.collateral_description,
           collateralEstimatedValue: g.collateral_estimated_value,
           documents: guarantorDocumentsFromRow(g),
+          photos: guarantorPhotosFromRow(g),
+          attachments: guarantorAttachmentsFromRow(g),
+          collateralImageAttachments: [],
         });
       }
       continue;
@@ -386,6 +565,7 @@ export function extractGuarantorsFromApplications(
           previewUrl: d.preview_url,
         }))
         .filter((d) => d.url),
+      ...emptyGuarantorMedia(),
     });
   }
 
@@ -401,6 +581,7 @@ function guarantorRowFromApiItem(
 
   const normalized = normalizeGuarantors([item])[0];
   if (!normalized) return null;
+  const media = guarantorMediaFromApiItem(item);
 
   return {
     applicationNumber,
@@ -413,6 +594,13 @@ function guarantorRowFromApiItem(
     collateralDescription: normalized.collateral_description,
     collateralEstimatedValue: normalized.collateral_estimated_value,
     documents: guarantorDocumentsFromRow(normalized),
+    photos:
+      media.photos.length > 0 ? media.photos : guarantorPhotosFromRow(normalized),
+    attachments:
+      media.attachments.length > 0
+        ? media.attachments
+        : guarantorAttachmentsFromRow(normalized),
+    collateralImageAttachments: media.collateralImageAttachments,
   };
 }
 
@@ -531,6 +719,7 @@ export function buildCustomerGuarantorRows(
       collateralDescription: g.collateral_description,
       collateralEstimatedValue: g.collateral_estimated_value,
       documents: extractMetadataGuarantorDocuments(sourceRow, g),
+      ...emptyGuarantorMedia(),
     };
 
     const fromApi = customerApiByKey.get(key);

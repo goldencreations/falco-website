@@ -207,8 +207,39 @@ export function normalizeGuarantors(raw: unknown[]): GuarantorRow[] {
       const attachmentDocs = Array.isArray(o.attachments)
         ? o.attachments
             .filter((item) => item && typeof item === "object")
-            .map((item) => extractDocumentField(item as Record<string, unknown>, "document"))
+            .map((item) => {
+              const att = item as Record<string, unknown>;
+              const nested = extractDocumentField(att, "document");
+              return {
+                url:
+                  nested.url ??
+                  (typeof att.url === "string" ? att.url.trim() : undefined) ??
+                  (typeof att.download_url === "string" ? att.download_url.trim() : undefined),
+                preview_url:
+                  nested.preview_url ??
+                  (typeof att.preview_url === "string" ? att.preview_url.trim() : undefined),
+              };
+            })
             .filter((doc) => doc.url || doc.preview_url)
+        : [];
+      const photoAttachments = Array.isArray(o.photos)
+        ? o.photos
+            .map((item) => {
+              if (typeof item === "string") return { url: item.trim(), preview_url: undefined };
+              if (!item || typeof item !== "object") return null;
+              const p = item as Record<string, unknown>;
+              const nested = extractDocumentField(p, "document");
+              return {
+                url:
+                  nested.url ??
+                  (typeof p.url === "string" ? p.url.trim() : undefined) ??
+                  (typeof p.download_url === "string" ? p.download_url.trim() : undefined),
+                preview_url:
+                  nested.preview_url ??
+                  (typeof p.preview_url === "string" ? p.preview_url.trim() : undefined),
+              };
+            })
+            .filter((doc) => Boolean(doc?.url || doc?.preview_url))
         : [];
       const id_front_url =
         frontDoc.url ??
@@ -244,8 +275,9 @@ export function normalizeGuarantors(raw: unknown[]): GuarantorRow[] {
           flatBackPreview ??
           (id_back_url && !id_back_url.includes("/documents/") ? id_back_url : undefined),
         id_back_url,
-        photo_preview_url: photoDoc.preview_url,
-        photo_url: photoDoc.url,
+        photo_preview_url:
+          photoDoc.preview_url ?? photoAttachments[0]?.preview_url ?? undefined,
+        photo_url: photoDoc.url ?? photoAttachments[0]?.url ?? undefined,
         photo_with_customer_preview_url: photoWithCustomerDoc.preview_url,
         photo_with_customer_url: photoWithCustomerDoc.url,
         ward_letter_preview_url: wardLetterDoc.preview_url,

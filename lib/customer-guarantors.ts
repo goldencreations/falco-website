@@ -6,18 +6,25 @@ import { parseCustomerMetadata } from "@/lib/customer-location";
 import { parseMoneyInput } from "@/lib/money-input";
 import { digitsOnly, TZ_NIDA_MAX_DIGITS, TZ_PHONE_MAX_DIGITS } from "@/lib/tz-form-inputs";
 
-export const MAX_CUSTOMER_GUARANTORS = 2;
+export type CustomerSex = "male" | "female" | "other";
 
 export type CustomerGuarantorRecord = {
   full_name: string;
   phone: string;
   national_id?: string;
   id_type?: CustomerIdType | null;
+  sex?: CustomerSex | null;
   relationship: string;
   address?: string;
   collateral_type?: string;
   collateral_description?: string;
   collateral_estimated_value?: number;
+};
+
+export type CustomerGuarantorMediaItem = {
+  name?: string;
+  url: string;
+  preview_url?: string | null;
 };
 
 export type CustomerGuarantorApiRecord = CustomerGuarantorRecord & {
@@ -28,6 +35,12 @@ export type CustomerGuarantorApiRecord = CustomerGuarantorRecord & {
   id_front_preview_url?: string;
   id_back_url?: string;
   id_back_preview_url?: string;
+  /** Guarantor passport / profile photo (`guarantor_passport_photo`). */
+  passport_photo_url?: string;
+  passport_photo_preview_url?: string;
+  photos?: CustomerGuarantorMediaItem[];
+  attachments?: CustomerGuarantorMediaItem[] | unknown[];
+  collateral_image_attachments?: CustomerGuarantorMediaItem[] | unknown[];
 };
 
 export type CustomerGuarantorFormRow = {
@@ -36,6 +49,7 @@ export type CustomerGuarantorFormRow = {
   phone: string;
   idType: CustomerIdType;
   nationalId: string;
+  sex: CustomerSex | "";
   relationship: string;
   otherRelationship: string;
   address: string;
@@ -45,9 +59,12 @@ export type CustomerGuarantorFormRow = {
   idFront: File | null;
   idBack: File | null;
   photo: File | null;
+  /** Uploaded as `guarantor_passport_photo`. */
   photoWithCustomer: File | null;
   wardLetter: File | null;
   attachments: File[];
+  /** Guarantor collateral photos → `guarantor_collateral_photo`. */
+  collateralImages: File[];
   /** Existing (already-uploaded) ID document metadata carried over from the backend record. */
   idFrontDocumentId?: string;
   idBackDocumentId?: string;
@@ -55,7 +72,17 @@ export type CustomerGuarantorFormRow = {
   existingIdFrontPreviewUrl?: string;
   existingIdBackUrl?: string;
   existingIdBackPreviewUrl?: string;
+  existingPassportPhotoUrl?: string;
+  existingPassportPhotoPreviewUrl?: string;
 };
+
+export function asCustomerSex(v: unknown): CustomerSex | undefined {
+  const s = String(v ?? "")
+    .trim()
+    .toLowerCase();
+  if (s === "male" || s === "female" || s === "other") return s;
+  return undefined;
+}
 
 export function emptyCustomerGuarantorRow(): CustomerGuarantorFormRow {
   return {
@@ -63,6 +90,7 @@ export function emptyCustomerGuarantorRow(): CustomerGuarantorFormRow {
     phone: "",
     idType: "NIDA",
     nationalId: "",
+    sex: "",
     relationship: "",
     otherRelationship: "",
     address: "",
@@ -75,11 +103,12 @@ export function emptyCustomerGuarantorRow(): CustomerGuarantorFormRow {
     photoWithCustomer: null,
     wardLetter: null,
     attachments: [],
+    collateralImages: [],
   };
 }
 
 export function defaultCustomerGuarantorForm(): CustomerGuarantorFormRow[] {
-  return [emptyCustomerGuarantorRow(), emptyCustomerGuarantorRow()];
+  return [emptyCustomerGuarantorRow()];
 }
 
 function normalizePhone(phone: string): string {
@@ -103,6 +132,72 @@ function readGuarantorDocumentField(
   };
 }
 
+function readMediaUrl(value: unknown): string | undefined {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  return undefined;
+}
+
+/** Resolve guarantor passport photo URLs from API fields / `photos[]`. */
+function readGuarantorPassportPhoto(o: Record<string, unknown>): {
+  url?: string;
+  preview_url?: string;
+} {
+  const passportDoc = readGuarantorDocumentField(o, "passport_photo_document");
+  const altPassportDoc = readGuarantorDocumentField(o, "guarantor_passport_photo_document");
+  const withCustomerDoc = readGuarantorDocumentField(o, "photo_with_customer_document");
+
+  const flatUrl =
+    readMediaUrl(o.passport_photo_url) ??
+    readMediaUrl(o.guarantor_passport_photo_url) ??
+    readMediaUrl(o.photo_with_customer_url);
+  const flatPreview =
+    readMediaUrl(o.passport_photo_preview_url) ??
+    readMediaUrl(o.guarantor_passport_photo_preview_url) ??
+    readMediaUrl(o.photo_with_customer_preview_url);
+
+  const preferred = {
+    url: passportDoc.url ?? altPassportDoc.url ?? flatUrl,
+    preview_url:
+      passportDoc.preview_url ??
+      altPassportDoc.preview_url ??
+      flatPreview ??
+      passportDoc.url ??
+      altPassportDoc.url ??
+      flatUrl,
+  };
+  if (preferred.url || preferred.preview_url) return preferred;
+
+  if (withCustomerDoc.url || withCustomerDoc.preview_url) {
+    return {
+      url: withCustomerDoc.url,
+      preview_url: withCustomerDoc.preview_url ?? withCustomerDoc.url,
+    };
+  }
+
+  if (Array.isArray(o.photos)) {
+    for (const entry of o.photos) {
+      if (typeof entry === "string" && entry.trim()) {
+        return { url: entry.trim(), preview_url: entry.trim() };
+      }
+      if (!entry || typeof entry !== "object") continue;
+      const p = entry as Record<string, unknown>;
+      const type = String(p.type ?? p.document_type ?? "").toLowerCase();
+      const name = String(p.name ?? "").toLowerCase();
+      const isPassport =
+        /passport|profile|guarantor_passport/.test(type) || /passport|profile/.test(name);
+      const nested = readGuarantorDocumentField(p, "document");
+      const url = readMediaUrl(p.url) ?? readMediaUrl(p.download_url) ?? nested.url;
+      const preview = readMediaUrl(p.preview_url) ?? nested.preview_url ?? url;
+      if (!url && !preview) continue;
+      if (isPassport || o.photos.length === 1) {
+        return { url: url ?? preview, preview_url: preview ?? url };
+      }
+    }
+  }
+
+  return {};
+}
+
 function resolveRelationship(row: CustomerGuarantorFormRow): string {
   const rel = row.relationship.trim();
   if (!rel) return "";
@@ -115,6 +210,7 @@ function rowHasAnyInput(row: CustomerGuarantorFormRow): boolean {
     row.name.trim() ||
       row.phone.trim() ||
       row.nationalId.trim() ||
+      row.sex ||
       row.relationship.trim() ||
       row.address.trim() ||
       row.collateralType.trim() ||
@@ -125,7 +221,8 @@ function rowHasAnyInput(row: CustomerGuarantorFormRow): boolean {
       row.photo ||
       row.photoWithCustomer ||
       row.wardLetter ||
-      row.attachments.length > 0
+      row.attachments.length > 0 ||
+      row.collateralImages.length > 0
   );
 }
 
@@ -179,14 +276,15 @@ export function customerGuarantorFormToRecord(row: CustomerGuarantorFormRow): Cu
   const national_id = row.nationalId.trim();
   if (national_id) record.national_id = national_id;
   record.id_type = normalizeCustomerIdType(row.idType);
+  const sex = asCustomerSex(row.sex);
+  if (sex) record.sex = sex;
   return appendOptionalGuarantorFields(record, row);
 }
 
 export function customerGuarantorFormToRecords(rows: CustomerGuarantorFormRow[]): CustomerGuarantorRecord[] {
   return rows
     .map(customerGuarantorFormToRecord)
-    .filter((row): row is CustomerGuarantorRecord => Boolean(row))
-    .slice(0, MAX_CUSTOMER_GUARANTORS);
+    .filter((row): row is CustomerGuarantorRecord => Boolean(row));
 }
 
 export function customerGuarantorFormToApiRecords(
@@ -203,8 +301,7 @@ export function customerGuarantorFormToApiRecords(
         ...(row.idBackDocumentId ? { id_back_document_id: row.idBackDocumentId } : {}),
       };
     })
-    .filter((row): row is CustomerGuarantorApiRecord => Boolean(row))
-    .slice(0, MAX_CUSTOMER_GUARANTORS);
+    .filter((row): row is CustomerGuarantorApiRecord => Boolean(row));
 }
 
 export function readCustomerGuarantorsArray(
@@ -252,6 +349,8 @@ function guarantorApiRecordFromRow(
   if (item.id_type != null && String(item.id_type).trim()) {
     record.id_type = normalizeCustomerIdType(item.id_type);
   }
+  const sex = asCustomerSex(item.sex ?? item.gender);
+  if (sex) record.sex = sex;
 
   const frontId =
     field === "id_front_document_id" && documentId
@@ -302,11 +401,23 @@ export function buildCustomerGuarantorDocumentLinkPatch(
   return { guarantors };
 }
 
+/** Rows that have pending files to upload after create/update. */
 export function customerGuarantorRowsWithIdFiles(
   rows: CustomerGuarantorFormRow[]
 ): CustomerGuarantorFormRow[] {
   return rows.filter(
-    (row) => row.name.trim() && row.phone.trim() && (row.idFront || row.idBack)
+    (row) =>
+      row.name.trim() &&
+      row.phone.trim() &&
+      Boolean(
+        row.idFront ||
+          row.idBack ||
+          row.photo ||
+          row.photoWithCustomer ||
+          row.wardLetter ||
+          row.attachments.length > 0 ||
+          row.collateralImages.length > 0
+      )
   );
 }
 
@@ -376,6 +487,7 @@ export function customerGuarantorApiRecordsToForm(
       phone: record.phone,
       idType: normalizeCustomerIdType(record.id_type),
       nationalId: record.national_id ?? "",
+      sex: asCustomerSex(record.sex) ?? "",
       relationship: isStandard ? normalized : normalized ? "other" : "",
       otherRelationship: isStandard ? "" : record.relationship,
       address: record.address ?? "",
@@ -393,14 +505,16 @@ export function customerGuarantorApiRecordsToForm(
       ...(record.id_back_preview_url
         ? { existingIdBackPreviewUrl: record.id_back_preview_url }
         : {}),
+      ...(record.passport_photo_url
+        ? { existingPassportPhotoUrl: record.passport_photo_url }
+        : {}),
+      ...(record.passport_photo_preview_url
+        ? { existingPassportPhotoPreviewUrl: record.passport_photo_preview_url }
+        : {}),
     };
   });
 
-  while (rows.length < MAX_CUSTOMER_GUARANTORS) {
-    rows.push(emptyCustomerGuarantorRow());
-  }
-
-  return rows.slice(0, MAX_CUSTOMER_GUARANTORS);
+  return rows.length > 0 ? rows : [emptyCustomerGuarantorRow()];
 }
 
 export function parseCustomerGuarantorApiRecordsFromRow(
@@ -424,6 +538,8 @@ export function parseCustomerGuarantorApiRecordsFromRow(
     if (o.id_type != null && String(o.id_type).trim()) {
       record.id_type = normalizeCustomerIdType(o.id_type);
     }
+    const sex = asCustomerSex(o.sex ?? o.gender);
+    if (sex) record.sex = sex;
 
     const frontId = String(o.id_front_document_id ?? "").trim();
     const backId = String(o.id_back_document_id ?? "").trim();
@@ -437,9 +553,12 @@ export function parseCustomerGuarantorApiRecordsFromRow(
     if (backDoc.url) record.id_back_url = backDoc.url;
     if (backDoc.preview_url) record.id_back_preview_url = backDoc.preview_url;
 
+    const passport = readGuarantorPassportPhoto(o);
+    if (passport.url) record.passport_photo_url = passport.url;
+    if (passport.preview_url) record.passport_photo_preview_url = passport.preview_url;
+
     appendOptionalGuarantorFields(record, o);
     out.push(record);
-    if (out.length >= MAX_CUSTOMER_GUARANTORS) break;
   }
 
   return out;
@@ -449,11 +568,17 @@ export function parseCustomerGuarantorsFromRow(
   row: Record<string, unknown> | null | undefined
 ): CustomerGuarantorRecord[] {
   return parseCustomerGuarantorApiRecordsFromRow(row).map(
-    ({ full_name, phone, national_id, relationship }) => ({
+    ({ full_name, phone, national_id, id_type, sex, relationship, address, collateral_type, collateral_description, collateral_estimated_value }) => ({
       full_name,
       phone,
       relationship,
       ...(national_id ? { national_id } : {}),
+      ...(id_type ? { id_type } : {}),
+      ...(sex ? { sex } : {}),
+      ...(address ? { address } : {}),
+      ...(collateral_type ? { collateral_type } : {}),
+      ...(collateral_description ? { collateral_description } : {}),
+      ...(collateral_estimated_value != null ? { collateral_estimated_value } : {}),
     })
   );
 }
@@ -508,6 +633,13 @@ export function validateCustomerGuarantors(
         ok: false,
         error: `Guarantor ${i + 1}: relationship is required.`,
         field: `guarantors.${i}.relationship`,
+      };
+    }
+    if (!asCustomerSex(row.sex)) {
+      return {
+        ok: false,
+        error: `Guarantor ${i + 1}: select sex.`,
+        field: `guarantors.${i}.sex`,
       };
     }
     if (row.relationship === "other" && !row.otherRelationship.trim()) {
@@ -570,7 +702,7 @@ export function validateCustomerGuarantors(
 
     const photoChecks: Array<[File | null, string, string]> = [
       [row.photo, "photo", "Guarantor photo"],
-      [row.photoWithCustomer, "photoWithCustomer", "Photo with customer"],
+      [row.photoWithCustomer, "photoWithCustomer", "Passport photo"],
     ];
     for (const [file, field, label] of photoChecks) {
       if (!file) continue;
@@ -594,6 +726,17 @@ export function validateCustomerGuarantors(
         };
       }
     }
+
+    for (const file of row.collateralImages) {
+      const check = validateLocationPhoto(file);
+      if (!check.ok) {
+        return {
+          ok: false,
+          error: `Guarantor ${i + 1}: collateral photo must be JPG, JPEG, PNG, or WEBP and 5MB or smaller.`,
+          field: `guarantors.${i}.collateralImages`,
+        };
+      }
+    }
   }
   return { ok: true };
 }
@@ -606,6 +749,7 @@ export function customerGuarantorsToApplicationPayload(
   relationship: string;
   national_id?: string;
   id_type?: CustomerIdType;
+  sex?: CustomerSex;
   address?: string;
   collateral_type?: string;
   collateral_description?: string;
@@ -618,6 +762,7 @@ export function customerGuarantorsToApplicationPayload(
       relationship: string;
       national_id?: string;
       id_type?: CustomerIdType;
+      sex?: CustomerSex;
       address?: string;
       collateral_type?: string;
       collateral_description?: string;
@@ -629,6 +774,7 @@ export function customerGuarantorsToApplicationPayload(
     };
     if (record.national_id?.trim()) row.national_id = record.national_id.trim();
     if (record.id_type) row.id_type = normalizeCustomerIdType(record.id_type);
+    if (record.sex) row.sex = record.sex;
     if (record.address?.trim()) row.address = record.address.trim();
     if (record.collateral_type?.trim()) row.collateral_type = record.collateral_type.trim();
     if (record.collateral_description?.trim()) {

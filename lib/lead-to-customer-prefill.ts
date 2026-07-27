@@ -16,6 +16,7 @@ export function leadViewFromEditForm(
     fullName: string;
     phoneNumber: string;
     alternatePhone: string;
+    gender?: LeadView["gender"] | "none";
     locationName: string;
     region: string;
     district: string;
@@ -28,6 +29,7 @@ export function leadViewFromEditForm(
     fullName: edit.fullName,
     phoneNumber: edit.phoneNumber,
     alternatePhone: edit.alternatePhone.trim() || undefined,
+    gender: edit.gender && edit.gender !== "none" ? edit.gender : undefined,
     locationName: edit.locationName,
     region: edit.region.trim() || undefined,
     district: edit.district.trim() || undefined,

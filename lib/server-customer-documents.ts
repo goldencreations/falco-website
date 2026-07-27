@@ -2,11 +2,18 @@ import { NextResponse } from "next/server";
 import { getFalcoApiBaseUrl } from "@/lib/falco-api";
 import { resolveFalcoAccessToken } from "@/lib/server-falco";
 
-export const CUSTOMER_COLLATERAL_IMAGE_DOCUMENT_TYPE = "collateral_image";
-export const CUSTOMER_HOME_LOCATION_PHOTO_DOCUMENT_TYPE = "home_location_photo";
-export const CUSTOMER_BUSINESS_LOCATION_PHOTO_DOCUMENT_TYPE = "business_location_photo";
-export const CUSTOMER_GUARANTOR_ID_FRONT_DOCUMENT_TYPE = "guarantor_id_front";
-export const CUSTOMER_GUARANTOR_ID_BACK_DOCUMENT_TYPE = "guarantor_id_back";
+export {
+  CUSTOMER_COLLATERAL_IMAGE_DOCUMENT_TYPE,
+  CUSTOMER_HOME_LOCATION_PHOTO_DOCUMENT_TYPE,
+  CUSTOMER_BUSINESS_LOCATION_PHOTO_DOCUMENT_TYPE,
+  CUSTOMER_SUPPORTING_DOCUMENT_TYPE,
+  CUSTOMER_GUARANTOR_PHOTO_DOCUMENT_TYPE,
+  CUSTOMER_GUARANTOR_PASSPORT_PHOTO_DOCUMENT_TYPE,
+  CUSTOMER_GUARANTOR_COLLATERAL_PHOTO_DOCUMENT_TYPE,
+  CUSTOMER_GUARANTOR_DOCUMENT_TYPE,
+  CUSTOMER_GUARANTOR_ID_FRONT_DOCUMENT_TYPE,
+  CUSTOMER_GUARANTOR_ID_BACK_DOCUMENT_TYPE,
+} from "@/lib/customer-document-types";
 
 /** Read a document id from Falco customer/application document upload responses. */
 export function extractUploadedDocumentId(json: unknown): string | null {
@@ -42,26 +49,46 @@ export function extractUploadedDocumentId(json: unknown): string | null {
   return null;
 }
 
+export type CustomerDocumentUploadFields = {
+  files: File[];
+  type: string;
+  name?: string;
+  collateralId?: string;
+  guarantorId?: string;
+};
+
+/**
+ * Proxy multipart upload to `POST /customers/{id}/documents`.
+ * Sends `files[]` (and a single `file` when only one) so backends that expect either shape work.
+ */
 export async function uploadCustomerDocument(
   request: Request,
   customerId: string,
-  fields: {
-    file: File;
-    type: string;
-    name: string;
-    collateralId?: string;
-    guarantorId?: string;
-  }
+  fields: CustomerDocumentUploadFields
 ): Promise<{ ok: true; data: unknown } | { ok: false; response: Response }> {
   const token = await resolveFalcoAccessToken(request);
   if (!token) {
     return { ok: false, response: NextResponse.json({ message: "Unauthorized" }, { status: 401 }) };
   }
 
+  const files = fields.files.filter((f) => f instanceof File && f.size > 0);
+  if (files.length === 0) {
+    return {
+      ok: false,
+      response: NextResponse.json({ message: "At least one file is required" }, { status: 400 }),
+    };
+  }
+
   const form = new FormData();
-  form.append("file", fields.file, fields.file.name);
   form.append("type", fields.type);
-  form.append("name", fields.name);
+  form.append("name", fields.name?.trim() || files[0].name);
+  for (const file of files) {
+    form.append("files[]", file, file.name);
+  }
+  // Backward-compatible single-file field for older LMS builds.
+  if (files.length === 1) {
+    form.append("file", files[0], files[0].name);
+  }
   if (fields.collateralId) {
     form.append("collateral_id", fields.collateralId);
   }

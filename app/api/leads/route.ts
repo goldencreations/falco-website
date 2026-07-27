@@ -68,6 +68,7 @@ export async function POST(request: Request) {
  fullName: String(body.fullName ?? ""),
  phoneNumber: String(body.phoneNumber ?? ""),
  alternatePhone: body.alternatePhone ? String(body.alternatePhone) : undefined,
+ gender: body.gender ? String(body.gender) as "male" | "female" | "other" : undefined,
  locationType: (body.locationType as "home" | "work" | "sponsor") ?? "home",
  locationName: String(body.locationName ?? ""),
  region: body.region ? String(body.region) : undefined,

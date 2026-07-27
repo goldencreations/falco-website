@@ -1,6 +1,7 @@
 "use client";
 
 import { Download, ExternalLink, User, Users } from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -13,8 +14,41 @@ import {
   CachedMediaPreview,
   resolveMediaViewUrl,
 } from "@/components/media/cached-media-preview";
-import type { CustomerGuarantorRow } from "@/lib/customer-profile-extras";
+import type {
+  CustomerGuarantorDocument,
+  CustomerGuarantorRow,
+} from "@/lib/customer-profile-extras";
 import { toProxyUrl } from "@/lib/document-proxy";
+
+function isPassportDoc(doc: CustomerGuarantorDocument) {
+  return /passport/i.test(doc.name);
+}
+
+function GuarantorPassportAvatar({
+  name,
+  doc,
+}: {
+  name: string;
+  doc?: CustomerGuarantorDocument;
+}) {
+  const src = doc ? resolveMediaViewUrl(doc.previewUrl, doc.url) : null;
+  const initials = name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase() ?? "")
+    .join("");
+
+  return (
+    <Avatar className="h-20 w-20 shrink-0 ring-2 ring-primary/15 sm:h-24 sm:w-24">
+      {src ? <AvatarImage src={src} alt={`${name} passport photo`} className="object-cover" /> : null}
+      <AvatarFallback className="bg-primary/10 text-lg font-semibold text-primary">
+        {initials || <User className="h-7 w-7" aria-hidden />}
+      </AvatarFallback>
+    </Avatar>
+  );
+}
 
 function GuarantorPhotoBlock({
   title,
@@ -61,6 +95,31 @@ function GuarantorPhotoBlock({
   );
 }
 
+function GuarantorMediaSection({
+  title,
+  items,
+}: {
+  title: string;
+  items: CustomerGuarantorDocument[];
+}) {
+  if (items.length === 0) return null;
+  return (
+    <div className="space-y-2">
+      <p className="text-sm font-medium">{title}</p>
+      <div className="grid gap-4 md:grid-cols-2">
+        {items.map((doc) => (
+          <GuarantorPhotoBlock
+            key={`${title}-${doc.name}-${doc.url}`}
+            title={doc.name}
+            authUrl={doc.url}
+            previewUrl={doc.previewUrl}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function CustomerGuarantorPanel({ rows }: { rows: CustomerGuarantorRow[] }) {
   if (rows.length === 0) {
     return (
@@ -82,82 +141,92 @@ export function CustomerGuarantorPanel({ rows }: { rows: CustomerGuarantorRow[] 
 
   return (
     <div className="space-y-4">
-      {rows.map((row) => (
-        <Card key={`${row.applicationNumber}-${row.name}-${row.phone}`}>
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Users className="h-4 w-4 text-primary" />
-              {row.name}
-            </CardTitle>
-            <CardDescription>Application {row.applicationNumber}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Table>
-              <TableBody>
-                <TableRow>
-                  <TableCell className="w-40 text-muted-foreground">National ID</TableCell>
-                  <TableCell className="font-mono text-sm">{row.nationalId}</TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell className="text-muted-foreground">Phone</TableCell>
-                  <TableCell>{row.phone}</TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell className="text-muted-foreground">Relationship</TableCell>
-                  <TableCell className="capitalize">{row.relationship}</TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell className="text-muted-foreground">Address</TableCell>
-                  <TableCell>{row.address}</TableCell>
-                </TableRow>
-                {row.collateralType ? (
-                  <TableRow>
-                    <TableCell className="text-muted-foreground">Collateral type</TableCell>
-                    <TableCell>{row.collateralType}</TableCell>
-                  </TableRow>
-                ) : null}
-                {row.collateralDescription ? (
-                  <TableRow>
-                    <TableCell className="text-muted-foreground">Collateral description</TableCell>
-                    <TableCell>{row.collateralDescription}</TableCell>
-                  </TableRow>
-                ) : null}
-                {row.collateralEstimatedValue != null && row.collateralEstimatedValue > 0 ? (
-                  <TableRow>
-                    <TableCell className="text-muted-foreground">Collateral value</TableCell>
-                    <TableCell>
-                      TSh {row.collateralEstimatedValue.toLocaleString("en-TZ")}
-                    </TableCell>
-                  </TableRow>
-                ) : null}
-              </TableBody>
-            </Table>
+      {rows.map((row) => {
+        const passportDoc = row.photos.find(isPassportDoc);
+        const otherPhotos = passportDoc
+          ? row.photos.filter((doc) => doc !== passportDoc)
+          : row.photos;
+        const hasMedia =
+          row.documents.length > 0 ||
+          otherPhotos.length > 0 ||
+          row.attachments.length > 0 ||
+          row.collateralImageAttachments.length > 0;
 
-            {row.documents.length > 0 ? (
-              <div className="space-y-2">
-                <p className="text-sm font-medium">National ID photos</p>
-                <div className="grid gap-4 md:grid-cols-2">
-                  {row.documents.map((doc) => (
-                    <GuarantorPhotoBlock
-                      key={`${doc.name}-${doc.url}`}
-                      title={doc.name}
-                      authUrl={doc.url}
-                      previewUrl={doc.previewUrl}
-                    />
-                  ))}
+        return (
+          <Card key={`${row.applicationNumber}-${row.name}-${row.phone}`}>
+            <CardHeader className="pb-2">
+              <div className="flex items-start gap-4">
+                <GuarantorPassportAvatar name={row.name} doc={passportDoc} />
+                <div className="min-w-0 space-y-1">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Users className="h-4 w-4 text-primary" />
+                    {row.name}
+                  </CardTitle>
+                  <CardDescription>Application {row.applicationNumber}</CardDescription>
                 </div>
               </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                No guarantor ID photos on this customer record yet. Add ID front and back when
-                registering or editing the customer; they are stored on{" "}
-                <span className="font-mono text-[11px]">id_front_document_id</span> /{" "}
-                <span className="font-mono text-[11px]">id_back_document_id</span>.
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      ))}
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Table>
+                <TableBody>
+                  <TableRow>
+                    <TableCell className="w-40 text-muted-foreground">National ID</TableCell>
+                    <TableCell className="font-mono text-sm">{row.nationalId}</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell className="text-muted-foreground">Phone</TableCell>
+                    <TableCell>{row.phone}</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell className="text-muted-foreground">Relationship</TableCell>
+                    <TableCell className="capitalize">{row.relationship}</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell className="text-muted-foreground">Address</TableCell>
+                    <TableCell>{row.address}</TableCell>
+                  </TableRow>
+                  {row.collateralType ? (
+                    <TableRow>
+                      <TableCell className="text-muted-foreground">Collateral type</TableCell>
+                      <TableCell>{row.collateralType}</TableCell>
+                    </TableRow>
+                  ) : null}
+                  {row.collateralDescription ? (
+                    <TableRow>
+                      <TableCell className="text-muted-foreground">Collateral description</TableCell>
+                      <TableCell>{row.collateralDescription}</TableCell>
+                    </TableRow>
+                  ) : null}
+                  {row.collateralEstimatedValue != null && row.collateralEstimatedValue > 0 ? (
+                    <TableRow>
+                      <TableCell className="text-muted-foreground">Collateral value</TableCell>
+                      <TableCell>
+                        TSh {row.collateralEstimatedValue.toLocaleString("en-TZ")}
+                      </TableCell>
+                    </TableRow>
+                  ) : null}
+                </TableBody>
+              </Table>
+
+              {hasMedia ? (
+                <div className="space-y-4">
+                  <GuarantorMediaSection title="National ID photos" items={row.documents} />
+                  <GuarantorMediaSection title="Photos" items={otherPhotos} />
+                  <GuarantorMediaSection title="Attachments" items={row.attachments} />
+                  <GuarantorMediaSection
+                    title="Collateral photos"
+                    items={row.collateralImageAttachments}
+                  />
+                </div>
+              ) : !passportDoc ? (
+                <p className="text-xs text-muted-foreground">
+                  No guarantor photos or attachments on this customer record yet.
+                </p>
+              ) : null}
+            </CardContent>
+          </Card>
+        );
+      })}
     </div>
   );
 }

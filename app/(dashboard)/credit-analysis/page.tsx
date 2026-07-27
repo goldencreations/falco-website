@@ -709,7 +709,7 @@ function CreditAnalysisPageContent() {
  </div>
  <div className="flex justify-between">
  <span className="text-muted-foreground">Phone</span>
- <span>{selectedCustomer?.phone_number || "—"}</span>
+ <span>{selectedCustomer?.phone_primary || "—"}</span>
  </div>
  <div className="flex justify-between">
  <span className="text-muted-foreground">Risk grade (profile)</span>

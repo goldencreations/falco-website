@@ -1,6 +1,7 @@
 import { parseMoneyInput } from "@/lib/money-input";
 import { parseCustomerMetadata, readCustomerLocationPins } from "@/lib/customer-location";
 import { parseCustomerGuarantorsFromRow } from "@/lib/customer-guarantors";
+import { parseCustomerPhoneNumbersFromRow } from "@/lib/customer-phones";
 import { parseCustomerReferencesFromRow } from "@/lib/customer-references";
 import {
   extractPassportPhotoPreviewUrl,
@@ -177,6 +178,10 @@ export function adaptApiCustomerRowToCustomer(row: Record<string, unknown>): Cus
  passport_number: row.passport_number ? String(row.passport_number) : undefined,
  phone_primary: String(row.phone_number ?? row.phone_primary ?? ""),
  phone_secondary: row.alternate_phone ? String(row.alternate_phone) : undefined,
+ phone_numbers: (() => {
+  const phones = parseCustomerPhoneNumbersFromRow(row);
+  return phones.length > 0 ? phones : undefined;
+ })(),
  email: row.email ? String(row.email) : undefined,
  physical_address: String(row.physical_address ?? ""),
  region: String(row.region ?? ""),
