@@ -1,4 +1,6 @@
 import { parseCustomerMetadata } from "@/lib/customer-location";
+import type { CustomerSex } from "@/lib/customer-guarantors";
+import { asCustomerSex } from "@/lib/customer-guarantors";
 import { digitsOnly, TZ_PHONE_MAX_DIGITS } from "@/lib/tz-form-inputs";
 
 export type CustomerReferenceRecord = {
@@ -6,6 +8,7 @@ export type CustomerReferenceRecord = {
   phone: string;
   relationship: string;
   address?: string;
+  sex?: CustomerSex | null;
 };
 
 export type CustomerReferenceFormRow = {
@@ -13,6 +16,7 @@ export type CustomerReferenceFormRow = {
   phone: string;
   relationship: string;
   address: string;
+  sex: CustomerSex | "";
 };
 
 export function emptyCustomerReferenceRow(): CustomerReferenceFormRow {
@@ -21,6 +25,7 @@ export function emptyCustomerReferenceRow(): CustomerReferenceFormRow {
     phone: "",
     relationship: "",
     address: "",
+    sex: "",
   };
 }
 
@@ -43,6 +48,8 @@ export function customerReferenceFormToRecord(
   const record: CustomerReferenceRecord = { full_name, phone, relationship };
   const address = row.address.trim();
   if (address) record.address = address;
+  const sex = asCustomerSex(row.sex);
+  if (sex) record.sex = sex;
   return record;
 }
 
@@ -73,6 +80,8 @@ export function parseCustomerReferencesFromRow(
     const record: CustomerReferenceRecord = { full_name, phone, relationship };
     const address = String(o.address ?? "").trim();
     if (address) record.address = address;
+    const sex = asCustomerSex(o.sex ?? o.gender);
+    if (sex) record.sex = sex;
     out.push(record);
   }
   return out;
@@ -84,7 +93,11 @@ export function validateCustomerReferences(
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     const hasAny =
-      row.name.trim() || row.phone.trim() || row.relationship.trim() || row.address.trim();
+      row.name.trim() ||
+      row.phone.trim() ||
+      row.relationship.trim() ||
+      row.address.trim() ||
+      row.sex;
     if (!hasAny) continue;
     if (!row.name.trim()) {
       return {
@@ -114,6 +127,13 @@ export function validateCustomerReferences(
         field: `references.${i}.relationship`,
       };
     }
+    if (!asCustomerSex(row.sex)) {
+      return {
+        ok: false,
+        error: `Reference ${i + 1}: select sex.`,
+        field: `references.${i}.sex`,
+      };
+    }
   }
   return { ok: true };
 }
@@ -121,11 +141,12 @@ export function validateCustomerReferences(
 /** Map stored customer references → Falco `POST /applications` references array. */
 export function customerReferencesToApplicationPayload(
   records: CustomerReferenceRecord[]
-): Array<{ full_name: string; relationship: string; phone: string }> {
+): Array<{ full_name: string; relationship: string; phone: string; sex?: CustomerSex }> {
   return records.map((record) => ({
     full_name: record.full_name,
     relationship: record.relationship,
     phone: record.phone,
+    ...(record.sex ? { sex: record.sex } : {}),
   }));
 }
 

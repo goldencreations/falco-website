@@ -57,7 +57,7 @@ export function mapApplicationFormToFalcoBody(input: ApplicationFormInput): Reco
  repayment_frequency: normalizeApplicationRepaymentFrequency(input.repayment_frequency),
  };
 
- if (input.loan_mode === "group_based" && input.group_id) {
+ if (input.group_id) {
  body.group_id = input.group_id;
  }
 

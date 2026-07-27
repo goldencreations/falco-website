@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import dynamic from "next/dynamic";
 import { Loader2 } from "lucide-react";
+import { CustomerAdditionalPhonesFields } from "@/components/customers/customer-additional-phones-fields";
 import { CustomerAttachmentsFields } from "@/components/customers/customer-attachments-fields";
 import { CustomerCollateralFields } from "@/components/customers/customer-collateral-fields";
 import { CustomerGuarantorsFields } from "@/components/customers/customer-guarantors-fields";
@@ -61,7 +62,9 @@ import { uploadCustomerCollateralImages } from "@/lib/customer-collateral-upload
 import { uploadCustomerGuarantorIdDocuments } from "@/lib/customer-guarantor-uploads";
 import {
   customerAttachmentFormHasLocationPhotos,
+  customerAttachmentFormHasSupportingDocuments,
   uploadCustomerLocationPhotos,
+  uploadCustomerSupportingDocuments,
 } from "@/lib/customer-location-photo-uploads";
 import {
   customerGuarantorApiRecordsToForm,
@@ -113,7 +116,7 @@ type EditForm = {
  middle_name: string;
  last_name: string;
  phone: string;
- alt_phone: string;
+ additional_phones: string[];
  email: string;
  physical_address: string;
  street: string;
@@ -178,7 +181,11 @@ function toEditForm(p: Record<string, unknown>): EditForm {
  middle_name: String(p.middle_name ?? ""),
  last_name: String(p.last_name ?? ""),
  phone: String(p.phone ?? ""),
- alt_phone: String(p.alt_phone ?? ""),
+ additional_phones: Array.isArray(p.additional_phones)
+  ? (p.additional_phones as unknown[]).map((v) => String(v ?? "")).filter(Boolean)
+  : p.alt_phone
+    ? [String(p.alt_phone)]
+    : [],
  email: String(p.email ?? ""),
  physical_address: String(p.physical_address ?? ""),
  street: String(p.street ?? ""),
@@ -240,7 +247,7 @@ function formToPatchBody(form: EditForm): Record<string, unknown> {
  last_name: form.last_name,
  full_name: [form.first_name, form.middle_name, form.last_name].filter(Boolean).join(" "),
  phone: form.phone,
- alt_phone: form.alt_phone,
+ additional_phones: form.additional_phones.map((p) => p.trim()).filter(Boolean),
  email: form.email,
  physical_address: form.physical_address,
  street: form.street,
@@ -599,6 +606,20 @@ export function CustomerEditDialog({
   if (refreshed) savedRow = refreshed;
  }
 
+ if (customerAttachmentFormHasSupportingDocuments(attachments)) {
+  const supportingUpload = await uploadCustomerSupportingDocuments(customerId, attachments);
+  if (!supportingUpload.ok) {
+   setError(`Customer saved but supporting document upload failed: ${supportingUpload.error}`);
+   return;
+  }
+  const detailRes = await fetch(`/api/customers/${encodeURIComponent(customerId)}`, {
+   credentials: "include",
+  });
+  const detailBody = (await detailRes.json().catch(() => ({}))) as unknown;
+  const refreshed = extractCustomerDetail(detailBody);
+  if (refreshed) savedRow = refreshed;
+ }
+
  if (customerCollateralRowsWithImages(collateral).length > 0) {
   const collateralUpload = await uploadCustomerCollateralImages(customerId, savedRow, collateral);
   if (!collateralUpload.ok) {
@@ -614,15 +635,9 @@ export function CustomerEditDialog({
  }
 
  if (customerGuarantorRowsWithIdFiles(guarantors).length > 0) {
-  const preGuarantorUploadRes = await fetch(`/api/customers/${encodeURIComponent(customerId)}`, {
-   credentials: "include",
-  });
-  const preGuarantorUploadBody = (await preGuarantorUploadRes.json().catch(() => ({}))) as unknown;
-  const refreshedBeforeUpload = extractCustomerDetail(preGuarantorUploadBody);
-  if (refreshedBeforeUpload) savedRow = refreshedBeforeUpload;
   const guarantorUpload = await uploadCustomerGuarantorIdDocuments(customerId, savedRow, guarantors);
   if (!guarantorUpload.ok) {
-   setError(`Customer saved but guarantor ID upload failed: ${guarantorUpload.error}`);
+   setError(`Customer saved but guarantor document upload failed: ${guarantorUpload.error}`);
    return;
   }
   const postGuarantorUploadRes = await fetch(`/api/customers/${encodeURIComponent(customerId)}`, {
@@ -631,6 +646,11 @@ export function CustomerEditDialog({
   const postGuarantorUploadBody = (await postGuarantorUploadRes.json().catch(() => ({}))) as unknown;
   const refreshedAfterGuarantorUpload = extractCustomerDetail(postGuarantorUploadBody);
   if (refreshedAfterGuarantorUpload) savedRow = refreshedAfterGuarantorUpload;
+ }
+
+ if (!savedRow) {
+  setError("Customer saved but details could not be refreshed.");
+  return;
  }
 
  onSaved(adaptApiCustomerRowToCustomer(savedRow), savedRow);
@@ -765,10 +785,10 @@ export function CustomerEditDialog({
  <Label htmlFor="edit-phone">Primary phone</Label>
  <Input id="edit-phone" value={form.phone} onChange={(e) => updateField("phone", e.target.value)} />
  </div>
- <div className="space-y-2">
- <Label htmlFor="edit-alt">Alternate phone</Label>
- <Input id="edit-alt" value={form.alt_phone} onChange={(e) => updateField("alt_phone", e.target.value)} />
- </div>
+ <CustomerAdditionalPhonesFields
+ value={form.additional_phones}
+ onChange={(additional_phones) => updateField("additional_phones", additional_phones)}
+ />
  <div className="space-y-2 md:col-span-2">
  <Label htmlFor="edit-email">Email</Label>
  <Input id="edit-email" type="email" value={form.email} onChange={(e) => updateField("email", e.target.value)} />
@@ -1079,9 +1099,9 @@ disabled
  <div className="space-y-1">
  <p className="text-sm font-semibold">Guarantors</p>
  <p className="text-xs text-muted-foreground">
-  Up to two guarantors on this customer profile. ID front and back scans upload to{" "}
-  <span className="font-mono text-[11px]">id_front_document_id</span> /{" "}
-  <span className="font-mono text-[11px]">id_back_document_id</span> on the customer record.
+  Add guarantors with ID type, sex, and a circular passport photo upload
+  (<span className="font-mono text-[11px]">guarantor_passport_photo</span>).
+  ID front and back scans upload with other guarantor documents.
  </p>
  </div>
  <CustomerGuarantorsFields value={guarantors} onChange={setGuarantors} />

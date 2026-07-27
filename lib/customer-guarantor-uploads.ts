@@ -1,44 +1,39 @@
 import { formatClientApiError } from "@/lib/application-workflow";
 import { validateDocumentFile } from "@/lib/application-documents";
-import { extractCustomerDetail } from "@/lib/customer-adapters";
+import { validateLocationPhoto, validateSupportingDocument } from "@/lib/customer-attachments";
 import {
   resolveCustomerGuarantorIdForFormRow,
   type CustomerGuarantorFormRow,
 } from "@/lib/customer-guarantors";
+import {
+  CUSTOMER_GUARANTOR_COLLATERAL_PHOTO_DOCUMENT_TYPE,
+  CUSTOMER_GUARANTOR_DOCUMENT_TYPE,
+  CUSTOMER_GUARANTOR_PASSPORT_PHOTO_DOCUMENT_TYPE,
+  CUSTOMER_GUARANTOR_PHOTO_DOCUMENT_TYPE,
+} from "@/lib/customer-document-types";
 
-async function fetchCustomerDetailRow(
-  customerId: string
-): Promise<Record<string, unknown> | null> {
-  const res = await fetch(`/api/customers/${encodeURIComponent(customerId)}`, {
-    credentials: "include",
-  });
-  const body = (await res.json().catch(() => ({}))) as unknown;
-  if (!res.ok) return null;
-  return extractCustomerDetail(body);
-}
-
-async function uploadCustomerGuarantorIdFile(
+async function uploadGuarantorFiles(
   customerId: string,
   guarantorId: string,
-  side: "id-front" | "id-back",
-  file: File,
+  type: string,
+  files: File[],
   label: string
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const validated = validateDocumentFile(file);
-  if (!validated.ok) return validated;
+  if (files.length === 0) return { ok: true };
 
   const form = new FormData();
-  form.append("file", file, file.name);
-  form.append("name", file.name);
+  form.append("type", type);
+  form.append("guarantor_id", guarantorId);
+  form.append("name", files[0].name);
+  for (const file of files) {
+    form.append("files[]", file, file.name);
+  }
 
-  const res = await fetch(
-    `/api/customers/${encodeURIComponent(customerId)}/guarantors/${encodeURIComponent(guarantorId)}/${side}`,
-    {
-      method: "POST",
-      credentials: "include",
-      body: form,
-    }
-  );
+  const res = await fetch(`/api/customers/${encodeURIComponent(customerId)}/documents`, {
+    method: "POST",
+    credentials: "include",
+    body: form,
+  });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     return {
@@ -49,43 +44,143 @@ async function uploadCustomerGuarantorIdFile(
   return { ok: true };
 }
 
-/** Upload guarantor ID front/back scans after customer create or update. */
-export async function uploadCustomerGuarantorIdDocuments(
+function validatePhotoFiles(files: File[]): { ok: true } | { ok: false; error: string } {
+  for (const file of files) {
+    const check = validateLocationPhoto(file);
+    if (!check.ok) return check;
+  }
+  return { ok: true };
+}
+
+function validateDocFiles(files: File[]): { ok: true } | { ok: false; error: string } {
+  for (const file of files) {
+    const asPhoto = validateLocationPhoto(file);
+    if (asPhoto.ok) continue;
+    const asDoc = validateDocumentFile(file);
+    if (!asDoc.ok) {
+      const support = validateSupportingDocument(file);
+      if (!support.ok) return { ok: false, error: support.error };
+    }
+  }
+  return { ok: true };
+}
+
+/** True when the guarantor row has any pending files to upload. */
+export function customerGuarantorRowsWithUploadFiles(
+  rows: CustomerGuarantorFormRow[]
+): CustomerGuarantorFormRow[] {
+  return rows.filter(
+    (row) =>
+      row.name.trim() &&
+      row.phone.trim() &&
+      Boolean(
+        row.photo ||
+          row.photoWithCustomer ||
+          row.idFront ||
+          row.idBack ||
+          row.wardLetter ||
+          row.attachments.length > 0 ||
+          (row.collateralImages?.length ?? 0) > 0
+      )
+  );
+}
+
+/** @deprecated Use customerGuarantorRowsWithUploadFiles */
+export function customerGuarantorRowsWithIdFiles(
+  rows: CustomerGuarantorFormRow[]
+): CustomerGuarantorFormRow[] {
+  return customerGuarantorRowsWithUploadFiles(rows);
+}
+
+/**
+ * After create/update, upload guarantor media via `POST /customers/{id}/documents`
+ * using returned guarantor IDs. Uploads append; they do not replace earlier images.
+ */
+export async function uploadCustomerGuarantorDocuments(
   customerId: string,
   sourceRow: Record<string, unknown> | null | undefined,
   rows: CustomerGuarantorFormRow[]
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  let detailRow = sourceRow ?? null;
-  const guarantorRows = rows.filter((row) => row.name.trim() && row.phone.trim());
+  const guarantorRows = customerGuarantorRowsWithUploadFiles(rows);
 
   for (let i = 0; i < guarantorRows.length; i++) {
     const row = guarantorRows[i];
     const labelBase = row.name.trim() || `Guarantor ${i + 1}`;
+    const guarantorId = resolveCustomerGuarantorIdForFormRow(row, sourceRow, i);
+    if (!guarantorId) {
+      return {
+        ok: false,
+        error: `Guarantor upload failed — missing guarantor ID for ${labelBase}. Refresh the customer and try again.`,
+      };
+    }
 
-    const uploadSide = async (side: "id-front" | "id-back", file: File, label: string) => {
-      const guarantorId = resolveCustomerGuarantorIdForFormRow(row, detailRow, i);
-      if (!guarantorId) {
-        return {
-          ok: false as const,
-          error: `Guarantor ID upload failed — missing guarantor ID for ${labelBase}. Refresh the customer and try again.`,
-        };
-      }
-      const result = await uploadCustomerGuarantorIdFile(customerId, guarantorId, side, file, label);
-      if (!result.ok) return result;
-      const refreshed = await fetchCustomerDetailRow(customerId);
-      if (refreshed) detailRow = refreshed;
-      return { ok: true as const };
-    };
-
-    if (row.idFront) {
-      const result = await uploadSide("id-front", row.idFront, `${labelBase} ID front`);
+    if (row.photo) {
+      const check = validatePhotoFiles([row.photo]);
+      if (!check.ok) return { ok: false, error: `${labelBase} photo: ${check.error}` };
+      const result = await uploadGuarantorFiles(
+        customerId,
+        guarantorId,
+        CUSTOMER_GUARANTOR_PHOTO_DOCUMENT_TYPE,
+        [row.photo],
+        `${labelBase} photo`
+      );
       if (!result.ok) return result;
     }
-    if (row.idBack) {
-      const result = await uploadSide("id-back", row.idBack, `${labelBase} ID back`);
+
+    if (row.photoWithCustomer) {
+      const check = validatePhotoFiles([row.photoWithCustomer]);
+      if (!check.ok) return { ok: false, error: `${labelBase} passport photo: ${check.error}` };
+      const result = await uploadGuarantorFiles(
+        customerId,
+        guarantorId,
+        CUSTOMER_GUARANTOR_PASSPORT_PHOTO_DOCUMENT_TYPE,
+        [row.photoWithCustomer],
+        `${labelBase} passport photo`
+      );
+      if (!result.ok) return result;
+    }
+
+    const collateralImages = row.collateralImages ?? [];
+    if (collateralImages.length > 0) {
+      const check = validatePhotoFiles(collateralImages);
+      if (!check.ok) return { ok: false, error: `${labelBase} collateral photo: ${check.error}` };
+      const result = await uploadGuarantorFiles(
+        customerId,
+        guarantorId,
+        CUSTOMER_GUARANTOR_COLLATERAL_PHOTO_DOCUMENT_TYPE,
+        collateralImages,
+        `${labelBase} collateral photos`
+      );
+      if (!result.ok) return result;
+    }
+
+    const documents: File[] = [];
+    if (row.idFront) documents.push(row.idFront);
+    if (row.idBack) documents.push(row.idBack);
+    if (row.wardLetter) documents.push(row.wardLetter);
+    documents.push(...row.attachments);
+    if (documents.length > 0) {
+      const check = validateDocFiles(documents);
+      if (!check.ok) return { ok: false, error: `${labelBase} document: ${check.error}` };
+      const result = await uploadGuarantorFiles(
+        customerId,
+        guarantorId,
+        CUSTOMER_GUARANTOR_DOCUMENT_TYPE,
+        documents,
+        `${labelBase} documents`
+      );
       if (!result.ok) return result;
     }
   }
 
   return { ok: true };
+}
+
+/** @deprecated Use uploadCustomerGuarantorDocuments */
+export async function uploadCustomerGuarantorIdDocuments(
+  customerId: string,
+  sourceRow: Record<string, unknown> | null | undefined,
+  rows: CustomerGuarantorFormRow[]
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  return uploadCustomerGuarantorDocuments(customerId, sourceRow, rows);
 }

@@ -26,7 +26,7 @@ export async function POST(
   const name = String(incoming.get("name") ?? file.name).trim() || file.name;
 
   const uploaded = await uploadCustomerDocument(request, id, {
-    file,
+    files: [file],
     type: CUSTOMER_COLLATERAL_IMAGE_DOCUMENT_TYPE,
     name,
     collateralId,

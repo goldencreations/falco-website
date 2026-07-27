@@ -9,6 +9,9 @@ import {
   type CustomerGuarantorFormRow,
 } from "@/lib/customer-guarantors";
 import {
+  validateAdditionalCustomerPhones,
+} from "@/lib/customer-phones";
+import {
   validateCustomerReferences,
   type CustomerReferenceFormRow,
 } from "@/lib/customer-references";
@@ -20,7 +23,8 @@ export type CustomerCreateFormValidationInput = {
   form: {
     full_name: string;
     phone: string;
-    alt_phone: string;
+    alt_phone?: string;
+    additional_phones?: string[];
     email: string;
     physical_address: string;
     national_id: string;
@@ -55,7 +59,9 @@ export function validateCustomerCreateForm(
   }
 
   const phoneDigits = digitsOnly(input.form.phone);
-  const altPhoneDigits = digitsOnly(input.form.alt_phone);
+  const additionalPhones =
+    input.form.additional_phones ??
+    (input.form.alt_phone?.trim() ? [input.form.alt_phone] : []);
   const nationalIdDigits = digitsOnly(input.form.national_id);
   const email = input.form.email.trim();
   const yearsInBusiness = input.form.years_in_business.trim();
@@ -67,8 +73,9 @@ export function validateCustomerCreateForm(
   } else if (phoneDigits.length !== TZ_PHONE_MAX_DIGITS) {
     errors.phone = "Enter a 10 digit phone number, for example 0712345678.";
   }
-  if (input.form.alt_phone.trim() && altPhoneDigits.length !== TZ_PHONE_MAX_DIGITS) {
-    errors.alt_phone = "Enter a 10 digit phone number, or leave this field empty.";
+  const phoneCheck = validateAdditionalCustomerPhones(additionalPhones);
+  if (!phoneCheck.ok) {
+    errors[phoneCheck.field] = phoneCheck.error;
   }
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     errors.email = "Enter a valid email address, or leave this field empty.";

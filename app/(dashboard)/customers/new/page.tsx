@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { CustomerAttachmentsFields } from "@/components/customers/customer-attachments-fields";
 import { CustomerCollateralFields } from "@/components/customers/customer-collateral-fields";
+import { CustomerAdditionalPhonesFields } from "@/components/customers/customer-additional-phones-fields";
 import { CustomerGuarantorsFields } from "@/components/customers/customer-guarantors-fields";
 import { CustomerRegistrationFeePanel } from "@/components/customers/customer-registration-fee-panel";
 import { CustomerReferencesFields } from "@/components/customers/customer-references-fields";
@@ -72,12 +73,14 @@ import {
   customerCollateralFormToMetadataRecords,
   customerCollateralRowsWithImages,
   defaultCustomerCollateralForm,
+  extractCustomerCollateralIds,
   type CustomerCollateralFormRow,
 } from "@/lib/customer-collateral";
 import {
   customerGuarantorFormToApiRecords,
   customerGuarantorRowsWithIdFiles,
   defaultCustomerGuarantorForm,
+  extractCustomerGuarantorIds,
   type CustomerGuarantorFormRow,
 } from "@/lib/customer-guarantors";
 import {
@@ -89,7 +92,9 @@ import { uploadCustomerCollateralImages } from "@/lib/customer-collateral-upload
 import { uploadCustomerGuarantorIdDocuments } from "@/lib/customer-guarantor-uploads";
 import {
   customerAttachmentFormHasLocationPhotos,
+  customerAttachmentFormHasSupportingDocuments,
   uploadCustomerLocationPhotos,
+  uploadCustomerSupportingDocuments,
 } from "@/lib/customer-location-photo-uploads";
 import { uploadCustomerPassportPhoto } from "@/lib/customer-photo-uploads";
 import { extractCustomerDetail } from "@/lib/customer-adapters";
@@ -121,7 +126,7 @@ type RiskLevel = "low" | "medium" | "high" | "critical";
 type CustomerCreateForm = {
  full_name: string;
  phone: string;
- alt_phone: string;
+ additional_phones: string[];
  email: string;
  physical_address: string;
  home_latitude: number | null;
@@ -176,7 +181,7 @@ const RISK_LEVEL_OPTIONS: Array<{ value: RiskLevel; label: string }> = [
 const defaultForm: CustomerCreateForm = {
  full_name: "",
  phone: "",
- alt_phone: "",
+ additional_phones: [],
  email: "",
  physical_address: "",
  home_latitude: null,
@@ -308,7 +313,10 @@ function NewCustomerPageInner() {
    ...prev,
    full_name: fields.full_name || prev.full_name,
    phone: fields.phone || prev.phone,
-   alt_phone: fields.alt_phone || prev.alt_phone,
+   additional_phones:
+     fields.alt_phone && !prev.additional_phones.length
+       ? [fields.alt_phone]
+       : prev.additional_phones,
    region: fields.region || prev.region,
    district: fields.district || prev.district,
    ward: fields.ward || prev.ward,
@@ -652,7 +660,7 @@ function NewCustomerPageInner() {
  const buildPayload = () => ({
  full_name: form.full_name.trim(),
  phone: form.phone.trim(),
- alt_phone: form.alt_phone.trim() || null,
+ additional_phones: form.additional_phones.map((p) => p.trim()).filter(Boolean),
  email: form.email.trim() || null,
  physical_address: form.physical_address.trim(),
  home_latitude: form.home_latitude,
@@ -777,12 +785,22 @@ function NewCustomerPageInner() {
    return;
   }
  }
+ if (createdId && customerAttachmentFormHasSupportingDocuments(attachments)) {
+  const supportingUpload = await uploadCustomerSupportingDocuments(createdId, attachments);
+  if (!supportingUpload.ok) {
+   setError(`Customer created but supporting document upload failed: ${supportingUpload.error}`);
+   return;
+  }
+ }
  if (createdId && customerCollateralRowsWithImages(collateral).length > 0) {
-  const detailRes = await fetch(`/api/customers/${encodeURIComponent(createdId)}`, {
-   credentials: "include",
-  });
-  const detailBody = (await detailRes.json().catch(() => ({}))) as unknown;
-  const detailRow = extractCustomerDetail(detailBody);
+  let detailRow = createdRow;
+  if (!extractCustomerCollateralIds(detailRow).length) {
+   const detailRes = await fetch(`/api/customers/${encodeURIComponent(createdId)}`, {
+    credentials: "include",
+   });
+   const detailBody = (await detailRes.json().catch(() => ({}))) as unknown;
+   detailRow = extractCustomerDetail(detailBody) ?? detailRow;
+  }
   const collateralUpload = await uploadCustomerCollateralImages(createdId, detailRow, collateral);
   if (!collateralUpload.ok) {
    setError(`Customer created but collateral image upload failed: ${collateralUpload.error}`);
@@ -790,14 +808,17 @@ function NewCustomerPageInner() {
   }
  }
  if (createdId && customerGuarantorRowsWithIdFiles(guarantors).length > 0) {
-  const detailRes = await fetch(`/api/customers/${encodeURIComponent(createdId)}`, {
-   credentials: "include",
-  });
-  const detailBody = (await detailRes.json().catch(() => ({}))) as unknown;
-  const detailRow = extractCustomerDetail(detailBody);
+  let detailRow = createdRow;
+  if (!extractCustomerGuarantorIds(detailRow).length) {
+   const detailRes = await fetch(`/api/customers/${encodeURIComponent(createdId)}`, {
+    credentials: "include",
+   });
+   const detailBody = (await detailRes.json().catch(() => ({}))) as unknown;
+   detailRow = extractCustomerDetail(detailBody) ?? detailRow;
+  }
   const guarantorUpload = await uploadCustomerGuarantorIdDocuments(createdId, detailRow, guarantors);
   if (!guarantorUpload.ok) {
-   setError(`Customer created but guarantor ID upload failed: ${guarantorUpload.error}`);
+   setError(`Customer created but guarantor document upload failed: ${guarantorUpload.error}`);
    return;
   }
  }
@@ -1049,18 +1070,14 @@ function NewCustomerPageInner() {
  />
  <FormFieldMessage message={fieldErrors.phone} />
  </div>
- <div className="space-y-2" data-form-field="alt_phone">
- <Label htmlFor="alt-phone">Alternative Phone</Label>
- <TzValidatedInput
- id="alt-phone"
- kind="phone"
- value={form.alt_phone}
- className={formControlErrorClass(Boolean(fieldErrors.alt_phone))}
- {...formControlErrorProps(fieldErrors.alt_phone)}
- onValueChange={(value) => updateField("alt_phone", value)}
+ <CustomerAdditionalPhonesFields
+ value={form.additional_phones}
+ fieldErrors={fieldErrors}
+ onChange={(additional_phones) => {
+ setForm((prev) => ({ ...prev, additional_phones }));
+ setFieldErrors((prev) => clearFieldErrorsByPrefix(prev, "additional_phones"));
+ }}
  />
- <FormFieldMessage message={fieldErrors.alt_phone} />
- </div>
  <div className="space-y-2" data-form-field="email">
  <Label htmlFor="email">Email</Label>
  <Input
@@ -1458,7 +1475,7 @@ function NewCustomerPageInner() {
  <CardHeader>
  <CardTitle>Guarantors</CardTitle>
  <CardDescription>
- Add up to two guarantors and attach their ID photos or supporting documents.
+ Add guarantors with ID type and sex, passport photo, and supporting documents.
  </CardDescription>
  </CardHeader>
  <CardContent>

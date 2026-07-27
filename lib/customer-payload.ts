@@ -1,4 +1,10 @@
 import { normalizeCustomerIdType } from "@/lib/customer-id-types";
+import { asCustomerSex } from "@/lib/customer-guarantors";
+import {
+  additionalPhonesFromRow,
+  buildCustomerPhoneNumbers,
+  normalizeCustomerPhoneToApi,
+} from "@/lib/customer-phones";
 import { parseMoneyInput } from "@/lib/money-input";
 import type { Customer, EmploymentType } from "@/lib/types";
 
@@ -47,6 +53,14 @@ export function customerToFormPayload(customer: Customer, rawRow?: Record<string
  full_name: [customer.first_name, customer.middle_name, customer.last_name].filter(Boolean).join(" "),
  phone: customer.phone_primary,
  alt_phone: customer.phone_secondary ?? "",
+ additional_phones: additionalPhonesFromRow(
+  {
+   phone_number: customer.phone_primary,
+   alternate_phone: customer.phone_secondary,
+   phone_numbers: customer.phone_numbers,
+  } as Record<string, unknown>,
+  customer.phone_primary
+ ),
  email: customer.email ?? "",
  physical_address: customer.physical_address,
  home_latitude: customer.home_latitude ?? null,
@@ -114,23 +128,20 @@ export function mapFormPayloadToCustomerApi(input: Record<string, unknown>): Rec
  const middle_name = input.middle_name != null ? String(input.middle_name).trim() : "";
 
  const rawPhone = String(input.phone ?? "").trim();
- const digitsPhone = rawPhone.replace(/\D/g, "");
- /** Prefer E.164-style without `+` as in docs (`255712345678`). */
- let phone_number = digitsPhone;
- if (phone_number.startsWith("0") && phone_number.length >= 9) {
- phone_number = `255${phone_number.slice(1)}`;
- } else if (phone_number && !phone_number.startsWith("255") && phone_number.length >= 9) {
- phone_number = `255${phone_number}`;
- }
+ const phone_number = normalizeCustomerPhoneToApi(rawPhone);
 
- const altRaw = input.alt_phone ? String(input.alt_phone).trim() : "";
- const altDigits = altRaw.replace(/\D/g, "");
- let alternate_phone: string | undefined = altDigits || undefined;
- if (alternate_phone?.startsWith("0") && alternate_phone.length >= 9) {
- alternate_phone = `255${alternate_phone.slice(1)}`;
- } else if (alternate_phone && !alternate_phone.startsWith("255") && alternate_phone.length >= 9) {
- alternate_phone = `255${alternate_phone}`;
- }
+ const additionalFromArray = Array.isArray(input.additional_phones)
+  ? (input.additional_phones as unknown[]).map((v) => String(v ?? "").trim()).filter(Boolean)
+  : [];
+ const legacyAlt = input.alt_phone ? String(input.alt_phone).trim() : "";
+ const additionalPhones =
+  additionalFromArray.length > 0
+   ? additionalFromArray
+   : legacyAlt
+     ? [legacyAlt]
+     : [];
+ const phone_numbers = buildCustomerPhoneNumbers(phone_number, additionalPhones);
+ const alternate_phone = phone_numbers.length > 1 ? phone_numbers[1] : undefined;
 
  const riskLevel = String(input.risk_level ?? "medium").toLowerCase();
  const risk_grade =
@@ -208,6 +219,7 @@ export function mapFormPayloadToCustomerApi(input: Record<string, unknown>): Rec
           row.id_type != null && String(row.id_type).trim()
             ? normalizeCustomerIdType(row.id_type)
             : undefined;
+        const sex = asCustomerSex(row.sex ?? row.gender);
         const id_front_document_id =
           row.id_front_document_id != null ? String(row.id_front_document_id).trim() : "";
         const id_back_document_id =
@@ -220,6 +232,7 @@ export function mapFormPayloadToCustomerApi(input: Record<string, unknown>): Rec
           relationship,
           ...(national_id ? { national_id } : {}),
           ...(id_type ? { id_type } : {}),
+          ...(sex ? { sex } : {}),
           attachments: Array.isArray(row.attachments) ? row.attachments : [],
           ...(id_front_document_id ? { id_front_document_id } : {}),
           ...(id_back_document_id ? { id_back_document_id } : {}),
@@ -230,12 +243,18 @@ export function mapFormPayloadToCustomerApi(input: Record<string, unknown>): Rec
 
  const references = Array.isArray(input.references)
   ? (input.references as Array<Record<string, unknown>>)
-      .map((row) => ({
-        full_name: String(row.full_name ?? row.name ?? "").trim(),
-        phone: String(row.phone ?? row.phone_number ?? "").replace(/\D/g, "") || String(row.phone ?? "").trim(),
-        relationship: String(row.relationship ?? "").trim(),
-        address: row.address != null ? String(row.address).trim() : undefined,
-      }))
+      .map((row) => {
+        const sex = asCustomerSex(row.sex ?? row.gender);
+        return {
+          full_name: String(row.full_name ?? row.name ?? "").trim(),
+          phone:
+            String(row.phone ?? row.phone_number ?? "").replace(/\D/g, "") ||
+            String(row.phone ?? "").trim(),
+          relationship: String(row.relationship ?? "").trim(),
+          address: row.address != null ? String(row.address).trim() : undefined,
+          ...(sex ? { sex } : {}),
+        };
+      })
       .filter((row) => row.full_name && row.phone && row.relationship)
   : [];
 
@@ -268,6 +287,7 @@ export function mapFormPayloadToCustomerApi(input: Record<string, unknown>): Rec
  gender,
  national_id: String(input.national_id ?? "").trim(),
  phone_number,
+ phone_numbers,
  physical_address: String(input.physical_address ?? "").trim(),
  region: String(input.region ?? "").trim() || "Dar es Salaam",
  district: String(input.district ?? "").trim() || "Kinondoni",

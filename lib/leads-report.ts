@@ -1,6 +1,7 @@
 import { Workbook } from "exceljs";
 import { formatDate, formatDateTime } from "@/lib/formatters";
 import type { LeadView } from "@/lib/lead-adapters";
+import { leadGenderLabel } from "@/lib/lead-adapters";
 import type { UserRole } from "@/lib/types";
 
 const ROLE_LABELS: Record<UserRole, string> = {
@@ -36,7 +37,7 @@ export function leadsReportFilename(opts: { generatedByName: string; from: strin
   return `Leads-Report-${slugify(opts.generatedByName)}-${opts.from}-to-${opts.to}.xlsx`;
 }
 
-const LAST_COLUMN = "G";
+const LAST_COLUMN = "H";
 const BRAND_DARK = "FF065F46"; // emerald-800
 const BRAND_MID = "FF047857"; // emerald-700
 const HEADER_FILL = "FF059669"; // emerald-600
@@ -75,6 +76,7 @@ export async function buildLeadsReportWorkbook(opts: LeadsReportOptions): Promis
     { width: 7 },
     { width: 30 },
     { width: 18 },
+    { width: 12 },
     { width: 16 },
     { width: 42 },
     { width: 30 },
@@ -120,6 +122,7 @@ export async function buildLeadsReportWorkbook(opts: LeadsReportOptions): Promis
     "S/N",
     "Name of Customer",
     "Phone Number",
+    "Gender",
     "Date Added",
     "Location",
     "Created By",
@@ -154,6 +157,7 @@ export async function buildLeadsReportWorkbook(opts: LeadsReportOptions): Promis
         idx + 1,
         lead.fullName || "-",
         lead.phoneNumber || "-",
+        lead.gender ? leadGenderLabel[lead.gender] : "-",
         dateAdded ? formatDate(dateAdded) : "-",
         lead.locationName || "-",
         lead.createdByName || lead.createdBy || "-",
@@ -165,7 +169,7 @@ export async function buildLeadsReportWorkbook(opts: LeadsReportOptions): Promis
         cell.alignment = {
           vertical: "middle",
           horizontal: colIdx === 0 ? "center" : "left",
-          wrapText: colIdx === 4 || colIdx === 5,
+          wrapText: colIdx === 5 || colIdx === 6,
         };
         cell.border = THIN_BORDER;
         if (idx % 2 === 1) {

@@ -39,6 +39,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { resolveMediaViewUrl } from "@/components/media/cached-media-preview";
 import { extractCustomersList } from "@/lib/customer-adapters";
+import { customerDisplayPhones } from "@/lib/customer-phones";
 import { useTranslations } from "@/lib/i18n/use-translations";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import { formatApiResponseError } from "@/lib/falco-api";
@@ -219,6 +220,8 @@ export default function CustomersPage() {
  customer.last_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
  customer.customer_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
  customer.phone_primary.includes(searchQuery) ||
+ (customer.phone_numbers ?? []).some((phone) => phone.includes(searchQuery)) ||
+ (customer.phone_secondary ?? "").includes(searchQuery) ||
  customer.national_id.includes(searchQuery);
 
  const matchesType = typeFilter === "all" || customer.customer_type === typeFilter;
@@ -423,7 +426,7 @@ export default function CustomersPage() {
  className={`rounded-xl border border-emerald-100 bg-emerald-50/30 p-3 ${statusClasses(loanStatus.tone)}`}
  >
  <div className="flex items-start gap-3">
- <Avatar className="h-10 w-10 shrink-0">
+ <Avatar className="h-14 w-14 shrink-0">
  {avatarSrc ? (
   <AvatarImage
    src={avatarSrc}
@@ -432,7 +435,7 @@ export default function CustomersPage() {
    loading="lazy"
   />
  ) : null}
- <AvatarFallback className="bg-primary/10 text-primary text-sm">
+ <AvatarFallback className="bg-primary/10 text-primary text-base">
  {customer.first_name[0]}
  {customer.last_name[0]}
  </AvatarFallback>
@@ -449,9 +452,15 @@ export default function CustomersPage() {
  </div>
 
  <div className="mt-3 space-y-1.5 text-sm">
- <div className="flex items-center gap-1.5">
- <Phone className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
- <span className="truncate">{customer.phone_primary}</span>
+ <div className="flex items-start gap-1.5">
+ <Phone className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+ <div className="min-w-0">
+ {customerDisplayPhones(customer).map((phone, index) => (
+ <span key={`${phone}-${index}`} className="block truncate">
+ {phone}
+ </span>
+ ))}
+ </div>
  </div>
  {customer.email ? (
  <div className="flex items-center gap-1.5 text-muted-foreground">
@@ -583,7 +592,7 @@ export default function CustomersPage() {
  <TableRow key={customer.id} className={statusClasses(loanStatus.tone)}>
  <TableCell>
  <div className="flex items-center gap-3">
- <Avatar className="h-9 w-9">
+ <Avatar className="h-12 w-12">
  {avatarSrc ? (
   <AvatarImage
    src={avatarSrc}
@@ -609,10 +618,12 @@ export default function CustomersPage() {
  </TableCell>
  <TableCell>
  <div className="space-y-1">
- <div className="flex items-center gap-1 text-sm">
- <Phone className="h-3 w-3 text-muted-foreground" />
- {customer.phone_primary}
+ {customerDisplayPhones(customer).map((phone, index) => (
+ <div key={`${phone}-${index}`} className="flex items-center gap-1 text-sm">
+ {index === 0 ? <Phone className="h-3 w-3 text-muted-foreground" /> : <span className="w-3" />}
+ {phone}
  </div>
+ ))}
  {customer.email && (
  <div className="flex items-center gap-1 text-sm text-muted-foreground">
  <Mail className="h-3 w-3" />

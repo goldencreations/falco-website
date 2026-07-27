@@ -41,6 +41,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { customerDisplayPhones } from "@/lib/customer-phones";
 import {
  Table,
  TableBody,
@@ -656,7 +657,7 @@ export default function CustomerDetailPage() {
  <Card className="overflow-hidden border border-border/80 shadow-sm">
  <CardContent className="p-4 sm:p-5">
  <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-start">
- <Avatar className="h-20 w-20 shrink-0 ring-2 ring-primary/15 sm:h-24 sm:w-24">
+ <Avatar className="h-32 w-32 shrink-0 ring-2 ring-primary/15 sm:h-40 sm:w-40">
           {passportAvatarSrc ? (
             <AvatarImage
               src={passportAvatarSrc}
@@ -665,7 +666,7 @@ export default function CustomerDetailPage() {
               loading="lazy"
             />
           ) : null}
- <AvatarFallback className="bg-primary text-primary-foreground text-3xl font-bold">
+ <AvatarFallback className="bg-primary text-primary-foreground text-4xl font-bold sm:text-5xl">
  {customer.first_name[0]}
  {customer.last_name[0]}
  </AvatarFallback>
@@ -894,10 +895,17 @@ export default function CustomerDetailPage() {
  <Phone className="h-4 w-4 text-cyan-600" />
  </div>
  <div>
- <p className="font-medium">{customer.phone_primary}</p>
- {customer.phone_secondary && (
- <p className="text-sm text-muted-foreground">{customer.phone_secondary}</p>
- )}
+ {customerDisplayPhones(customer).map((phone, index) => (
+ <p
+ key={`${phone}-${index}`}
+ className={index === 0 ? "font-medium" : "text-sm text-muted-foreground"}
+ >
+ {phone}
+ </p>
+ ))}
+ {customerDisplayPhones(customer).length === 0 ? (
+ <p className="font-medium text-muted-foreground">—</p>
+ ) : null}
  </div>
  </div>
  {customer.email ? (
@@ -998,7 +1006,15 @@ export default function CustomerDetailPage() {
  >
  <p className="font-medium">{reference.full_name}</p>
  <p className="text-muted-foreground">
- {formatReferenceRelationship(reference.relationship)} · {reference.phone}
+ {[
+   reference.sex
+     ? reference.sex.charAt(0).toUpperCase() + reference.sex.slice(1)
+     : null,
+   formatReferenceRelationship(reference.relationship),
+   reference.phone,
+ ]
+   .filter(Boolean)
+   .join(" · ")}
  </p>
  {reference.address ? (
  <p className="text-xs text-muted-foreground">{reference.address}</p>

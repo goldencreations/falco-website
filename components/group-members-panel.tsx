@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Eye, Loader2, Search, UserMinus, UserPlus, Users } from "lucide-react";
+import { Eye, Loader2, MoreHorizontal, Search, UserMinus, UserPlus, Users, Wallet } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,6 +20,13 @@ import {
  DialogHeader,
  DialogTitle,
 } from "@/components/ui/dialog";
+import {
+ DropdownMenu,
+ DropdownMenuContent,
+ DropdownMenuItem,
+ DropdownMenuSeparator,
+ DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
  Select,
@@ -36,6 +43,10 @@ import {
  TableHeader,
  TableRow,
 } from "@/components/ui/table";
+import {
+  GroupMemberApplyLoanDialog,
+  type GroupMemberApplyTarget,
+} from "@/components/groups/group-member-apply-loan-dialog";
 import { extractCustomersList } from "@/lib/customer-adapters";
 import { formatValidationDetails } from "@/lib/falco-api";
 import type { GroupDetailView } from "@/lib/group-adapters";
@@ -45,7 +56,7 @@ import {
  leadershipRoleForCustomer,
 } from "@/lib/group-members";
 import { formatCurrency } from "@/lib/formatters";
-import type { Customer, RiskGrade } from "@/lib/types";
+import type { Customer, RiskGrade, UserRole } from "@/lib/types";
 
 type AssignableRole = "member" | "chairperson" | "secretary" | "treasurer";
 
@@ -84,6 +95,8 @@ type Props = {
  customerDetailHref?: (customerId: string) => string;
  /** When set, View / member name links use this instead of `customerDetailHref`. */
  memberDetailHref?: (customerId: string) => string;
+ /** Session role — used for application deep links after apply. */
+ role?: UserRole | null;
 };
 
 export function GroupMembersPanel({
@@ -94,9 +107,11 @@ export function GroupMembersPanel({
  readOnly = false,
  customerDetailHref = (id) => `/customers/${id}`,
  memberDetailHref,
+ role = null,
 }: Props) {
  const memberHref = memberDetailHref ?? customerDetailHref;
  const [addMemberOpen, setAddMemberOpen] = useState(false);
+ const [applyMember, setApplyMember] = useState<GroupMemberApplyTarget | null>(null);
  const [searchQuery, setSearchQuery] = useState("");
  // The backend's `/customers?q=` filter is unreliable — it can return zero matches for a
  // customer that plainly exists (confirmed: an unscoped, unfiltered search for a real customer's
@@ -405,6 +420,7 @@ export function GroupMembersPanel({
  </CardTitle>
  <CardDescription>
  {group.members.length} active member{group.members.length === 1 ? "" : "s"} on this vikundi.
+ Each member can apply for their own loan amount.
  </CardDescription>
  {!readOnly ? (
  <CardAction>
@@ -488,29 +504,57 @@ export function GroupMembersPanel({
  </div>
  </div>
 
- <div className="mt-3 flex gap-2">
- <Button size="sm" variant="outline" className="h-8 flex-1" asChild>
- <Link href={memberHref(member.customerId)}>
- <Eye className="mr-1 h-3.5 w-3.5" />
- View Details
- </Link>
- </Button>
- {!readOnly && !isChairpersonMember(member.customerId, group) ? (
+ <div className="mt-3 flex justify-end">
+ <DropdownMenu>
+ <DropdownMenuTrigger asChild>
  <Button
  type="button"
- variant="outline"
  size="sm"
- className="h-8 text-destructive hover:text-destructive"
+ variant="outline"
+ className="h-8"
+ disabled={removingId === member.customerId}
+ >
+ {removingId === member.customerId ? (
+ <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+ ) : (
+ <MoreHorizontal className="mr-1 h-3.5 w-3.5" />
+ )}
+ Actions
+ </Button>
+ </DropdownMenuTrigger>
+ <DropdownMenuContent align="end" className="w-44">
+ <DropdownMenuItem
+ onClick={() =>
+ setApplyMember({
+ customerId: member.customerId,
+ customerName: member.customerName,
+ })
+ }
+ >
+ <Wallet className="mr-2 h-4 w-4" />
+ Apply for loan
+ </DropdownMenuItem>
+ <DropdownMenuItem asChild>
+ <Link href={memberHref(member.customerId)}>
+ <Eye className="mr-2 h-4 w-4" />
+ View
+ </Link>
+ </DropdownMenuItem>
+ {!readOnly && !isChairpersonMember(member.customerId, group) ? (
+ <>
+ <DropdownMenuSeparator />
+ <DropdownMenuItem
+ className="text-destructive focus:text-destructive"
  disabled={removingId === member.customerId}
  onClick={() => void removeMember(member.customerId)}
  >
- {removingId === member.customerId ? (
- <Loader2 className="h-3.5 w-3.5 animate-spin" />
- ) : (
- <UserMinus className="h-3.5 w-3.5" />
- )}
- </Button>
+ <UserMinus className="mr-2 h-4 w-4" />
+ Remove
+ </DropdownMenuItem>
+ </>
  ) : null}
+ </DropdownMenuContent>
+ </DropdownMenu>
  </div>
  </div>
  );
@@ -595,34 +639,56 @@ export function GroupMembersPanel({
  {member.monthlyIncome != null ? formatCurrency(member.monthlyIncome) : "—"}
  </TableCell>
  <TableCell className="text-right">
- <div className="flex justify-end gap-1">
- <Button
- variant={readOnly ? "outline" : "ghost"}
- size="sm"
- asChild
- >
- <Link href={memberHref(member.customerId)}>View</Link>
- </Button>
- {!readOnly && !isChairpersonMember(member.customerId, group) ? (
+ <DropdownMenu>
+ <DropdownMenuTrigger asChild>
  <Button
  type="button"
- variant="ghost"
  size="sm"
- className="text-destructive hover:text-destructive"
+ variant="outline"
+ className="h-8"
+ disabled={removingId === member.customerId}
+ >
+ {removingId === member.customerId ? (
+ <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+ ) : (
+ <MoreHorizontal className="mr-1 h-3.5 w-3.5" />
+ )}
+ Actions
+ </Button>
+ </DropdownMenuTrigger>
+ <DropdownMenuContent align="end" className="w-44">
+ <DropdownMenuItem
+ onClick={() =>
+ setApplyMember({
+ customerId: member.customerId,
+ customerName: member.customerName,
+ })
+ }
+ >
+ <Wallet className="mr-2 h-4 w-4" />
+ Apply for loan
+ </DropdownMenuItem>
+ <DropdownMenuItem asChild>
+ <Link href={memberHref(member.customerId)}>
+ <Eye className="mr-2 h-4 w-4" />
+ View
+ </Link>
+ </DropdownMenuItem>
+ {!readOnly && !isChairpersonMember(member.customerId, group) ? (
+ <>
+ <DropdownMenuSeparator />
+ <DropdownMenuItem
+ className="text-destructive focus:text-destructive"
  disabled={removingId === member.customerId}
  onClick={() => void removeMember(member.customerId)}
  >
- {removingId === member.customerId ? (
- <Loader2 className="h-4 w-4 animate-spin" />
- ) : (
- <>
- <UserMinus className="mr-1 h-4 w-4" />
+ <UserMinus className="mr-2 h-4 w-4" />
  Remove
+ </DropdownMenuItem>
  </>
- )}
- </Button>
  ) : null}
- </div>
+ </DropdownMenuContent>
+ </DropdownMenu>
  </TableCell>
  </TableRow>
  );
@@ -633,6 +699,17 @@ export function GroupMembersPanel({
  </div>
  </CardContent>
  </Card>
+
+ <GroupMemberApplyLoanDialog
+ open={Boolean(applyMember)}
+ onOpenChange={(open) => {
+ if (!open) setApplyMember(null);
+ }}
+ groupId={groupId}
+ groupName={group.group_name}
+ member={applyMember}
+ role={role}
+ />
  </div>
  );
 }

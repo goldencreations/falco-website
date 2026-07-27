@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Calculator, Loader2, RefreshCcw } from "lucide-react";
+import { AlertTriangle, Calculator, Download, FileSpreadsheet, Loader2, RefreshCcw } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -35,6 +35,11 @@ import {
   type CalculatorPreviewForm,
   type CalculatorResultView,
 } from "@/lib/calculator-adapters";
+import {
+  exportLoanCalculatorExcel,
+  exportLoanCalculatorPdf,
+  type LoanCalculatorExportMeta,
+} from "@/lib/loan-calculator-export";
 import { formatApiResponseError } from "@/lib/falco-api";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import { parseJsonResponse } from "@/lib/parse-json-response";
@@ -288,22 +293,61 @@ function manualScheduleDueDate(
 function ResultBreakdown({
   result,
   latePaymentPenaltyPercent,
+  exportMeta,
 }: {
   result: CalculatorResultView;
   latePaymentPenaltyPercent?: number;
+  exportMeta: LoanCalculatorExportMeta;
 }) {
   const usesManualFormula =
     result.interestOnPrincipal != null || result.interestOnProcessingFee != null;
+  const [exportingExcel, setExportingExcel] = useState(false);
+
+  const handleExcel = async () => {
+    setExportingExcel(true);
+    try {
+      await exportLoanCalculatorExcel(result, exportMeta);
+    } finally {
+      setExportingExcel(false);
+    }
+  };
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Calculation result</CardTitle>
-        <CardDescription>
-          {result.termDays != null && `${result.termDays} days`}
-          {result.loanPeriodMonths != null && ` · ${result.loanPeriodMonths} months`} ·{" "}
-          {frequencyLabel(result.repaymentFrequency)} · {interestTypeLabel(result.interestType)}
-        </CardDescription>
+      <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-1.5">
+          <CardTitle>Calculation result</CardTitle>
+          <CardDescription>
+            {result.termDays != null && `${result.termDays} days`}
+            {result.loanPeriodMonths != null && ` · ${result.loanPeriodMonths} months`} ·{" "}
+            {frequencyLabel(result.repaymentFrequency)} · {interestTypeLabel(result.interestType)}
+          </CardDescription>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => exportLoanCalculatorPdf(result, exportMeta)}
+          >
+            <Download className="mr-1.5 h-3.5 w-3.5" />
+            PDF
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={exportingExcel}
+            onClick={() => void handleExcel()}
+          >
+            {exportingExcel ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <FileSpreadsheet className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            Excel
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -1007,6 +1051,12 @@ export default function LoanCalculatorPage() {
             <ResultBreakdown
               result={result}
               latePaymentPenaltyPercent={penaltyPercentForResult}
+              exportMeta={{
+                mode: form.mode === "product" ? "product" : "manual",
+                productName: form.mode === "product" ? activeProduct?.name ?? null : null,
+                startDate: form.startDate || null,
+                latePaymentPenaltyPercent: penaltyPercentForResult ?? null,
+              }}
             />
           ) : null}
         </div>

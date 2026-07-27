@@ -248,6 +248,7 @@ export default function GroupDetailPage() {
  group={group}
  memberOutstanding={memberOutstanding}
  readOnly={user?.role === "loan_officer"}
+ role={user?.role}
  memberDetailHref={(id) =>
  resolvePortalHref(user?.role, `/groups/${groupId}/members/${id}`)
  }

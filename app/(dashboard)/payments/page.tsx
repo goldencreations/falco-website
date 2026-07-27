@@ -22,6 +22,7 @@ import {
  RefreshCcw,
  RotateCcw,
 } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -103,6 +104,30 @@ const emptyReconciliation: ReconciliationSummary = {
  manual_review: 0,
  unmatched: 0,
 };
+
+/** Compact allocation label with hover/focus tooltip for P / I / F abbreviations. */
+function AllocationAbbrev({
+  abbr,
+  label,
+  amount,
+}: {
+  abbr: string;
+  label: string;
+  amount: number;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <p className="cursor-help underline decoration-dotted decoration-muted-foreground/60 underline-offset-2">
+          <span className="sr-only">{label}: </span>
+          <span aria-hidden>{abbr}: </span>
+          {formatCurrency(amount)}
+        </p>
+      </TooltipTrigger>
+      <TooltipContent side="top">{label}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 export default function PaymentsPage() {
  const { user } = useSessionUser();
@@ -824,9 +849,9 @@ export default function PaymentsPage() {
  <TableCell>
  <div className="space-y-0.5 text-xs">
  <p>Penalty: {formatCurrency(payment.penalty_allocated)}</p>
- <p>P: {formatCurrency(payment.principal_allocated)}</p>
- <p>I: {formatCurrency(payment.interest_allocated)}</p>
- <p>F: {formatCurrency(payment.fees_allocated)}</p>
+ <AllocationAbbrev abbr="P" label="Principal" amount={payment.principal_allocated} />
+ <AllocationAbbrev abbr="I" label="Interest" amount={payment.interest_allocated} />
+ <AllocationAbbrev abbr="F" label="Fees" amount={payment.fees_allocated} />
  </div>
  </TableCell>
  <TableCell>
