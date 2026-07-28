@@ -20,7 +20,7 @@ type DeleteCustomerDialogProps = {
  customer: Customer | null;
  open: boolean;
  onOpenChange: (open: boolean) => void;
- onDeleted: () => void;
+ onDeleted: (opts?: { softOnly?: boolean; backendMessage?: string }) => void;
 };
 
 export function DeleteCustomerDialog({
@@ -61,13 +61,32 @@ export function DeleteCustomerDialog({
  });
  const json = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
  if (!res.ok) {
- setError(json.message ?? json.error ?? "Could not delete customer");
+ // Hard business rule: if linked applications exist, do not soft-hide.
+ if (res.status === 409) {
+  setError(
+   json.message ??
+    json.error ??
+    "This customer cannot be deleted because they are linked to loan applications."
+  );
+  return;
+ }
+ // Soft-delete fallback: hide from UI list even if backend deactivate endpoint/permission fails.
+ onOpenChange(false);
+ onDeleted({
+  softOnly: true,
+  backendMessage: json.message ?? json.error ?? "Could not deactivate customer on backend",
+ });
  return;
  }
  onOpenChange(false);
- onDeleted();
+ onDeleted({ softOnly: false });
  } catch {
- setError("Network error. Please try again.");
+ // Network fallback: still hide locally for current operator.
+ onOpenChange(false);
+ onDeleted({
+  softOnly: true,
+  backendMessage: "Network error while contacting backend. Customer hidden from list locally.",
+ });
  } finally {
  setDeleting(false);
  }

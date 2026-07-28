@@ -16,9 +16,36 @@ export async function POST(
  return NextResponse.json({ message: "Customer id is required" }, { status: 400 });
  }
 
+ // Guardrail: do not deactivate if customer has any loan application in any state.
+ const appsRes = await falcoServerFetch<unknown>("/applications", {
+  request,
+  query: {
+   customer_id: id,
+   page: "1",
+   page_size: "1",
+  },
+ });
+ if (appsRes.ok) {
+  const payload = appsRes.data as Record<string, unknown> | null;
+  const rows = Array.isArray(payload?.data)
+   ? payload?.data
+   : Array.isArray(payload?.applications)
+    ? payload?.applications
+    : [];
+  if (rows.length > 0) {
+   return NextResponse.json(
+    {
+     message:
+      "This customer cannot be deleted because they are linked to one or more loan applications.",
+    },
+    { status: 409 }
+   );
+  }
+ }
+
  const res = await falcoServerFetch<unknown>(
  `/customers/${encodeURIComponent(id)}/deactivate`,
- { method: "POST", body: {} }
+  { method: "POST", body: {}, request }
  );
 
  if (!res.ok) {
