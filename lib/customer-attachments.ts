@@ -209,11 +209,26 @@ function readAttachmentArray(
 function dedupeAttachmentDocuments(
   docs: CustomerAttachmentDocument[]
 ): CustomerAttachmentDocument[] {
-  const byUrl = new Map<string, CustomerAttachmentDocument>();
+  const byKey = new Map<string, CustomerAttachmentDocument>();
+
+  const normalizeUrlKey = (url: string): string => {
+    const trimmed = url.trim();
+    if (!trimmed) return "";
+    try {
+      const parsed = new URL(trimmed);
+      return `${parsed.origin}${parsed.pathname}`.toLowerCase();
+    } catch {
+      return trimmed.split("?")[0].split("#")[0].toLowerCase();
+    }
+  };
+
   for (const doc of docs) {
-    if (!byUrl.has(doc.url)) byUrl.set(doc.url, doc);
+    const normalized = normalizeUrlKey(doc.url);
+    const fallbackName = doc.name.trim().toLowerCase();
+    const key = normalized || `${fallbackName}|${doc.url.trim().toLowerCase()}`;
+    if (!byKey.has(key)) byKey.set(key, doc);
   }
-  return Array.from(byUrl.values());
+  return Array.from(byKey.values());
 }
 
 function readDocuments(value: unknown): CustomerAttachmentDocument[] {

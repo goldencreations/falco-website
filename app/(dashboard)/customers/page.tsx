@@ -39,6 +39,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { resolveMediaViewUrl } from "@/components/media/cached-media-preview";
 import { extractCustomersList } from "@/lib/customer-adapters";
+import { addHiddenCustomerId, getHiddenCustomerIds } from "@/lib/customer-hidden-client";
 import { customerDisplayPhones } from "@/lib/customer-phones";
 import { useTranslations } from "@/lib/i18n/use-translations";
 import { formatCurrency, formatDate } from "@/lib/formatters";
@@ -192,10 +193,18 @@ export default function CustomersPage() {
  const [loanStatusFilter, setLoanStatusFilter] = useState<string>("all");
  const [deleteTarget, setDeleteTarget] = useState<Customer | null>(null);
  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+ const [hiddenCustomerIds, setHiddenCustomerIds] = useState<Set<string>>(new Set());
+ const [softDeleteNotice, setSoftDeleteNotice] = useState<string | null>(null);
  const visibleCustomers =
  scopeBranchId
- ? customers.filter((customer) => customer.branch_id === scopeBranchId)
- : customers;
+ ? customers.filter(
+     (customer) => customer.branch_id === scopeBranchId && !hiddenCustomerIds.has(customer.id)
+   )
+ : customers.filter((customer) => !hiddenCustomerIds.has(customer.id));
+
+ useEffect(() => {
+ setHiddenCustomerIds(getHiddenCustomerIds());
+ }, []);
 
  const loanStatusByCustomer = useMemo(() => {
  const map = new Map<string, LoanListRow[]>();
@@ -248,6 +257,11 @@ export default function CustomersPage() {
  />
  <main className="flex min-h-0 flex-1 overflow-y-auto overflow-x-hidden scroll-smooth p-4 pb-10 lg:p-6 lg:pb-8">
  <div className="mx-auto w-full max-w-7xl space-y-6">
+ {softDeleteNotice ? (
+ <div className="rounded-lg border border-amber-300/60 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+ {softDeleteNotice}
+ </div>
+ ) : null}
  {loadError ? (
  <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
  {loadError}
@@ -737,7 +751,29 @@ export default function CustomersPage() {
  setDeleteDialogOpen(open);
  if (!open) setDeleteTarget(null);
  }}
- onDeleted={() => void loadCustomers()}
+ onDeleted={(opts) => {
+  if (!deleteTarget?.id) {
+   void loadCustomers();
+   return;
+  }
+  const id = deleteTarget.id;
+  setHiddenCustomerIds((prev) => {
+   const next = new Set(prev);
+   next.add(id);
+   addHiddenCustomerId(id);
+   return next;
+  });
+  if (opts?.softOnly) {
+   setSoftDeleteNotice(
+    opts.backendMessage
+      ? `Customer hidden from this UI list only. Backend message: ${opts.backendMessage}`
+      : "Customer hidden from this UI list only."
+   );
+  } else {
+   setSoftDeleteNotice(null);
+  }
+  void loadCustomers();
+ }}
  />
  ) : null}
  </div>

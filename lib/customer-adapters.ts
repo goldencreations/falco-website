@@ -7,6 +7,7 @@ import {
   extractPassportPhotoPreviewUrl,
   extractPassportPhotoUrl,
 } from "@/lib/customer-profile-extras";
+import { filterHiddenCustomers } from "@/lib/customer-hidden-client";
 import type { Customer, CustomerType, EmploymentType, RiskGrade } from "@/lib/types";
 
 function isPlaceholderCustomerNamePart(value: string | undefined): boolean {
@@ -248,7 +249,9 @@ export function extractCustomersList(json: unknown): Customer[] {
  const o = json as Record<string, unknown>;
  const rows = Array.isArray(o.data) ? o.data : Array.isArray(o.customers) ? o.customers : [];
  if (!Array.isArray(rows)) return [];
- return (rows as Record<string, unknown>[]).map(adaptApiCustomerRowToCustomer);
+ const customers = (rows as Record<string, unknown>[]).map(adaptApiCustomerRowToCustomer);
+ // UI-level soft-delete fallback: hide locally marked customer ids across all customer lists.
+ return filterHiddenCustomers(customers);
 }
 
 /** `GET /customers/{id}` may return `{ customer: {...} }` or a bare customer object. */

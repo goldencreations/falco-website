@@ -152,9 +152,19 @@ function SingleImageUploadField({
       </div>
 
       {previewUrl ? (
-        <div className="overflow-hidden rounded-md border bg-background">
+        <div className="relative overflow-hidden rounded-md border bg-background">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={previewUrl} alt={`${title} preview`} className="max-h-48 w-full object-cover" />
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon"
+            className="absolute right-2 top-2 h-7 w-7"
+            onClick={() => onSelect(null)}
+            aria-label={`Remove ${title}`}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
         </div>
       ) : null}
 
@@ -313,12 +323,24 @@ function MultiImageUploadField({
                 </Button>
               </div>
               {previewUrls[index] ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={previewUrls[index]}
-                  alt={`${title} preview ${index + 1}`}
-                  className="max-h-48 w-full object-cover"
-                />
+                <div className="relative">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={previewUrls[index]}
+                    alt={`${title} preview ${index + 1}`}
+                    className="max-h-48 w-full object-cover"
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="icon"
+                    className="absolute right-2 top-2 h-7 w-7"
+                    onClick={() => onRemove(index)}
+                    aria-label={`Remove ${file.name}`}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
               ) : null}
             </li>
           ))}
