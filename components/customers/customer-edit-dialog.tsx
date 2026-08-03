@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import dynamic from "next/dynamic";
 import { Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { CustomerAdditionalPhonesFields } from "@/components/customers/customer-additional-phones-fields";
 import { CustomerAttachmentsFields } from "@/components/customers/customer-attachments-fields";
 import { CustomerCollateralFields } from "@/components/customers/customer-collateral-fields";
 import { CustomerGuarantorsFields } from "@/components/customers/customer-guarantors-fields";
+import { CustomerReferencesFields } from "@/components/customers/customer-references-fields";
 import { Button } from "@/components/ui/button";
 import {
  Dialog,
@@ -75,6 +77,14 @@ import {
   validateCustomerGuarantors,
   type CustomerGuarantorFormRow,
 } from "@/lib/customer-guarantors";
+import {
+  customerReferenceFormToRecords,
+  customerReferenceRecordsToForm,
+  defaultCustomerReferenceForm,
+  parseCustomerReferencesFromRow,
+  validateCustomerReferences,
+  type CustomerReferenceFormRow,
+} from "@/lib/customer-references";
 import {
   extractPassportPhotoPreviewUrl,
   extractPassportPhotoUrl,
@@ -240,6 +250,11 @@ function toEditForm(p: Record<string, unknown>): EditForm {
  };
 }
 
+/**
+ * Excludes home/business lat-lng — direct location edits on an existing customer are
+ * restricted by the backend and must go through `POST .../location-change-requests` instead
+ * (see `submitChangedLocationRequests`).
+ */
 function formToPatchBody(form: EditForm): Record<string, unknown> {
  return {
  first_name: form.first_name,
@@ -254,8 +269,6 @@ function formToPatchBody(form: EditForm): Record<string, unknown> {
  ward: form.ward,
  district: form.district,
  region: form.region,
- home_latitude: form.home_latitude,
- home_longitude: form.home_longitude,
  national_id: form.national_id,
  id_type: form.id_type,
  occupation: form.occupation,
@@ -267,8 +280,6 @@ function formToPatchBody(form: EditForm): Record<string, unknown> {
  business_name: form.business_name,
  business_type: form.business_type,
  business_address: form.business_address,
- business_latitude: form.business_latitude,
- business_longitude: form.business_longitude,
  business_registration_no: form.business_registration_no,
  years_in_business: form.years_in_business,
  cheque_number: form.cheque_number,
@@ -289,6 +300,73 @@ function formToPatchBody(form: EditForm): Record<string, unknown> {
  next_of_kin_phone: form.next_of_kin_phone,
  next_of_kin_address: form.next_of_kin_address,
  };
+}
+
+type LocationPin = { latitude: number; longitude: number };
+
+function locationPinsFromForm(form: EditForm): { home: LocationPin | null; business: LocationPin | null } {
+ return {
+ home:
+  form.home_latitude != null && form.home_longitude != null
+   ? { latitude: form.home_latitude, longitude: form.home_longitude }
+   : null,
+ business:
+  form.business_latitude != null && form.business_longitude != null
+   ? { latitude: form.business_latitude, longitude: form.business_longitude }
+   : null,
+ };
+}
+
+function pinsEqual(a: LocationPin | null, b: LocationPin | null): boolean {
+ if (a === b) return true;
+ if (!a || !b) return false;
+ return a.latitude === b.latitude && a.longitude === b.longitude;
+}
+
+/**
+ * Submits a `location-change-request` per pin that changed since load. Direct PATCH of
+ * home/business coordinates is no longer sent for existing customers (see `formToPatchBody`).
+ * Failures are surfaced via toast but do not block the rest of the save.
+ */
+async function submitChangedLocationRequests(
+ customerId: string,
+ initial: { home: LocationPin | null; business: LocationPin | null },
+ next: { home: LocationPin | null; business: LocationPin | null },
+ notify: (message: string, ok: boolean) => void
+): Promise<void> {
+ const targets: Array<{ label: string; pin: LocationPin | null; changed: boolean }> = [
+  { label: "Home location", pin: next.home, changed: !pinsEqual(initial.home, next.home) },
+  {
+   label: "Business location",
+   pin: next.business,
+   changed: !pinsEqual(initial.business, next.business),
+  },
+ ];
+
+ for (const target of targets) {
+  if (!target.changed || !target.pin) continue;
+  try {
+   const res = await fetch(`/api/customers/${encodeURIComponent(customerId)}/location-change-requests`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+     latitude: target.pin.latitude,
+     longitude: target.pin.longitude,
+     location_name: target.label,
+     location_captured_at: new Date().toISOString(),
+    }),
+   });
+   const json = (await res.json().catch(() => ({}))) as { message?: string };
+   if (!res.ok) {
+    notify(`${target.label} change could not be submitted: ${json.message ?? `Error ${res.status}`}`, false);
+    continue;
+   }
+   notify(`${target.label} change submitted for approval.`, true);
+  } catch {
+   notify(`${target.label} change could not be submitted: network error.`, false);
+  }
+ }
 }
 
 type CustomerEditDialogProps = {
@@ -328,6 +406,14 @@ export function CustomerEditDialog({
  const [attachments, setAttachments] = useState<CustomerAttachmentFormState>(emptyCustomerAttachments);
  const [guarantors, setGuarantors] = useState<CustomerGuarantorFormRow[]>(defaultCustomerGuarantorForm);
  const [collateral, setCollateral] = useState<CustomerCollateralFormRow[]>(defaultCustomerCollateralForm);
+ const [references, setReferences] = useState<CustomerReferenceFormRow[]>(defaultCustomerReferenceForm);
+ const initialReferencesRef = useRef(
+  customerReferenceFormToRecords(defaultCustomerReferenceForm())
+ );
+ const initialLocationRef = useRef<{ home: LocationPin | null; business: LocationPin | null }>({
+  home: null,
+  business: null,
+ });
  const initialCollateralMetadataRef = useRef(
   customerCollateralFormToMetadataRecords(defaultCustomerCollateralForm())
  );
@@ -336,14 +422,58 @@ export function CustomerEditDialog({
   customerGuarantorFormToApiRecords(defaultCustomerGuarantorForm())
  );
 
+ // Mirrors `sourceRow` but can be refreshed in-place after a document delete without waiting
+ // for the parent to re-fetch and re-open the dialog.
+ const [liveSourceRow, setLiveSourceRow] = useState<Record<string, unknown> | null>(sourceRow);
+ const [removingDocumentIds, setRemovingDocumentIds] = useState<Set<string>>(new Set());
+
+ useEffect(() => {
+ setLiveSourceRow(sourceRow);
+ }, [sourceRow, open]);
+
  const existingAttachments = useMemo(
- () => extractCustomerAttachmentsFromRow(sourceRow),
- [sourceRow]
+ () => extractCustomerAttachmentsFromRow(liveSourceRow),
+ [liveSourceRow]
  );
- const existingPassportUrl = useMemo(() => extractPassportPhotoUrl(sourceRow), [sourceRow]);
+ const existingPassportUrl = useMemo(() => extractPassportPhotoUrl(liveSourceRow), [liveSourceRow]);
  const existingPassportPreviewUrl = useMemo(
-  () => extractPassportPhotoPreviewUrl(sourceRow),
-  [sourceRow]
+  () => extractPassportPhotoPreviewUrl(liveSourceRow),
+  [liveSourceRow]
+ );
+
+ const deleteCustomerDocument = useCallback(
+  async (documentId: string): Promise<boolean> => {
+   setRemovingDocumentIds((prev) => new Set(prev).add(documentId));
+   try {
+    const res = await fetch(
+     `/api/customers/${encodeURIComponent(customerId)}/documents/${encodeURIComponent(documentId)}`,
+     { method: "DELETE", credentials: "include" }
+    );
+    if (!res.ok) {
+     const json = (await res.json().catch(() => ({}))) as { message?: string };
+     toast.error(json.message ?? `Could not remove document (${res.status})`);
+     return false;
+    }
+    const detailRes = await fetch(`/api/customers/${encodeURIComponent(customerId)}`, {
+     credentials: "include",
+    });
+    const detailBody = (await detailRes.json().catch(() => ({}))) as unknown;
+    const refreshed = extractCustomerDetail(detailBody);
+    if (refreshed) setLiveSourceRow(refreshed);
+    toast.success("Document removed.");
+    return true;
+   } catch {
+    toast.error("Network error while removing document.");
+    return false;
+   } finally {
+    setRemovingDocumentIds((prev) => {
+     const next = new Set(prev);
+     next.delete(documentId);
+     return next;
+    });
+   }
+  },
+  [customerId]
  );
 
  const loadBranches = useCallback(async () => {
@@ -434,6 +564,7 @@ export function CustomerEditDialog({
  setAttachments(emptyCustomerAttachments());
  setGuarantors(defaultCustomerGuarantorForm());
  setCollateral(defaultCustomerCollateralForm());
+ setReferences(defaultCustomerReferenceForm());
  return;
  }
  const base = customerToFormPayload(customer, sourceRow);
@@ -443,10 +574,14 @@ export function CustomerEditDialog({
  const loadedCollateral = customerCollateralApiRecordsToForm(parseCustomerCollateralFromRow(sourceRow));
  setCollateral(loadedCollateral);
  initialCollateralMetadataRef.current = customerCollateralFormToMetadataRecords(loadedCollateral);
+ const loadedReferences = customerReferenceRecordsToForm(parseCustomerReferencesFromRow(sourceRow));
+ setReferences(loadedReferences);
+ initialReferencesRef.current = customerReferenceFormToRecords(loadedReferences);
  const editForm = toEditForm(base);
  setForm(editForm);
  initialFormPatchRef.current = formToPatchBody(editForm);
  initialGuarantorsRef.current = customerGuarantorFormToApiRecords(loadedGuarantors);
+ initialLocationRef.current = locationPinsFromForm(editForm);
  }, [open, customer, sourceRow]);
 
  const updateField = <K extends keyof EditForm>(key: K, value: EditForm[K]) => {
@@ -504,6 +639,11 @@ export function CustomerEditDialog({
  setError(collateralValidation.error);
  return;
  }
+ const referencesValidation = validateCustomerReferences(references);
+ if (!referencesValidation.ok) {
+ setError(referencesValidation.error);
+ return;
+ }
  setSaving(true);
  try {
  const nextCollateralMetadata = customerCollateralFormToMetadataRecords(collateral);
@@ -514,6 +654,9 @@ export function CustomerEditDialog({
  const nextGuarantors = customerGuarantorFormToApiRecords(guarantors);
  const guarantorsChanged =
   JSON.stringify(nextGuarantors) !== JSON.stringify(initialGuarantorsRef.current);
+ const nextReferences = customerReferenceFormToRecords(references);
+ const referencesChanged =
+  JSON.stringify(nextReferences) !== JSON.stringify(initialReferencesRef.current);
  const formPatchChanged =
   JSON.stringify(formToPatchBody(form)) !== JSON.stringify(initialFormPatchRef.current);
  const hasNewCollateralImages = customerCollateralRowsWithImages(collateral).length > 0;
@@ -521,6 +664,7 @@ export function CustomerEditDialog({
   hasNewCollateralImages &&
   !collateralMetadataChanged &&
   !guarantorsChanged &&
+  !referencesChanged &&
   !formPatchChanged &&
   !attachments.passport_photo;
 
@@ -530,6 +674,7 @@ export function CustomerEditDialog({
   ...formToPatchBody(form),
   is_blacklisted: customer.is_blacklisted,
   guarantors: nextGuarantors,
+  references: nextReferences,
  };
  if (collateralMetadataChanged) {
   patchBody.collateral = nextCollateralMetadata;
@@ -649,9 +794,16 @@ export function CustomerEditDialog({
  }
 
  if (!savedRow) {
-  setError("Customer saved but details could not be refreshed.");
-  return;
+ setError("Customer saved but details could not be refreshed.");
+ return;
  }
+
+ await submitChangedLocationRequests(
+ customerId,
+ initialLocationRef.current,
+ locationPinsFromForm(form),
+ (message, ok) => (ok ? toast.success(message) : toast.error(message))
+ );
 
  onSaved(adaptApiCustomerRowToCustomer(savedRow), savedRow);
  onOpenChange(false);
@@ -1114,7 +1266,22 @@ disabled
   Optional collateral on this customer profile. Add the type, value, and description.
  </p>
  </div>
- <CustomerCollateralFields value={collateral} onChange={setCollateral} />
+ <CustomerCollateralFields
+ value={collateral}
+ onChange={setCollateral}
+ onDeleteExistingImage={deleteCustomerDocument}
+ removingDocumentIds={removingDocumentIds}
+ />
+
+ <Separator />
+
+ <div className="space-y-1">
+ <p className="text-sm font-semibold">References</p>
+ <p className="text-xs text-muted-foreground">
+  Friends or family contacts who can be reached if the customer is unavailable.
+ </p>
+ </div>
+ <CustomerReferencesFields value={references} onChange={setReferences} />
 
  <Separator />
 
@@ -1132,6 +1299,8 @@ disabled
  existingHomePhotos={existingAttachments.homeLocationPhotos}
  existingBusinessPhotos={existingAttachments.businessLocationPhotos}
  existingDocuments={existingAttachments.supportingDocuments}
+ onRemoveExistingDocument={deleteCustomerDocument}
+ removingDocumentIds={removingDocumentIds}
  />
 
  <DialogFooter className="gap-2 sm:gap-0">

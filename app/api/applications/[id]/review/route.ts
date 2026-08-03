@@ -53,6 +53,31 @@ export async function POST(
  body.approved_amount = amount;
  }
 
+ if (body.decision === "reject") {
+ const code = typeof body.rejection_code === "string" ? body.rejection_code.trim() : "";
+ if (!code) {
+ return NextResponse.json(
+ {
+ message: "rejection_code is required when decision is reject.",
+ details: [{ field: "rejection_code", message: "Select a rejection reason." }],
+ },
+ { status: 400 }
+ );
+ }
+ const reason = typeof body.rejection_reason === "string" ? body.rejection_reason.trim() : "";
+ if (code === "other" && !reason) {
+ return NextResponse.json(
+ {
+ message: "rejection_reason is required when rejection_code is \"other\".",
+ details: [{ field: "rejection_reason", message: "Describe the rejection reason." }],
+ },
+ { status: 400 }
+ );
+ }
+ body.rejection_code = code;
+ if (reason) body.rejection_reason = reason;
+ }
+
  const res = await falcoServerFetch<unknown>(`/applications/${encodeURIComponent(id)}/review`, {
  method: "POST",
  body,

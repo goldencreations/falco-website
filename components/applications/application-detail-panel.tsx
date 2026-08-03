@@ -17,7 +17,12 @@ import {
   buildApplicationChecklist,
   canDeleteApplication,
   getApplicationWorkflowActions,
+  type ApplicationWorkflowAction,
 } from "@/lib/application-workflow";
+import {
+  applicationAgingBucketLabel,
+  applicationOperationalStatusLabel,
+} from "@/lib/application-status";
 import {
   dedupeCollateralRows,
   dedupeGuarantorRows,
@@ -76,8 +81,8 @@ export const applicationStatusConfig: Record<
   draft: { label: "Draft", variant: "outline", icon: FileText },
   submitted: { label: "Submitted", variant: "secondary", icon: Clock },
   under_review: { label: "Under Review", variant: "secondary", icon: Clock },
-  approved: { label: "Approved", variant: "default", icon: CheckCircle },
-  pending_disbursement: { label: "Pending disbursement", variant: "default", icon: CheckCircle },
+  approved: { label: "Awaiting Treasury", variant: "default", icon: CheckCircle },
+  pending_disbursement: { label: "Ready for Disbursement", variant: "default", icon: CheckCircle },
   rejected: { label: "Rejected", variant: "destructive", icon: XCircle },
   disbursed: { label: "Disbursed", variant: "default", icon: CheckCircle },
   cancelled: { label: "Cancelled", variant: "outline", icon: XCircle },
@@ -165,6 +170,7 @@ type ApplicationDetailPanelProps = {
   ) => void;
   onDelete: (app: ApplicationViewRow) => void;
   onExportPdf: () => void;
+  onRejectRequest: (app: ApplicationViewRow, run: ApplicationWorkflowAction["run"]) => void;
 };
 
 export function ApplicationDetailPanel({
@@ -180,9 +186,16 @@ export function ApplicationDetailPanel({
   onWorkflowAction,
   onDelete,
   onExportPdf,
+  onRejectRequest,
 }: ApplicationDetailPanelProps) {
   const status = applicationStatusConfig[application.status];
   const StatusIcon = status.icon;
+  const statusLabel = applicationOperationalStatusLabel(
+    application.status,
+    application.operational_state,
+    status.label
+  );
+  const agingLabel = applicationAgingBucketLabel(application.aging_bucket);
   const customerPhotoUrl = resolveMediaViewUrl(
     application.customerPassportPhotoPreviewUrl,
     application.customerPassportPhotoUrl
@@ -295,11 +308,17 @@ export function ApplicationDetailPanel({
                   </h1>
                   <Badge
                     variant="outline"
-                    className={cn("gap-1 capitalize", statusBadgeClass(application.status))}
+                    className={cn("gap-1", statusBadgeClass(application.status))}
                   >
                     <StatusIcon className="h-3 w-3" />
-                    {status.label}
+                    {statusLabel}
                   </Badge>
+                  {agingLabel ? (
+                    <Badge variant="outline" className="gap-1 text-muted-foreground">
+                      <Clock className="h-3 w-3" />
+                      {agingLabel}
+                    </Badge>
+                  ) : null}
                 </div>
                 <p className="text-sm text-muted-foreground">
                   {application.productName}
@@ -890,7 +909,9 @@ export function ApplicationDetailPanel({
               onClick={() =>
                 void (wf.id === "admin_activate"
                   ? onAdminActivate(application)
-                  : onWorkflowAction(application.id, wf.run))
+                  : wf.requiresRejectionReason
+                    ? onRejectRequest(application, wf.run)
+                    : onWorkflowAction(application.id, wf.run))
               }
             >
               {actionBusyId === application.id ? (

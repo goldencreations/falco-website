@@ -104,8 +104,13 @@ export function adaptPaymentViewRow(raw: Record<string, unknown>): PaymentViewRo
 
 function normalizePaymentMethod(method: PaymentMethod, raw: Record<string, unknown>): PaymentMethod {
  const api = String(raw.payment_method ?? method).toLowerCase();
- if (api === "gateway") return "mobile_money";
- if (api === "mobile_money" || api === "bank_transfer" || api === "cheque" || api === "cash") {
+ if (
+ api === "mobile_money" ||
+ api === "bank_transfer" ||
+ api === "cheque" ||
+ api === "cash" ||
+ api === "gateway"
+ ) {
  return api as PaymentMethod;
  }
  return method;
@@ -212,7 +217,3 @@ export function mapUiPaymentCreateToApi(body: Record<string, unknown>): Record<s
  return payload;
 }
 
-export function paymentStatusForDisplay(status: PaymentStatus, ledgerStatus?: string): PaymentStatus {
- if (ledgerStatus === "verified") return "completed";
- return status;
-}

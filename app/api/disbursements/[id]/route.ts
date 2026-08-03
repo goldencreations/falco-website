@@ -88,6 +88,9 @@ export async function PATCH(
 
  const forward: Record<string, unknown> = { action };
  if (action === "reject" && body.rejection_reason != null) forward.rejection_reason = body.rejection_reason;
+ if (action === "approve" && body.transaction_reference != null) {
+ forward.transaction_reference = body.transaction_reference;
+ }
  if (action === "complete") {
  if (body.transaction_reference != null) forward.transaction_reference = body.transaction_reference;
  if (body.disbursed_at != null) forward.disbursed_at = body.disbursed_at;

@@ -18,7 +18,7 @@ import {
 } from "@/lib/customer-attachments";
 import { cn } from "@/lib/utils";
 
-type ExistingPhoto = { name: string; url: string; previewUrl?: string | null };
+type ExistingPhoto = { id?: string; name: string; url: string; previewUrl?: string | null };
 
 type CustomerAttachmentsFieldsProps = {
   value: CustomerAttachmentFormState;
@@ -27,9 +27,13 @@ type CustomerAttachmentsFieldsProps = {
   existingPassportPreviewUrl?: string | null;
   existingHomePhotos?: ExistingPhoto[];
   existingBusinessPhotos?: ExistingPhoto[];
-  existingDocuments?: Array<{ name: string; url: string; previewUrl?: string | null }>;
+  existingDocuments?: Array<{ id?: string; name: string; url: string; previewUrl?: string | null }>;
   className?: string;
   fieldErrors?: Record<string, string>;
+  /** Deletes a previously-uploaded document by id (`DELETE .../documents/{id}`). Omit to hide remove controls. */
+  onRemoveExistingDocument?: (documentId: string) => unknown;
+  /** Ids currently being deleted — used to show a busy state and prevent double-clicks. */
+  removingDocumentIds?: Set<string>;
 };
 
 function isImageDocument(doc: { name: string; url: string; previewUrl?: string | null }) {
@@ -189,6 +193,8 @@ type MultiImageUploadFieldProps = {
   onAdd: (files: FileList | null) => void;
   onRemove: (index: number) => void;
   onClearAll: () => void;
+  onRemoveExisting?: (documentId: string) => unknown;
+  removingDocumentIds?: Set<string>;
 };
 
 function MultiImageUploadField({
@@ -203,6 +209,8 @@ function MultiImageUploadField({
   onAdd,
   onRemove,
   onClearAll,
+  onRemoveExisting,
+  removingDocumentIds,
 }: MultiImageUploadFieldProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [previewUrls, setPreviewUrls] = useState<string[]>([]);
@@ -276,23 +284,39 @@ function MultiImageUploadField({
             {existingPhotos.length === 1 ? "Current photo on file" : "Current photos on file"}
           </p>
           <div className="grid gap-3 sm:grid-cols-2">
-            {existingPhotos.map((photo, index) => (
-              <div
-                key={`${photo.url}-${index}`}
-                className="overflow-hidden rounded-md border border-border bg-background"
-              >
-                <CachedMediaPreview
-                  previewUrl={photo.previewUrl}
-                  authUrl={photo.url}
-                  alt={photo.name}
-                  maxHeight="max-h-44"
-                  imageClassName="object-cover"
-                />
-                <p className="truncate border-t px-2 py-1 text-[11px] text-muted-foreground">
-                  {photo.name}
-                </p>
-              </div>
-            ))}
+            {existingPhotos.map((photo, index) => {
+              const isRemoving = Boolean(photo.id && removingDocumentIds?.has(photo.id));
+              return (
+                <div
+                  key={`${photo.url}-${index}`}
+                  className="relative overflow-hidden rounded-md border border-border bg-background"
+                >
+                  <CachedMediaPreview
+                    previewUrl={photo.previewUrl}
+                    authUrl={photo.url}
+                    alt={photo.name}
+                    maxHeight="max-h-44"
+                    imageClassName="object-cover"
+                  />
+                  {photo.id && onRemoveExisting ? (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="icon"
+                      className="absolute right-2 top-2 h-7 w-7"
+                      disabled={isRemoving}
+                      onClick={() => void onRemoveExisting(photo.id!)}
+                      aria-label={`Remove ${photo.name}`}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  ) : null}
+                  <p className="truncate border-t px-2 py-1 text-[11px] text-muted-foreground">
+                    {photo.name}
+                  </p>
+                </div>
+              );
+            })}
           </div>
           {files.length === 0 ? (
             <p className="text-xs text-muted-foreground">
@@ -366,6 +390,8 @@ export function CustomerAttachmentsFields({
   existingDocuments = [],
   className,
   fieldErrors,
+  onRemoveExistingDocument,
+  removingDocumentIds,
 }: CustomerAttachmentsFieldsProps) {
   const docsInputRef = useRef<HTMLInputElement>(null);
   const docsId = useId();
@@ -485,6 +511,8 @@ export function CustomerAttachmentsFields({
           setHomeError(null);
           onChange({ ...value, home_location_photos: [] });
         }}
+        onRemoveExisting={onRemoveExistingDocument}
+        removingDocumentIds={removingDocumentIds}
       />
       </div>
 
@@ -509,6 +537,8 @@ export function CustomerAttachmentsFields({
           setBusinessError(null);
           onChange({ ...value, business_location_photos: [] });
         }}
+        onRemoveExisting={onRemoveExistingDocument}
+        removingDocumentIds={removingDocumentIds}
       />
       </div>
 
@@ -598,6 +628,7 @@ export function CustomerAttachmentsFields({
               {existingDocuments.map((doc) => {
                 const viewUrl = resolveMediaViewUrl(doc.previewUrl, doc.url);
                 const showPreview = isImageDocument(doc);
+                const isRemoving = Boolean(doc.id && removingDocumentIds?.has(doc.id));
 
                 return (
                   <li key={doc.url} className="overflow-hidden rounded-md border bg-background text-xs">
@@ -606,14 +637,29 @@ export function CustomerAttachmentsFields({
                         <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
                         <span className="truncate">{doc.name}</span>
                       </span>
-                      {viewUrl ? (
-                        <Button type="button" variant="ghost" size="sm" asChild>
-                          <a href={viewUrl} target="_blank" rel="noopener noreferrer">
-                            <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
-                            View
-                          </a>
-                        </Button>
-                      ) : null}
+                      <span className="flex shrink-0 items-center gap-1">
+                        {viewUrl ? (
+                          <Button type="button" variant="ghost" size="sm" asChild>
+                            <a href={viewUrl} target="_blank" rel="noopener noreferrer">
+                              <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                              View
+                            </a>
+                          </Button>
+                        ) : null}
+                        {doc.id && onRemoveExistingDocument ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-destructive hover:text-destructive"
+                            disabled={isRemoving}
+                            onClick={() => void onRemoveExistingDocument(doc.id!)}
+                            aria-label={`Remove ${doc.name}`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        ) : null}
+                      </span>
                     </div>
                     {showPreview ? (
                       <div className="border-t px-3 pb-3 pt-2">

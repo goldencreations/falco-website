@@ -9,6 +9,7 @@ import {
   DeleteApplicationDialog,
   type DeleteApplicationTarget,
 } from "@/components/applications/delete-application-dialog";
+import { RejectApplicationDialog } from "@/components/applications/reject-application-dialog";
 import { RequiredDocumentsFields } from "@/components/applications/required-documents-fields";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Button } from "@/components/ui/button";
@@ -38,6 +39,7 @@ import { exportApplicationToPdf } from "@/lib/application-pdf";
 import {
   activateApplicationApi,
   runAdminActivateApplicationWorkflow,
+  type ApplicationWorkflowAction,
 } from "@/lib/application-workflow";
 import {
   getCachedApplicationDetail,
@@ -112,6 +114,10 @@ export default function ApplicationDetailPage() {
   } | null>(null);
   const [activateDocFiles, setActivateDocFiles] = useState<Record<string, File[]>>({});
   const [activateUploadedTypes, setActivateUploadedTypes] = useState<string[]>([]);
+  const [rejectTarget, setRejectTarget] = useState<{
+    app: ApplicationViewRow;
+    run: ApplicationWorkflowAction["run"];
+  } | null>(null);
 
   const loadApplication = useCallback(async (options?: { background?: boolean }) => {
     const cached = options?.background ? null : getCachedApplicationDetail(params.id);
@@ -381,6 +387,7 @@ export default function ApplicationDetailPage() {
                 applicationsNewPath={applicationsNewPath}
                 onAdminActivate={handleAdminActivate}
                 onWorkflowAction={runWorkflowAction}
+                onRejectRequest={(app, run) => setRejectTarget({ app, run })}
                 onDelete={(app) =>
                   setDeleteTarget({
                     id: app.id,
@@ -461,6 +468,30 @@ export default function ApplicationDetailPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <RejectApplicationDialog
+        open={Boolean(rejectTarget)}
+        onOpenChange={(next) => {
+          if (!next) setRejectTarget(null);
+        }}
+        subjectLabel={
+          rejectTarget
+            ? `${rejectTarget.app.customerDisplayName} · ${rejectTarget.app.application_number}`
+            : undefined
+        }
+        onConfirm={async ({ rejection_code, rejection_reason }) => {
+          const target = rejectTarget;
+          if (!target) return { ok: false, error: "No application selected." };
+          let result: { ok: boolean; error?: string } = { ok: false };
+          const ok = await runWorkflowAction(target.app.id, async () => {
+            const r = await target.run({ rejection_code, rejection_reason });
+            result = r;
+            return r;
+          });
+          if (ok) setSuccessMessage("Application rejected.");
+          return result;
+        }}
+      />
     </>
   );
 }

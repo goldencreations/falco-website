@@ -47,6 +47,7 @@ import {
   parseCustomerReferencesFromRow,
   type CustomerReferenceRecord,
 } from "@/lib/customer-references";
+import { parseCustomerCollateralFromRow, type CustomerCollateralApiRecord } from "@/lib/customer-collateral";
 import {
   clearCustomerGuarantorPendingFiles,
   getCustomerGuarantorPendingFiles,
@@ -241,6 +242,9 @@ function NewApplicationPageContent() {
  const [customerReferenceRecords, setCustomerReferenceRecords] = useState<CustomerReferenceRecord[]>(
   []
  );
+ const [customerCollateralRecords, setCustomerCollateralRecords] = useState<CustomerCollateralApiRecord[]>(
+  []
+ );
  const [guarantorFileRows, setGuarantorFileRows] = useState<GuarantorFileRow[]>([]);
 
  const [documentFiles, setDocumentFiles] = useState<Record<string, File[]>>({});
@@ -268,6 +272,7 @@ function NewApplicationPageContent() {
    const row = extractCustomerDetail(json);
    const records = parseCustomerGuarantorsFromRow(row);
    const referenceRecords = parseCustomerReferencesFromRow(row);
+   const collateralRecords = parseCustomerCollateralFromRow(row);
    const pending = getCustomerGuarantorPendingFiles(customerId);
    const fileRows = records.map((record, index) => ({
     name: record.full_name,
@@ -281,10 +286,12 @@ function NewApplicationPageContent() {
    }));
    setCustomerGuarantorRecords(records);
    setCustomerReferenceRecords(referenceRecords);
+   setCustomerCollateralRecords(collateralRecords);
    setGuarantorFileRows(fileRows);
   } catch {
    setCustomerGuarantorRecords([]);
    setCustomerReferenceRecords([]);
+   setCustomerCollateralRecords([]);
    setGuarantorFileRows([]);
   }
  }, []);
@@ -294,6 +301,7 @@ function NewApplicationPageContent() {
    if (!selectedCustomer) {
     setCustomerGuarantorRecords([]);
     setCustomerReferenceRecords([]);
+    setCustomerCollateralRecords([]);
     setGuarantorFileRows([]);
    }
    return;
@@ -685,6 +693,14 @@ function NewApplicationPageContent() {
 
  const referencesPayload = customerReferencesToApplicationPayload(customerReferenceRecords);
 
+ const collateralsPayload = customerCollateralRecords
+  .filter((c) => c.collateral_type?.trim())
+  .map((c) => ({
+   type: c.collateral_type,
+   description: c.description ?? "",
+   estimated_value: c.estimated_value ?? 0,
+  }));
+
  const location =
  formData.latitude && formData.longitude
  ? {
@@ -712,7 +728,7 @@ function NewApplicationPageContent() {
   formData.repaymentFrequency,
   selectedProduct.repayment_frequency
  ),
- collaterals: [],
+ collaterals: collateralsPayload,
  guarantors: guarantorsPayload,
  references: referencesPayload,
  location,

@@ -282,16 +282,15 @@ export async function enrichLoansWithCustomerContext(
 
 type PaymentAgg = { total: number; count: number; lastDate?: string };
 
+/**
+ * Per the payments contract, the backend already maps internal `verified` ledger rows to
+ * `status: "completed"` before the payment reaches the frontend — `status` is the canonical
+ * settlement state. `ledger_status`/`reconciliation_status` are informational only; treating
+ * them as an independent "is this settled" signal risks counting money that hasn't actually
+ * posted yet (e.g. a pending gateway payment) toward paid totals.
+ */
 function isSettledPayment(p: PaymentViewRow): boolean {
- const status = String(p.status ?? "").toLowerCase();
- if (status === "reversed" || status === "failed") return false;
- if (status === "completed") return true;
- const ledger = String(p.ledger_status ?? "").toLowerCase();
- if (ledger === "verified" || ledger === "posted" || ledger === "confirmed") return true;
- if (p.reconciliation_status === "matched") return true;
- const rawStatus = String((p.metadata as Record<string, unknown> | undefined)?.status ?? "").toLowerCase();
- if (rawStatus === "verified" || rawStatus === "completed") return true;
- return false;
+ return String(p.status ?? "").toLowerCase() === "completed";
 }
 
 async function loadBranchPayments(

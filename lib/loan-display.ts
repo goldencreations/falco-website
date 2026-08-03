@@ -25,3 +25,17 @@ export function loanProductLabel(loan: LoanListRow): string {
  if (name && name !== "—" && name !== "Product") return name;
  return "—";
 }
+
+/**
+ * Whether new payments may be recorded/accepted for this loan, per
+ * `loan.repayment_details.can_accept_payment`. Defaults to `true` (fail-open) when the
+ * detail hasn't been loaded yet — this only gates the action once the backend explicitly
+ * says `false`.
+ */
+export function loanAcceptsPayment(loan: Pick<LoanListRow, "repayment_details">): boolean {
+ return loan.repayment_details?.can_accept_payment !== false;
+}
+
+/** Explanatory text for why "Record Payment" is disabled when `can_accept_payment` is false. */
+export const PAYMENT_BLOCKED_HELP_TEXT =
+ "This loan is not currently accepting payments (BillPay disabled or fully settled).";

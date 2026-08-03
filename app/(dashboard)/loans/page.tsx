@@ -55,8 +55,10 @@ import { adaptApiCustomerRowToCustomer, extractCustomerDetail, extractCustomersL
 import {
  effectiveLoanTotalPaid,
  effectivePaidPercent,
+ loanAcceptsPayment,
  loanCustomerLabel,
  loanProductLabel,
+ PAYMENT_BLOCKED_HELP_TEXT,
 } from "@/lib/loan-display";
 import { extractPaymentsPayload } from "@/lib/payment-adapters";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/formatters";
@@ -269,13 +271,10 @@ export default function LoansPage() {
  );
  setViewPayments(paymentRows);
  const paidFromPayments = paymentRows
- .filter((p) => {
- const s = String(p.status ?? "").toLowerCase();
- if (s === "reversed" || s === "failed") return false;
- if (s === "completed") return true;
- const ledger = String(p.ledger_status ?? "").toLowerCase();
- return ledger === "verified" || ledger === "posted" || p.reconciliation_status === "matched";
- })
+ // `status` is canonical for settlement — the backend already maps verified ledger
+ // rows to "completed" (see payments-controller.md), so ledger_status/reconciliation
+ // metadata aren't independently trustworthy signals for "has this money posted".
+ .filter((p) => String(p.status ?? "").toLowerCase() === "completed")
  .reduce((sum, p) => sum + p.amount, 0);
  if (paidFromPayments > 0) {
  setDetailLoan((prev) => {
@@ -533,12 +532,25 @@ export default function LoansPage() {
  <Eye className="mr-1 h-3.5 w-3.5" />
  View Details
  </Button>
+ {loanAcceptsPayment(loan) ? (
  <Button size="sm" variant="outline" className="h-8 flex-1 min-w-[7rem]" asChild>
  <Link href={`${paymentsBasePath}?loan=${loan.id}&openPayment=1`}>
  <CreditCard className="mr-1 h-3.5 w-3.5" />
  Record Payment
  </Link>
  </Button>
+ ) : (
+ <Button
+ size="sm"
+ variant="outline"
+ className="h-8 flex-1 min-w-[7rem]"
+ disabled
+ title={PAYMENT_BLOCKED_HELP_TEXT}
+ >
+ <CreditCard className="mr-1 h-3.5 w-3.5" />
+ Record Payment
+ </Button>
+ )}
  {loan.application_id ? (
  <Button size="sm" variant="outline" className="h-8 w-full sm:w-auto" asChild title="Credit analysis for originating application">
  <Link href={`${creditAnalysisPath}?applicationId=${loan.application_id}`}>
@@ -654,11 +666,17 @@ export default function LoansPage() {
  <Button variant="ghost" size="sm" onClick={() => setViewLoan(loan)}>
  <Eye className="h-4 w-4" />
  </Button>
- <Button variant="ghost" size="sm" asChild>
+ {loanAcceptsPayment(loan) ? (
+ <Button variant="ghost" size="sm" asChild title="Record payment">
  <Link href={`${paymentsBasePath}?loan=${loan.id}&openPayment=1`}>
  <CreditCard className="h-4 w-4" />
  </Link>
  </Button>
+ ) : (
+ <Button variant="ghost" size="sm" disabled title={PAYMENT_BLOCKED_HELP_TEXT}>
+ <CreditCard className="h-4 w-4" />
+ </Button>
+ )}
  {loan.application_id ? (
  <Button variant="ghost" size="sm" asChild title="Credit analysis for originating application">
  <Link href={`${creditAnalysisPath}?applicationId=${loan.application_id}`}>
@@ -754,6 +772,17 @@ export default function LoansPage() {
  <CalendarRange className="h-4 w-4 text-muted-foreground" />
  <span>Due: {formatDate(displayLoan.maturity_date)}</span>
  </div>
+ {displayLoan.repayment_details?.bill_pay_number ? (
+ <div className="flex items-center gap-2 text-sm">
+ <CreditCard className="h-4 w-4 text-muted-foreground" />
+ <span>
+ BillPay: <span className="font-mono font-medium">{displayLoan.repayment_details.bill_pay_number}</span>
+ {displayLoan.repayment_details.can_accept_payment === false ? (
+ <span className="ml-1 text-xs text-destructive">(not accepting payments)</span>
+ ) : null}
+ </span>
+ </div>
+ ) : null}
  </CardContent>
  </Card>
  </div>

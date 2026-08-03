@@ -4,6 +4,8 @@ import { asCustomerSex } from "@/lib/customer-guarantors";
 import { digitsOnly, TZ_PHONE_MAX_DIGITS } from "@/lib/tz-form-inputs";
 
 export type CustomerReferenceRecord = {
+  /** Backend response id — required on PATCH to preserve this row (avoids orphaning). */
+  id?: string;
   full_name: string;
   phone: string;
   relationship: string;
@@ -12,6 +14,7 @@ export type CustomerReferenceRecord = {
 };
 
 export type CustomerReferenceFormRow = {
+  id?: string;
   name: string;
   phone: string;
   relationship: string;
@@ -46,6 +49,7 @@ export function customerReferenceFormToRecord(
   const relationship = row.relationship.trim();
   if (!full_name || !phone || !relationship) return null;
   const record: CustomerReferenceRecord = { full_name, phone, relationship };
+  if (row.id?.trim()) record.id = row.id.trim();
   const address = row.address.trim();
   if (address) record.address = address;
   const sex = asCustomerSex(row.sex);
@@ -78,6 +82,8 @@ export function parseCustomerReferencesFromRow(
     const relationship = String(o.relationship ?? "").trim();
     if (!full_name || !phone || !relationship) continue;
     const record: CustomerReferenceRecord = { full_name, phone, relationship };
+    const id = o.id != null ? String(o.id).trim() : "";
+    if (id) record.id = id;
     const address = String(o.address ?? "").trim();
     if (address) record.address = address;
     const sex = asCustomerSex(o.sex ?? o.gender);
@@ -85,6 +91,21 @@ export function parseCustomerReferencesFromRow(
     out.push(record);
   }
   return out;
+}
+
+/** Map stored/response reference records → editable form rows (preserves `id`). */
+export function customerReferenceRecordsToForm(
+  records: CustomerReferenceRecord[]
+): CustomerReferenceFormRow[] {
+  if (records.length === 0) return defaultCustomerReferenceForm();
+  return records.map((record) => ({
+    id: record.id,
+    name: record.full_name,
+    phone: record.phone,
+    relationship: record.relationship,
+    address: record.address ?? "",
+    sex: record.sex ?? "",
+  }));
 }
 
 export function validateCustomerReferences(
@@ -127,13 +148,7 @@ export function validateCustomerReferences(
         field: `references.${i}.relationship`,
       };
     }
-    if (!asCustomerSex(row.sex)) {
-      return {
-        ok: false,
-        error: `Reference ${i + 1}: select sex.`,
-        field: `references.${i}.sex`,
-      };
-    }
+    // Sex is optional per contract — collected when available but not required.
   }
   return { ok: true };
 }

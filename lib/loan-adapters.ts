@@ -5,6 +5,8 @@ import type {
  Loan,
  LoanStatus,
  Payment,
+ RepaymentChannel,
+ RepaymentDetails,
  RepaymentFrequency,
  RepaymentSchedule,
  RiskClassification,
@@ -183,6 +185,49 @@ function isEnrichedLoanListRow(row: Record<string, unknown>): boolean {
  );
 }
 
+function parseRepaymentChannel(raw: unknown): RepaymentChannel | null {
+ if (!raw || typeof raw !== "object") return null;
+ const o = raw as Record<string, unknown>;
+ return {
+ name: o.name != null ? str(o.name) : undefined,
+ type: o.type != null ? str(o.type) : undefined,
+ ussd_code: o.ussd_code != null ? str(o.ussd_code) : undefined,
+ company_id: o.company_id != null ? str(o.company_id) : undefined,
+ instructions: o.instructions != null ? str(o.instructions) : undefined,
+ };
+}
+
+/**
+ * Parse `loan.repayment_details` (ClickPesa BillPay info) into a typed object.
+ * Data layer only this round — see plan item E15; no dedicated UI card yet.
+ */
+export function parseRepaymentDetails(raw: unknown): RepaymentDetails | undefined {
+ if (!raw || typeof raw !== "object") return undefined;
+ const o = raw as Record<string, unknown>;
+ const channelsRaw = Array.isArray(o.channels) ? o.channels : [];
+ const channels = channelsRaw
+ .map(parseRepaymentChannel)
+ .filter((c): c is RepaymentChannel => c != null);
+ const allocationOrderRaw = Array.isArray(o.allocation_order) ? o.allocation_order : [];
+ const allocation_order = allocationOrderRaw
+ .filter((v): v is string => typeof v === "string")
+ .map((v) => v.trim());
+ return {
+ gateway: o.gateway != null ? str(o.gateway) : undefined,
+ bill_pay_number: o.bill_pay_number != null ? str(o.bill_pay_number) : undefined,
+ amount_due: o.amount_due != null ? num(o.amount_due) : undefined,
+ penalty_outstanding: o.penalty_outstanding != null ? num(o.penalty_outstanding) : undefined,
+ accepts_partial_payments:
+ typeof o.accepts_partial_payments === "boolean" ? o.accepts_partial_payments : undefined,
+ reusable: typeof o.reusable === "boolean" ? o.reusable : undefined,
+ bill_pay_active: typeof o.bill_pay_active === "boolean" ? o.bill_pay_active : undefined,
+ can_accept_payment:
+ typeof o.can_accept_payment === "boolean" ? o.can_accept_payment : undefined,
+ allocation_order: allocation_order.length > 0 ? allocation_order : undefined,
+ channels: channels.length > 0 ? channels : undefined,
+ };
+}
+
 export function adaptApiLoanRow(raw: Record<string, unknown>): LoanListRow {
  const row = unwrapLoanRecord(raw);
 
@@ -306,6 +351,7 @@ export function adaptApiLoanRow(raw: Record<string, unknown>): LoanListRow {
  row.payments_recorded_total != null ? num(row.payments_recorded_total) : undefined,
  branchName: branchNameFromRow(row) || "—",
  loanOfficerDisplayName: officerNameFromRow(row) || "—",
+ repayment_details: parseRepaymentDetails(row.repayment_details),
  };
 }
 
@@ -398,7 +444,9 @@ export function extractScheduleList(json: unknown): RepaymentSchedule[] {
 
 function asPaymentMethod(v: string | undefined): Payment["payment_method"] {
  const s = (v ?? "cash").toLowerCase();
- if (s === "mobile_money" || s === "bank_transfer" || s === "cheque" || s === "cash") return s as Payment["payment_method"];
+ if (s === "mobile_money" || s === "bank_transfer" || s === "cheque" || s === "cash" || s === "gateway") {
+ return s as Payment["payment_method"];
+ }
  return "cash";
 }
 
