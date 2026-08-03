@@ -418,6 +418,10 @@ export type ApplicationViewRow = LoanApplication & {
   loan_number?: string;
   /** API status string before normalization (for workflow transitions). */
   raw_status?: string;
+  /** Server-computed lifecycle label (e.g. "awaiting_treasury", "ready_for_disbursement"). */
+  operational_state?: string;
+  /** Server-computed queue aging bucket (e.g. "0-24h", "over_48h"). */
+  aging_bucket?: string;
   workflow_stage?: ApplicationWorkflowStage;
   productInterestRatePerMonth?: number;
   productInterestType?: InterestType;
@@ -708,6 +712,14 @@ export function adaptApiApplicationListRow(row: Record<string, unknown>): Applic
  documents,
  status: asStatus(app.status ? String(app.status) : undefined),
  raw_status: rawApplicationStatus(app.status ? String(app.status) : undefined),
+ operational_state:
+ typeof app.operational_state === "string" && app.operational_state.trim()
+ ? app.operational_state.trim()
+ : undefined,
+ aging_bucket:
+ typeof app.aging_bucket === "string" && app.aging_bucket.trim()
+ ? app.aging_bucket.trim()
+ : undefined,
  workflow_stage: normalizeWorkflowStage(
  app.workflow_stage != null ? String(app.workflow_stage) : undefined
  ),

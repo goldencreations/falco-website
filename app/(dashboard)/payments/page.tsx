@@ -62,6 +62,7 @@ import type {
 } from "@/lib/payment-adapters";
 import type { PaymentMethod, PaymentStatus } from "@/lib/types";
 import { extractLoansList, type LoanListRow } from "@/lib/loan-adapters";
+import { loanAcceptsPayment, PAYMENT_BLOCKED_HELP_TEXT } from "@/lib/loan-display";
 import { formatApiResponseError } from "@/lib/falco-api";
 import { forceCachedReload } from "@/lib/client-fetch-cache";
 import { formatCurrency, formatDateTime } from "@/lib/formatters";
@@ -74,6 +75,7 @@ const methodConfig: Record<PaymentMethod, { label: string; icon: typeof CreditCa
  mobile_money: { label: "Mobile Money", icon: Smartphone },
  bank_transfer: { label: "Bank Transfer", icon: Building2 },
  cheque: { label: "Cheque", icon: CreditCard },
+ gateway: { label: "Gateway (Auto)", icon: Smartphone },
 };
 
 const statusConfig: Record<
@@ -263,9 +265,10 @@ export default function PaymentsPage() {
  })
  .reduce((sum, p) => sum + p.amount, 0);
 
- const selectedLoanDetails = selectedLoan ? loanById.get(selectedLoan) : undefined;
+const selectedLoanDetails = selectedLoan ? loanById.get(selectedLoan) : undefined;
+ const selectedLoanBlocked = selectedLoanDetails ? !loanAcceptsPayment(selectedLoanDetails) : false;
 
- useEffect(() => {
+useEffect(() => {
  let cancelled = false;
  setRepaymentReference(null);
  setRepaymentReferenceLoading(Boolean(selectedLoanDetails?.customer_id));
@@ -336,6 +339,10 @@ export default function PaymentsPage() {
  const maxPayable = selectedLoanDetails?.total_outstanding ?? 0;
  if (maxPayable > 0 && amount > maxPayable) {
  setError(`Payment cannot be more than ${formatCurrency(maxPayable)}.`);
+ return;
+ }
+ if (selectedLoanBlocked) {
+ setError(PAYMENT_BLOCKED_HELP_TEXT);
  return;
  }
 
@@ -517,6 +524,7 @@ export default function PaymentsPage() {
  <SelectItem value="mobile_money">Mobile Money</SelectItem>
  <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
  <SelectItem value="cheque">Cheque</SelectItem>
+ <SelectItem value="gateway">Gateway (Auto)</SelectItem>
  </SelectContent>
  </Select>
  </div>
@@ -578,6 +586,9 @@ export default function PaymentsPage() {
  <p className="text-xs text-muted-foreground">
  Maximum payable: {formatCurrency(selectedLoanDetails.total_outstanding)}
  </p>
+ ) : null}
+ {selectedLoanBlocked ? (
+ <p className="text-xs font-medium text-destructive">{PAYMENT_BLOCKED_HELP_TEXT}</p>
  ) : null}
  </Field>
  <Field>
@@ -672,6 +683,7 @@ export default function PaymentsPage() {
  actionLoading ||
  !selectedLoan ||
  !paymentAmount ||
+ selectedLoanBlocked ||
  (paymentMethod === "mobile_money" && !mobileNumber.trim())
  }
  >

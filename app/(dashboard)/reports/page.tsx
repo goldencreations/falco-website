@@ -13,19 +13,20 @@ import {
  TrendingUp,
 } from "lucide-react";
 import {
- Area,
- AreaChart,
- Bar,
- BarChart,
- CartesianGrid,
- Cell,
- Legend,
- Pie,
- PieChart as RechartsPieChart,
- ResponsiveContainer,
- Tooltip,
- XAxis,
- YAxis,
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  Pie,
+  PieChart as RechartsPieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+  type TooltipProps,
 } from "recharts";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { useOptionalBranchAssignment } from "@/components/branch-assignment-context";
@@ -55,18 +56,63 @@ import { formatCurrency, formatDateTime } from "@/lib/formatters";
 import { normalizePortfolioSummary, type PortfolioSummaryView } from "@/lib/portfolio-summary";
 import { agingColor, normalizeAgingReport, type AgingReportView } from "@/lib/reports-aging";
 import {
- buildMonthlyActivityView,
- getPeriodRange,
- mergeMonthlyActivity,
- normalizeTimeseries,
+  buildMonthlyActivityView,
+  getPeriodRange,
+  mergeMonthlyActivity,
+  normalizeTimeseries,
+  type MonthlyActivityRow,
 } from "@/lib/reports-timeseries";
 import { isBranchScopedStaffRole } from "@/lib/role-portal";
 import { useSessionUser } from "@/lib/use-session-user";
 
 function formatYAxis(value: number) {
- if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(0)}M`;
- if (value >= 1_000) return `${(value / 1_000).toFixed(0)}K`;
- return value.toString();
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(0)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(0)}K`;
+  return value.toString();
+}
+
+const REPORT_CHART_DISBURSEMENTS = "#0d9488";
+const REPORT_CHART_COLLECTIONS = "#16a34a";
+const REPORT_CHART_PORTFOLIO = "#0891b2";
+
+function monthKeyToLongLabel(monthKey: string): string {
+  const d = new Date(`${monthKey}-01T00:00:00`);
+  if (Number.isNaN(d.getTime())) return monthKey;
+  return d.toLocaleString("en-US", { month: "long", year: "numeric" });
+}
+
+const REPORT_SERIES_COLORS: Record<string, string> = {
+  disbursements: REPORT_CHART_DISBURSEMENTS,
+  collections: REPORT_CHART_COLLECTIONS,
+  portfolio: REPORT_CHART_PORTFOLIO,
+};
+
+function ReportChartTooltip({
+  active,
+  payload,
+  label,
+}: TooltipProps<number, string>) {
+  if (!active || !payload?.length) return null;
+
+  const row = payload[0]?.payload as MonthlyActivityRow | undefined;
+  const title = row?.monthKey ? monthKeyToLongLabel(row.monthKey) : String(label ?? "");
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 shadow-md">
+      <p className="mb-1.5 text-sm font-semibold text-gray-900">{title}</p>
+      <div className="space-y-1">
+        {payload.map((entry) => {
+          const key = String(entry.dataKey ?? entry.name ?? "");
+          const color = REPORT_SERIES_COLORS[key] ?? String(entry.color ?? "#374151");
+          return (
+            <p key={key} className="text-sm font-medium" style={{ color }}>
+              {entry.name}: {formatCurrency(Number(entry.value ?? 0))}
+            </p>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 function todayInputDate(): string {
@@ -538,35 +584,32 @@ export default function ReportsPage() {
  </CardHeader>
  <CardContent>
  <div className="h-[300px]">
- {monthlyActivity.displayRows.length ? (
- <ResponsiveContainer width="100%" height="100%">
- <BarChart data={monthlyActivity.displayRows}>
- <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
- <XAxis dataKey="month" />
- <YAxis tickFormatter={formatYAxis} />
- <Tooltip
- formatter={(value: number) => formatCurrency(value)}
- contentStyle={{
- backgroundColor: "hsl(var(--card))",
- border: "1px solid hsl(var(--border))",
- }}
- />
- <Legend />
- <Bar
- dataKey="disbursements"
- name="Disbursements"
- fill="hsl(var(--primary))"
- radius={[4, 4, 0, 0]}
- />
- <Bar
- dataKey="collections"
- name="Collections"
- fill="hsl(var(--accent))"
- radius={[4, 4, 0, 0]}
- />
- </BarChart>
- </ResponsiveContainer>
- ) : (
+                {monthlyActivity.displayRows.length ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={monthlyActivity.displayRows}
+                      margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                      <XAxis dataKey="month" tick={{ fontSize: 12 }} />
+                      <YAxis tickFormatter={formatYAxis} domain={[0, "auto"]} width={48} />
+                      <Tooltip content={<ReportChartTooltip />} cursor={{ fill: "rgba(0,0,0,0.04)" }} />
+                      <Legend />
+                      <Bar
+                        dataKey="disbursements"
+                        name="Disbursements"
+                        fill={REPORT_CHART_DISBURSEMENTS}
+                        radius={[4, 4, 0, 0]}
+                      />
+                      <Bar
+                        dataKey="collections"
+                        name="Collections"
+                        fill={REPORT_CHART_COLLECTIONS}
+                        radius={[4, 4, 0, 0]}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
  <p className="flex h-full items-center justify-center text-sm text-muted-foreground">
  No timeseries data for this period.
  </p>
@@ -585,30 +628,24 @@ export default function ReportsPage() {
  {growthChartData.length ? (
  <ResponsiveContainer width="100%" height="100%">
  <AreaChart data={growthChartData}>
- <defs>
- <linearGradient id="portfolioGrad" x1="0" y1="0" x2="0" y2="1">
- <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
- <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
- </linearGradient>
- </defs>
- <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
- <XAxis dataKey="month" />
- <YAxis tickFormatter={formatYAxis} />
- <Tooltip
- formatter={(value: number) => formatCurrency(value)}
- contentStyle={{
- backgroundColor: "hsl(var(--card))",
- border: "1px solid hsl(var(--border))",
- }}
- />
- <Area
- type="monotone"
- dataKey="portfolio"
- name="Portfolio"
- stroke="hsl(var(--primary))"
- fill="url(#portfolioGrad)"
- strokeWidth={2}
- />
+                      <defs>
+                        <linearGradient id="portfolioGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor={REPORT_CHART_PORTFOLIO} stopOpacity={0.3} />
+                          <stop offset="95%" stopColor={REPORT_CHART_PORTFOLIO} stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                      <XAxis dataKey="month" />
+                      <YAxis tickFormatter={formatYAxis} domain={[0, "auto"]} />
+                      <Tooltip content={<ReportChartTooltip />} cursor={{ fill: "rgba(0,0,0,0.04)" }} />
+                      <Area
+                        type="monotone"
+                        dataKey="portfolio"
+                        name="Portfolio"
+                        stroke={REPORT_CHART_PORTFOLIO}
+                        fill="url(#portfolioGrad)"
+                        strokeWidth={2}
+                      />
  </AreaChart>
  </ResponsiveContainer>
  ) : (

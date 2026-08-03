@@ -19,6 +19,13 @@ type Props = {
   value: CustomerCollateralFormRow[];
   onChange: (rows: CustomerCollateralFormRow[]) => void;
   fieldErrors?: Record<string, string>;
+  /**
+   * Deletes a previously-uploaded collateral image by document id (`DELETE .../documents/{id}`).
+   * Return `true` on success so the row can drop the image locally; `false`/rejection leaves it.
+   * When omitted (or the image has no known document id), removal is local-only.
+   */
+  onDeleteExistingImage?: (documentId: string) => Promise<boolean>;
+  removingDocumentIds?: Set<string>;
 };
 
 function rowFieldError(
@@ -70,10 +77,12 @@ function CollateralExistingImagePreview({
   authUrl,
   previewUrl,
   onRemove,
+  removing,
 }: {
   authUrl: string;
   previewUrl?: string;
   onRemove?: () => void;
+  removing?: boolean;
 }) {
   return (
     <div className="space-y-1 overflow-hidden rounded-md border border-border">
@@ -87,8 +96,15 @@ function CollateralExistingImagePreview({
       <div className="flex items-center justify-between gap-2 border-t border-border bg-muted px-2 py-1">
         <p className="text-xs text-muted-foreground">Current image on file</p>
         {onRemove ? (
-          <Button type="button" variant="ghost" size="sm" className="h-6 px-2" onClick={onRemove}>
-            Remove
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2"
+            disabled={removing}
+            onClick={onRemove}
+          >
+            {removing ? "Removing…" : "Remove"}
           </Button>
         ) : null}
       </div>
@@ -96,7 +112,13 @@ function CollateralExistingImagePreview({
   );
 }
 
-export function CustomerCollateralFields({ value, onChange, fieldErrors }: Props) {
+export function CustomerCollateralFields({
+  value,
+  onChange,
+  fieldErrors,
+  onDeleteExistingImage,
+  removingDocumentIds,
+}: Props) {
   const updateRow = (
     index: number,
     key: keyof CustomerCollateralFormRow,
@@ -135,14 +157,16 @@ export function CustomerCollateralFields({ value, onChange, fieldErrors }: Props
     );
   };
 
-  const removeExistingImage = (index: number, urlIndex: number) => {
+  const dropExistingImageLocally = (index: number, urlIndex: number) => {
     onChange(
       value.map((row, i) => {
         if (i !== index) return row;
         const nextUrls = row.existingImageUrls.filter((_, idx) => idx !== urlIndex);
+        const nextDocIds = (row.existingImageDocumentIds ?? []).filter((_, idx) => idx !== urlIndex);
         return {
           ...row,
           existingImageUrls: nextUrls,
+          existingImageDocumentIds: nextDocIds,
           existingImageUrl: nextUrls[0],
           existingImagePreviewUrl: nextUrls[0],
           imageDocumentId: nextUrls.length > 0 ? row.imageDocumentId : undefined,
@@ -150,6 +174,15 @@ export function CustomerCollateralFields({ value, onChange, fieldErrors }: Props
         };
       })
     );
+  };
+
+  const removeExistingImage = async (index: number, urlIndex: number) => {
+    const documentId = value[index]?.existingImageDocumentIds?.[urlIndex];
+    if (documentId && onDeleteExistingImage) {
+      const ok = await onDeleteExistingImage(documentId);
+      if (!ok) return;
+    }
+    dropExistingImageLocally(index, urlIndex);
   };
 
   const addRow = () => {
@@ -250,14 +283,18 @@ export function CustomerCollateralFields({ value, onChange, fieldErrors }: Props
               </p>
               {row.existingImageUrls.length > 0 ? (
                 <div className="space-y-2">
-                  {row.existingImageUrls.map((authUrl, urlIndex) => (
-                    <CollateralExistingImagePreview
-                      key={`${authUrl}-${urlIndex}`}
-                      authUrl={authUrl}
-                      previewUrl={authUrl}
-                      onRemove={() => removeExistingImage(index, urlIndex)}
-                    />
-                  ))}
+                  {row.existingImageUrls.map((authUrl, urlIndex) => {
+                    const documentId = row.existingImageDocumentIds?.[urlIndex];
+                    return (
+                      <CollateralExistingImagePreview
+                        key={`${authUrl}-${urlIndex}`}
+                        authUrl={authUrl}
+                        previewUrl={authUrl}
+                        removing={Boolean(documentId && removingDocumentIds?.has(documentId))}
+                        onRemove={() => void removeExistingImage(index, urlIndex)}
+                      />
+                    );
+                  })}
                 </div>
               ) : null}
               {row.images.length > 0 ? (

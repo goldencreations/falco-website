@@ -259,6 +259,32 @@ export interface LoanDocument {
  verified_by?: string;
 }
 
+/** A customer-facing repayment channel surfaced on `loan.repayment_details.channels[]`. */
+export interface RepaymentChannel {
+ name?: string;
+ type?: string;
+ ussd_code?: string;
+ company_id?: string;
+ instructions?: string;
+}
+
+/**
+ * ClickPesa BillPay repayment info returned on `GET /loans/{id}` as `loan.repayment_details`.
+ * Data layer only for now — see lib/loan-adapters.ts `adaptApiLoanRow`.
+ */
+export interface RepaymentDetails {
+ gateway?: string;
+ bill_pay_number?: string;
+ amount_due?: number;
+ penalty_outstanding?: number;
+ accepts_partial_payments?: boolean;
+ reusable?: boolean;
+ bill_pay_active?: boolean;
+ can_accept_payment?: boolean;
+ allocation_order?: string[];
+ channels?: RepaymentChannel[];
+}
+
 export interface Loan {
  id: string;
  loan_number: string;
@@ -316,12 +342,15 @@ export interface Loan {
  disbursed_by: string;
  created_at: string;
  updated_at: string;
+
+ // ClickPesa BillPay (data layer only — see RepaymentDetails)
+ repayment_details?: RepaymentDetails;
 }
 
 // -----------------------------------------------------------------------------
 // REPAYMENT TYPES
 // -----------------------------------------------------------------------------
-export type PaymentMethod = 'cash' | 'mobile_money' | 'bank_transfer' | 'cheque';
+export type PaymentMethod = 'cash' | 'mobile_money' | 'bank_transfer' | 'cheque' | 'gateway';
 export type PaymentStatus = 'pending' | 'completed' | 'failed' | 'reversed';
 
 export interface RepaymentSchedule {

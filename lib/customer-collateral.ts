@@ -27,6 +27,8 @@ export type CustomerCollateralFormRow = {
   imageDocumentId?: string;
   imageDocumentIds?: string[];
   existingImageUrls: string[];
+  /** Backend document id per `existingImageUrls` entry (same index), when known. */
+  existingImageDocumentIds?: Array<string | undefined>;
   existingImageUrl?: string;
   existingImagePreviewUrl?: string;
 };
@@ -79,6 +81,15 @@ function urlFromAttachmentEntry(entry: unknown): string | undefined {
   );
 }
 
+function idFromAttachmentEntry(entry: unknown): string | undefined {
+  if (!entry || typeof entry !== "object") return undefined;
+  const e = entry as Record<string, unknown>;
+  const doc =
+    e.document && typeof e.document === "object" ? (e.document as Record<string, unknown>) : null;
+  const id = e.id ?? e.document_id ?? doc?.id;
+  return id != null ? String(id).trim() || undefined : undefined;
+}
+
 /** Stable key for deduping the same file served under different query strings or fields. */
 function mediaUrlDedupKey(url: string): string {
   const trimmed = url.trim();
@@ -117,28 +128,42 @@ function primaryAttachmentList(item: Record<string, unknown>): unknown[] | null 
   return null;
 }
 
+export type CollateralImageEntry = { id?: string; url: string };
+
 /** Collect collateral image URLs from a raw API collateral object. */
 export function extractCollateralImageUrlsFromItem(item: unknown): string[] {
+  return extractCollateralImageEntriesFromItem(item).map((e) => e.url);
+}
+
+/** Collect collateral image URLs paired with their backend document id (when known). */
+export function extractCollateralImageEntriesFromItem(item: unknown): CollateralImageEntry[] {
   if (!item || typeof item !== "object") return [];
   const o = item as Record<string, unknown>;
-  const candidates: string[] = [];
+  const candidates: CollateralImageEntry[] = [];
 
   const list = primaryAttachmentList(o);
   if (list) {
     for (const entry of list) {
       const url = urlFromAttachmentEntry(entry);
-      if (url) candidates.push(url);
+      if (url) candidates.push({ id: idFromAttachmentEntry(entry), url });
     }
   }
 
   if (candidates.length === 0) {
+    const ids = readImageDocumentIds(o);
     const image = readUrl(o.image_url);
     const preview = readUrl(o.image_preview_url);
-    if (image) candidates.push(image);
-    if (preview && preview !== image) candidates.push(preview);
+    if (image) candidates.push({ id: ids[0], url: image });
+    if (preview && preview !== image) candidates.push({ id: ids[1] ?? ids[0], url: preview });
   }
 
-  return dedupeMediaUrls(candidates);
+  const seen = new Map<string, CollateralImageEntry>();
+  for (const entry of candidates) {
+    const key = mediaUrlDedupKey(entry.url);
+    if (!key || seen.has(key)) continue;
+    seen.set(key, entry);
+  }
+  return [...seen.values()];
 }
 
 function readImageDocumentIds(item: Record<string, unknown>): string[] {
@@ -440,7 +465,8 @@ export function customerCollateralApiRecordsToForm(
   records: CustomerCollateralApiRecord[]
 ): CustomerCollateralFormRow[] {
   const rows = records.map((record) => {
-    const existingImageUrls = extractCollateralImageUrlsFromItem(record);
+    const existingImageEntries = extractCollateralImageEntriesFromItem(record);
+    const existingImageUrls = existingImageEntries.map((e) => e.url);
 
     return {
       id: record.id,
@@ -452,6 +478,7 @@ export function customerCollateralApiRecordsToForm(
       imageDocumentId: record.image_document_id,
       imageDocumentIds: record.image_document_ids ?? [],
       existingImageUrls,
+      existingImageDocumentIds: existingImageEntries.map((e) => e.id),
       existingImageUrl: existingImageUrls[0],
       existingImagePreviewUrl: record.image_preview_url ?? existingImageUrls[0],
     };

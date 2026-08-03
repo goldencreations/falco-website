@@ -83,6 +83,8 @@ import {
  type DisbursementKpis,
  type DisbursementViewRow,
  type EligibleLoanRow,
+ isValidTanzanianMsisdn,
+ normalizeTanzanianMsisdn,
 } from "@/lib/disbursement-adapters";
 import type { EligibleApplicationRow } from "@/lib/disbursement-eligible";
 import type { LoanApplicationStatus } from "@/lib/types";
@@ -110,15 +112,20 @@ const STATUS_ORDER: Disbursement["status"][] = [
  "rejected",
 ];
 
+/**
+ * Labels mirror the raw contract status values exactly (per Frontend Implementation
+ * Guide — "approved" does NOT mean money received). Ambiguity/context is surfaced via
+ * separate helper text, not by relabeling the badge itself.
+ */
 const statusConfig: Record<
  Disbursement["status"],
  { label: string; variant: "default" | "secondary" | "destructive" | "outline" }
 > = {
- pending_approval: { label: "Awaiting approval", variant: "secondary" },
- approved: { label: "Processing with ClickPesa", variant: "default" },
- processing: { label: "Processing with ClickPesa", variant: "default" },
- completed: { label: "Disbursed", variant: "default" },
- rejected: { label: "Payout rejected", variant: "destructive" },
+ pending_approval: { label: "Pending Approval", variant: "secondary" },
+ approved: { label: "Approved", variant: "default" },
+ processing: { label: "Processing", variant: "default" },
+ completed: { label: "Completed", variant: "default" },
+ rejected: { label: "Rejected", variant: "destructive" },
 };
 
 const MOBILE_CHANNELS: DisbursementPaymentChannel[] = [
@@ -161,6 +168,20 @@ function rawGatewayError(row: DisbursementViewRow): string {
  return typeof value === "string" ? value.trim() : "";
 }
 
+/** `metadata.gateway_response` may be a string or a nested object — render either as text. */
+function rawGatewayResponse(row: DisbursementViewRow): string {
+ const value = row.metadata?.gateway_response;
+ if (typeof value === "string") return value.trim();
+ if (value && typeof value === "object") {
+ try {
+ return JSON.stringify(value, null, 2);
+ } catch {
+ return "";
+ }
+ }
+ return "";
+}
+
 /** Timeout / ambiguous gateway outcomes must not be treated as confirmed rejections. */
 function isAmbiguousGatewayOutcome(row: DisbursementViewRow): boolean {
  if (row.status !== "rejected") return false;
@@ -181,17 +202,34 @@ function isAwaitingClickPesaConfirmation(row: DisbursementViewRow): boolean {
  return false;
 }
 
+/** Badge always shows the raw contract status — never an invented label. */
 function displayStatus(row: DisbursementViewRow): {
  label: string;
  variant: "default" | "secondary" | "destructive" | "outline";
 } {
+ return statusConfig[row.status] ?? statusConfig.pending_approval;
+}
+
+/** Explanatory helper text shown alongside the status badge — clarifies without relabeling it. */
+function statusHelperText(row: DisbursementViewRow): string | null {
  if (isAwaitingClickPesaConfirmation(row)) {
- return { label: "Processing with ClickPesa", variant: "default" };
+ return "Payout may still be processing with ClickPesa — do not create a duplicate disbursement.";
  }
  if (row.status === "approved" && !row.gateway && !isGatewayChannel(row.method)) {
- return { label: "Approved", variant: "default" };
+ return "Approved — mark Completed once the cash has been handed over.";
  }
- return statusConfig[row.status] ?? statusConfig.pending_approval;
+ return null;
+}
+
+/**
+ * Detects gateway timeout / "payout already in progress" style errors on `POST /disbursements`
+ * create. These must never be retried with a second create — instead recover the existing
+ * disbursement for the loan so the operator opens it rather than risking a duplicate payout.
+ */
+function isTimeoutOrInProgressError(message: string): boolean {
+ return /cURL error 28|timed out|timeout|already in progress|already exists|duplicate|in[- ]?flight/i.test(
+ message
+ );
 }
 
 function rejectedExplanation(row: DisbursementViewRow): string {
@@ -369,12 +407,16 @@ function DisbursementDetailPanel({
  <span className="font-mono text-sky-950">
  {row.order_reference ?? row.transaction_reference}
  </span>
- </p>
- )}
- </div>
- ) : null}
- <div className="grid gap-6 md:grid-cols-2">
- <div className="space-y-4">
+                </p>
+              )}
+            </div>
+          ) : statusHelperText(row) ? (
+            <div className="mb-5 rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+              {statusHelperText(row)}
+            </div>
+          ) : null}
+          <div className="grid gap-6 md:grid-cols-2">
+            <div className="space-y-4">
  <div>
  <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
  Amount & channel
@@ -423,9 +465,36 @@ function DisbursementDetailPanel({
  <dt className="text-muted-foreground">Transaction reference</dt>
  <dd className="font-mono text-sm">{row.transaction_reference ?? "—"}</dd>
  </div>
+ <div>
+ <dt className="text-muted-foreground">Gateway</dt>
+ <dd className="font-medium capitalize">{row.gateway ?? "—"}</dd>
+ </div>
+ <div>
+ <dt className="text-muted-foreground">Order reference</dt>
+ <dd className="font-mono text-sm">{row.order_reference ?? "—"}</dd>
+ </div>
  </dl>
  </div>
  </div>
+
+ {rawGatewayResponse(row) || rawGatewayError(row) ? (
+ <>
+ <Separator className="my-5" />
+ <div>
+ <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+ Gateway response
+ </h4>
+ {rawGatewayError(row) ? (
+ <p className="mt-2 text-sm text-destructive">{rawGatewayError(row)}</p>
+ ) : null}
+ {rawGatewayResponse(row) ? (
+ <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
+ {rawGatewayResponse(row)}
+ </pre>
+ ) : null}
+ </div>
+ </>
+ ) : null}
 
  <Separator className="my-5" />
 
@@ -527,6 +596,7 @@ export default function DisbursementsPage() {
  const [approveRow, setApproveRow] = useState<DisbursementViewRow | null>(null);
  const [completeRow, setCompleteRow] = useState<DisbursementViewRow | null>(null);
  const [completeRef, setCompleteRef] = useState("");
+ const [approveRef, setApproveRef] = useState("");
  const [rejectRow, setRejectRow] = useState<DisbursementViewRow | null>(null);
  const [rejectReason, setRejectReason] = useState("");
  const [expandedRejectedRows, setExpandedRejectedRows] = useState<Set<string>>(new Set());
@@ -861,6 +931,35 @@ export default function DisbursementsPage() {
  if (linked) setFormLoan(linked.id);
  }, [formApplicationId, eligibleApplications, selectableLoans]);
 
+ /**
+ * On gateway timeout / "already in progress" create errors, look up the loan's existing
+ * disbursement (by `order_reference`/most-recent) via `GET /disbursements?loan_id=` instead
+ * of allowing a second create — avoids duplicate payout risk.
+ */
+ const recoverExistingDisbursement = useCallback(
+ async (loanId: string): Promise<DisbursementViewRow | null> => {
+ if (!loanId) return null;
+ try {
+ const res = await fetch(
+ `/api/disbursements?loan_id=${encodeURIComponent(loanId)}&include_eligible=0&page_size=10`,
+ { credentials: "include", cache: "no-store" }
+ );
+ const { data } = await parseJsonResponse<{ disbursements?: DisbursementViewRow[] }>(res);
+ if (!res.ok) return null;
+ const found = Array.isArray(data?.disbursements) ? data.disbursements : [];
+ if (found.length === 0) return null;
+ const sorted = [...found].sort(
+ (a, b) => new Date(b.updated_at ?? 0).getTime() - new Date(a.updated_at ?? 0).getTime()
+ );
+ await load({ silent: true });
+ return sorted[0];
+ } catch {
+ return null;
+ }
+ },
+ [load]
+ );
+
  const handleCreate = async () => {
  if (!formLoan) return;
  const amount = Number(formAmount);
@@ -873,7 +972,11 @@ export default function DisbursementsPage() {
  };
  if (MOBILE_CHANNELS.includes(formMethod) || BANK_CHANNELS.includes(formMethod)) {
  if (formAccountName) body.account_name = formAccountName;
- if (formAccountNumber) body.account_number = formAccountNumber;
+ if (formAccountNumber) {
+ body.account_number = MOBILE_CHANNELS.includes(formMethod)
+ ? normalizeTanzanianMsisdn(formAccountNumber)
+ : formAccountNumber;
+ }
  }
  if (BANK_CHANNELS.includes(formMethod) && formBankName) body.bank_name = formBankName;
  if (BANK_CHANNELS.includes(formMethod)) {
@@ -895,7 +998,23 @@ export default function DisbursementsPage() {
  setError("Your session expired. Please sign in again and retry.");
  return;
  }
- setError(formatApiResponseError(data, "Create failed"));
+ const message = formatApiResponseError(data, "Create failed");
+ if (isTimeoutOrInProgressError(message)) {
+ const recovered = await recoverExistingDisbursement(formLoan);
+ if (recovered) {
+ setCreateOpen(false);
+ setViewRow(recovered);
+ setError(
+ "This payout may already be in progress. We found the existing disbursement below — please confirm its status before creating another one."
+ );
+ return;
+ }
+ setError(
+ `${message} This looks like a gateway timeout or duplicate payout — check the disbursements list for an existing record before retrying.`
+ );
+ return;
+ }
+ setError(message);
  return;
  }
  setCreateOpen(false);
@@ -938,6 +1057,7 @@ export default function DisbursementsPage() {
     setCompleteRow(null);
     setRejectRow(null);
     setCompleteRef("");
+    setApproveRef("");
     setRejectReason("");
     await load();
     // Signal the Applications page to reload immediately so the status badge
@@ -1004,7 +1124,8 @@ export default function DisbursementsPage() {
  createAmountNum <= 0 ||
  (maxDisburseAmount > 0 && createAmountNum > maxDisburseAmount));
  const destinationInvalid =
- (MOBILE_CHANNELS.includes(formMethod) && !formAccountNumber.trim()) ||
+ (MOBILE_CHANNELS.includes(formMethod) &&
+ (!formAccountNumber.trim() || !isValidTanzanianMsisdn(normalizeTanzanianMsisdn(formAccountNumber)))) ||
  (BANK_CHANNELS.includes(formMethod) &&
  (!formAccountName.trim() || !formAccountNumber.trim() || !formBankBic.trim()));
 
@@ -1685,6 +1806,17 @@ export default function DisbursementsPage() {
  }
  className="h-11 font-mono"
  />
+ {MOBILE_CHANNELS.includes(formMethod) && formAccountNumber.trim() ? (
+ isValidTanzanianMsisdn(normalizeTanzanianMsisdn(formAccountNumber)) ? (
+ <p className="mt-1 text-[11px] text-muted-foreground">
+ Sent as {normalizeTanzanianMsisdn(formAccountNumber)}
+ </p>
+ ) : (
+ <p className="mt-1 text-[11px] text-destructive">
+ Enter a valid Tanzanian number, e.g. 0712345678 or 255712345678.
+ </p>
+ )
+ ) : null}
  </Field>
  </div>
  {BANK_CHANNELS.includes(formMethod) && (
@@ -1854,13 +1986,17 @@ export default function DisbursementsPage() {
  </Button>
  )}
  </div>
- {awaitingClickPesa ? (
- <p className="max-w-[16rem] text-[11px] leading-snug text-muted-foreground">
- ClickPesa confirmation is pending. Do not submit another payout.
- </p>
- ) : null}
- </div>
- </TableCell>
+                  {awaitingClickPesa ? (
+                    <p className="max-w-[16rem] text-[11px] leading-snug text-muted-foreground">
+                      ClickPesa confirmation is pending. Do not submit another payout.
+                    </p>
+                  ) : statusHelperText(row) ? (
+                    <p className="max-w-[16rem] text-[11px] leading-snug text-muted-foreground">
+                      {statusHelperText(row)}
+                    </p>
+                  ) : null}
+                </div>
+              </TableCell>
  <TableCell className="text-sm">
  {staffDisplayLabel(row.prepared_by_name, row.prepared_by)}
  </TableCell>
@@ -1984,11 +2120,13 @@ export default function DisbursementsPage() {
  </div>
  </CardHeader>
  <CardContent className="space-y-3 text-sm">
- {awaitingClickPesa ? (
- <p className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950">
- ClickPesa confirmation is pending. Do not submit another payout.
- </p>
- ) : null}
+                {awaitingClickPesa ? (
+                  <p className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950">
+                    ClickPesa confirmation is pending. Do not submit another payout.
+                  </p>
+                ) : statusHelperText(row) ? (
+                  <p className="text-xs text-muted-foreground">{statusHelperText(row)}</p>
+                ) : null}
  <div className="flex justify-between">
  <span className="text-muted-foreground">Amount</span>
  <span className="font-semibold">{formatCurrency(row.amount)}</span>
@@ -2038,7 +2176,15 @@ export default function DisbursementsPage() {
  </DialogContent>
  </Dialog>
 
- <Dialog open={!!approveRow} onOpenChange={(o) => !o && setApproveRow(null)}>
+ <Dialog
+ open={!!approveRow}
+ onOpenChange={(o) => {
+ if (!o) {
+ setApproveRow(null);
+ setApproveRef("");
+ }
+ }}
+ >
  <DialogContent>
  <DialogHeader>
  <DialogTitle>Confirm disbursement</DialogTitle>
@@ -2096,14 +2242,37 @@ export default function DisbursementsPage() {
  )}
  </dl>
  )}
+ {!isGatewayChannel(approveRow.method) && (
+ <div>
+ <Label htmlFor="approve-ref">Transaction reference (optional)</Label>
+ <Input
+ id="approve-ref"
+ value={approveRef}
+ onChange={(e) => setApproveRef(e.target.value)}
+ placeholder="e.g. cash receipt or bank slip number"
+ />
+ </div>
+ )}
  </div>
  ) : null}
  <DialogFooter>
- <Button variant="outline" onClick={() => setApproveRow(null)}>
+ <Button
+ variant="outline"
+ onClick={() => {
+ setApproveRow(null);
+ setApproveRef("");
+ }}
+ >
  Cancel
  </Button>
  <Button
- onClick={() => approveRow && patch(approveRow.id, { action: "approve" })}
+ onClick={() =>
+ approveRow &&
+ patch(approveRow.id, {
+ action: "approve",
+ ...(approveRef.trim() ? { transaction_reference: approveRef.trim() } : {}),
+ })
+ }
  disabled={!approveRow || actionLoading === approveRow?.id}
  >
  {approveRow && isGatewayChannel(approveRow.method)

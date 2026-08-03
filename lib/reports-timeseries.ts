@@ -1,98 +1,164 @@
 /** Helpers for `GET /dashboard/timeseries` and monthly report charts. */
 
 export type TimeseriesPoint = {
- period: string;
- label: string;
- amount: number;
- count: number;
+  period: string;
+  label: string;
+  amount: number;
+  count: number;
 };
 
 export type MonthlyActivityRow = {
- month: string;
- disbursements: number;
- collections: number;
- newLoans: number;
- /** Payment / collection transaction count from timeseries (when provided). */
- collectionCount: number;
- outstanding: number;
+  /** Display label, e.g. "Jul" or "Jul '25" when the range spans years. */
+  month: string;
+  /** Stable sort key `YYYY-MM`. */
+  monthKey: string;
+  disbursements: number;
+  collections: number;
+  newLoans: number;
+  /** Payment / collection transaction count from timeseries (when provided). */
+  collectionCount: number;
+  outstanding: number;
 };
 
 export type MonthlyActivitySummary = {
- /** Months with at least one non-zero metric (capped for display). */
- displayRows: MonthlyActivityRow[];
- periodTotals: {
- disbursements: number;
- collections: number;
- newLoans: number;
- collectionCount: number;
- netLoanGrowth: number;
- };
- activeMonths: number;
- hiddenEmptyMonths: number;
+  /** Months with at least one non-zero metric (capped for display). */
+  displayRows: MonthlyActivityRow[];
+  periodTotals: {
+    disbursements: number;
+    collections: number;
+    newLoans: number;
+    collectionCount: number;
+    netLoanGrowth: number;
+  };
+  activeMonths: number;
+  hiddenEmptyMonths: number;
 };
 
 function num(value: unknown, fallback = 0): number {
- const n = Number(value);
- return Number.isFinite(n) ? n : fallback;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+/** Normalize API period strings to a monthly bucket (`YYYY-MM`). */
+export function monthKeyFromPeriod(period: string): string {
+  const trimmed = period.trim();
+  if (!trimmed) return "";
+
+  if (/^\d{4}-\d{2}$/.test(trimmed)) return trimmed;
+  if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) return trimmed.slice(0, 7);
+
+  const d = new Date(trimmed);
+  if (Number.isNaN(d.getTime())) return trimmed;
+
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  return `${year}-${month}`;
+}
+
+export function monthDisplayLabel(monthKey: string, includeYear = false): string {
+  if (!/^\d{4}-\d{2}$/.test(monthKey)) return monthKey;
+  const d = new Date(`${monthKey}-01T00:00:00`);
+  if (Number.isNaN(d.getTime())) return monthKey;
+  return d.toLocaleString("en-US", {
+    month: "short",
+    ...(includeYear ? { year: "2-digit" } : {}),
+  });
 }
 
 function periodLabel(period: string): string {
- const d = new Date(period.length === 7 ? `${period}-01` : period);
- if (Number.isNaN(d.getTime())) return period;
- return d.toLocaleString("en-US", { month: "short" });
+  const monthKey = monthKeyFromPeriod(period);
+  return monthKey ? monthDisplayLabel(monthKey) : period;
+}
+
+function nonNegativeAmount(value: unknown): number {
+  return Math.max(0, num(value));
 }
 
 export function normalizeTimeseries(payload: unknown): TimeseriesPoint[] {
- const root =
- typeof payload === "object" && payload !== null ? (payload as Record<string, unknown>) : {};
- const items = Array.isArray(root.points)
- ? root.points
- : Array.isArray(root.items)
- ? root.items
- : Array.isArray(root.data)
- ? root.data
- : Array.isArray(payload)
- ? payload
- : [];
+  const root =
+    typeof payload === "object" && payload !== null ? (payload as Record<string, unknown>) : {};
+  const items = Array.isArray(root.points)
+    ? root.points
+    : Array.isArray(root.items)
+      ? root.items
+      : Array.isArray(root.data)
+        ? root.data
+        : Array.isArray(payload)
+          ? payload
+          : [];
 
- return items.map((row) => {
- const item = typeof row === "object" && row !== null ? (row as Record<string, unknown>) : {};
- const period = String(item.period ?? item.period_start ?? item.month ?? item.date ?? "");
- return {
- period,
- label: String(item.label ?? periodLabel(period)),
- amount: num(item.amount ?? item.value ?? item.total),
- count: num(item.count ?? item.loan_count ?? item.new_loans),
- };
- });
+  return items.map((row) => {
+    const item = typeof row === "object" && row !== null ? (row as Record<string, unknown>) : {};
+    const period = String(item.period ?? item.period_start ?? item.month ?? item.date ?? "");
+    return {
+      period,
+      label: String(item.label ?? periodLabel(period)),
+      amount: nonNegativeAmount(item.amount ?? item.value ?? item.total),
+      count: num(item.count ?? item.loan_count ?? item.new_loans),
+    };
+  });
 }
 
 export function mergeMonthlyActivity(input: {
- disbursements: TimeseriesPoint[];
- collections: TimeseriesPoint[];
- outstanding: TimeseriesPoint[];
+  disbursements: TimeseriesPoint[];
+  collections: TimeseriesPoint[];
+  outstanding: TimeseriesPoint[];
 }): MonthlyActivityRow[] {
- const keys = new Set<string>();
- for (const list of [input.disbursements, input.collections, input.outstanding]) {
- for (const p of list) {
- if (p.period) keys.add(p.period);
- }
- }
+  const monthKeys = new Set<string>();
+  const disbursementsByMonth = new Map<string, { amount: number; count: number }>();
+  const collectionsByMonth = new Map<string, { amount: number; count: number }>();
+  const outstandingByMonth = new Map<string, { period: string; amount: number }>();
 
- const sorted = Array.from(keys).sort();
- return sorted.map((period) => {
- const disb = input.disbursements.find((p) => p.period === period);
- const coll = input.collections.find((p) => p.period === period);
- const out = input.outstanding.find((p) => p.period === period);
- return {
- month: disb?.label ?? coll?.label ?? out?.label ?? periodLabel(period),
- disbursements: disb?.amount ?? 0,
- collections: coll?.amount ?? 0,
- newLoans: disb?.count ?? 0,
- collectionCount: coll?.count ?? 0,
- outstanding: out?.amount ?? 0,
- };
- });
+  for (const point of input.disbursements) {
+    const monthKey = monthKeyFromPeriod(point.period);
+    if (!monthKey) continue;
+    monthKeys.add(monthKey);
+    const current = disbursementsByMonth.get(monthKey) ?? { amount: 0, count: 0 };
+    disbursementsByMonth.set(monthKey, {
+      amount: current.amount + point.amount,
+      count: current.count + point.count,
+    });
+  }
+
+  for (const point of input.collections) {
+    const monthKey = monthKeyFromPeriod(point.period);
+    if (!monthKey) continue;
+    monthKeys.add(monthKey);
+    const current = collectionsByMonth.get(monthKey) ?? { amount: 0, count: 0 };
+    collectionsByMonth.set(monthKey, {
+      amount: current.amount + point.amount,
+      count: current.count + point.count,
+    });
+  }
+
+  for (const point of input.outstanding) {
+    const monthKey = monthKeyFromPeriod(point.period);
+    if (!monthKey) continue;
+    monthKeys.add(monthKey);
+    const current = outstandingByMonth.get(monthKey);
+    if (!current || point.period >= current.period) {
+      outstandingByMonth.set(monthKey, { period: point.period, amount: point.amount });
+    }
+  }
+
+  const sortedMonthKeys = Array.from(monthKeys).sort();
+  const includeYear = new Set(sortedMonthKeys.map((key) => key.slice(0, 4))).size > 1;
+
+  return sortedMonthKeys.map((monthKey) => {
+    const disb = disbursementsByMonth.get(monthKey);
+    const coll = collectionsByMonth.get(monthKey);
+    const out = outstandingByMonth.get(monthKey);
+
+    return {
+      month: monthDisplayLabel(monthKey, includeYear),
+      monthKey,
+      disbursements: disb?.amount ?? 0,
+      collections: coll?.amount ?? 0,
+      newLoans: disb?.count ?? 0,
+      collectionCount: coll?.count ?? 0,
+      outstanding: out?.amount ?? 0,
+    };
+  });
 }
 
 export function hasMonthlyActivity(row: MonthlyActivityRow): boolean {

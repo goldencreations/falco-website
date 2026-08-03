@@ -658,6 +658,27 @@ export function mergeEligibleLoanLists(...lists: EligibleLoanRow[][]): EligibleL
  return Array.from(byId.values()).sort((a, b) => a.loan_number.localeCompare(b.loan_number));
 }
 
+/**
+ * Normalize a Tanzanian mobile number to the `255XXXXXXXXX` format required by the
+ * mobile-money disbursement gateway (mpesa/airtel_money/yas/halopesa).
+ * Accepts `07XXXXXXXX`, `+255XXXXXXXXX`, `255XXXXXXXXX`, or bare `7XXXXXXXX` input.
+ */
+export function normalizeTanzanianMsisdn(raw: string): string {
+ const digits = raw.replace(/\D/g, "");
+ if (!digits) return "";
+ if (digits.startsWith("255") && digits.length === 12) return digits;
+ if (digits.startsWith("0") && digits.length === 10) return `255${digits.slice(1)}`;
+ if (digits.length === 9) return `255${digits}`;
+ // Fallback: strip a leading country-code-looking "255" duplication or return digits as-is
+ // so validation (below) can flag it rather than silently mangling an unrecognized format.
+ return digits;
+}
+
+/** `true` only for a well-formed `255XXXXXXXXX` (12-digit) Tanzanian MSISDN. */
+export function isValidTanzanianMsisdn(value: string): boolean {
+ return /^255\d{9}$/.test(value);
+}
+
 /** Map UI create form → `POST /disbursements` console body (Falco channel fields + UI aliases). */
 export function mapUiDisbursementCreateToFalco(body: Record<string, unknown>): Record<string, unknown> {
  const loanIdRaw = String(body.loan_id ?? "").trim();
@@ -696,9 +717,10 @@ export function mapUiDisbursementCreateToFalco(body: Record<string, unknown>): R
  if (!payload.bank_account_name) payload.bank_account_name = accountName;
  }
  if (accountNumber) {
- payload.account_number = accountNumber;
- if (!payload.mobile_money_phone && channelPayload.disbursement_channel === "mobile_money") {
- payload.mobile_money_phone = accountNumber.replace(/\s+/g, "");
+ const isMobileMoney = channelPayload.disbursement_channel === "mobile_money";
+ payload.account_number = isMobileMoney ? normalizeTanzanianMsisdn(accountNumber) : accountNumber;
+ if (!payload.mobile_money_phone && isMobileMoney) {
+ payload.mobile_money_phone = normalizeTanzanianMsisdn(accountNumber);
  }
  if (!payload.bank_account_number && channelPayload.disbursement_channel === "bank_transfer") {
  payload.bank_account_number = accountNumber;
@@ -748,7 +770,8 @@ export function mapUiLoanDisburseToFalco(body: Record<string, unknown>): Record<
  };
 
  if (disbursement_channel === "mobile_money") {
- base.mobile_money_phone = String(body.account_number ?? body.mobile_money_phone ?? "").replace(/\s+/g, "") || null;
+ const rawPhone = String(body.account_number ?? body.mobile_money_phone ?? "");
+ base.mobile_money_phone = rawPhone.trim() ? normalizeTanzanianMsisdn(rawPhone) : null;
  }
 
  if (disbursement_channel === "bank_transfer") {

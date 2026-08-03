@@ -6,6 +6,8 @@ export type CustomerAttachmentFormState = {
 };
 
 export type CustomerAttachmentDocument = {
+  /** Backend document id, when known — required to call `DELETE .../documents/{id}`. */
+  id?: string;
   name: string;
   url: string;
   previewUrl?: string | null;
@@ -189,6 +191,8 @@ function readAttachmentArray(
     if (!item || typeof item !== "object") continue;
     const o = item as Record<string, unknown>;
     const nested = readNestedDocument(o, "document");
+    const nestedDoc =
+      o.document && typeof o.document === "object" ? (o.document as Record<string, unknown>) : null;
     const url = readUrl(o.url ?? o.download_url ?? o.href) ?? nested.url;
     if (!url) continue;
     const previewUrl =
@@ -200,7 +204,11 @@ function readAttachmentArray(
       (type ? type.replace(/_/g, " ") : null) ||
       url.split("/").pop() ||
       defaultName;
-    out.push({ name, url, previewUrl });
+    const id =
+      (o.id != null ? String(o.id).trim() : "") ||
+      (o.document_id != null ? String(o.document_id).trim() : "") ||
+      (nestedDoc?.id != null ? String(nestedDoc.id).trim() : "");
+    out.push({ ...(id ? { id } : {}), name, url, previewUrl });
   }
 
   return out;

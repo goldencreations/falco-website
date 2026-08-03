@@ -725,7 +725,13 @@ function NewCustomerPageInner() {
  }
 
  const payload = buildPayload();
- const customerEndpoint = process.env.NEXT_PUBLIC_CUSTOMERS_API_URL || "/api/customers";
+ // Converting a lead creates the customer and marks the lead converted atomically on the
+ // backend (`POST /leads/{id}/convert`) — using plain `/customers` here would leave the lead
+ // stuck as unconverted and lose the backend's conversion tracking/reporting.
+ const customerEndpoint = leadPrefillId
+ ? `/api/leads/${encodeURIComponent(leadPrefillId)}/convert`
+ : process.env.NEXT_PUBLIC_CUSTOMERS_API_URL || "/api/customers";
+ const requestBody = leadPrefillId ? { customer: payload } : payload;
 
  setSubmitting(true);
  try {
@@ -733,7 +739,7 @@ function NewCustomerPageInner() {
  method: "POST",
  credentials: "include",
  headers: { "Content-Type": "application/json" },
- body: JSON.stringify(payload),
+ body: JSON.stringify(requestBody),
  });
 
  const responseBody = (await response.json().catch(() => ({}))) as {

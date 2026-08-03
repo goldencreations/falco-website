@@ -763,16 +763,18 @@ export default function CustomersPage() {
    addHiddenCustomerId(id);
    return next;
   });
-  if (opts?.softOnly) {
-   setSoftDeleteNotice(
-    opts.backendMessage
-      ? `Customer hidden from this UI list only. Backend message: ${opts.backendMessage}`
-      : "Customer hidden from this UI list only."
-   );
-  } else {
-   setSoftDeleteNotice(null);
-  }
-  void loadCustomers();
+ if (opts?.softOnly) {
+ setSoftDeleteNotice(
+ opts.backendMessage
+ ? `Customer hidden from this UI list only. Backend message: ${opts.backendMessage}`
+ : "Customer hidden from this UI list only."
+ );
+ } else if (opts?.deactivated) {
+ setSoftDeleteNotice("Customer deactivated.");
+ } else {
+ setSoftDeleteNotice(null);
+ }
+ void loadCustomers();
  }}
  />
  ) : null}

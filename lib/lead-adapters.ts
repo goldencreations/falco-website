@@ -71,11 +71,26 @@ function str(v: unknown, fallback = ""): string {
 function readNestedUser(value: unknown): { id?: string; name?: string; role?: string } {
  if (!value || typeof value !== "object") return {};
  const row = value as Record<string, unknown>;
+ const name = row.name ?? row.full_name;
  return {
  id: row.id != null && String(row.id).trim() ? str(row.id) : undefined,
- name: row.name != null && String(row.name).trim() ? str(row.name) : undefined,
+ name: name != null && String(name).trim() ? str(name) : undefined,
  role: row.role != null && String(row.role).trim() ? str(row.role) : undefined,
  };
+}
+
+/** Some responses nest the creating staff user under `creator`/`staff` instead of `created_by`. */
+function readLeadCreator(inner: Record<string, unknown>): { id?: string; name?: string; role?: string } {
+ let result: { id?: string; name?: string; role?: string } = {};
+ for (const candidate of [inner.created_by, inner.creator, inner.staff]) {
+ const parsed = readNestedUser(candidate);
+ result = {
+ id: result.id ?? parsed.id,
+ name: result.name ?? parsed.name,
+ role: result.role ?? parsed.role,
+ };
+ }
+ return result;
 }
 
 export function adaptApiLeadRow(raw: Record<string, unknown>): LeadView {
@@ -84,7 +99,7 @@ export function adaptApiLeadRow(raw: Record<string, unknown>): LeadView {
  const rawNotes = str(inner.notes);
  const locationType = parseLocationTypeFromNotes(rawNotes);
  const notes = stripLocationTagFromNotes(rawNotes);
- const createdByUser = readNestedUser(inner.created_by);
+ const createdByUser = readLeadCreator(inner);
 
  return {
  id: str(inner.id),

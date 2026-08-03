@@ -225,6 +225,11 @@ export function mapFormPayloadToCustomerApi(input: Record<string, unknown>): Rec
         const id_back_document_id =
           row.id_back_document_id != null ? String(row.id_back_document_id).trim() : "";
 
+        // Do not send `attachments` unless the caller explicitly provided a real array —
+        // uploads are linked server-side via the documents endpoint (guarantor_id), and
+        // sending an empty array here previously wiped photos/collateral images on PATCH.
+        const attachments = Array.isArray(row.attachments) ? row.attachments : undefined;
+
         return {
           ...(id ? { id } : {}),
           full_name,
@@ -233,7 +238,7 @@ export function mapFormPayloadToCustomerApi(input: Record<string, unknown>): Rec
           ...(national_id ? { national_id } : {}),
           ...(id_type ? { id_type } : {}),
           ...(sex ? { sex } : {}),
-          attachments: Array.isArray(row.attachments) ? row.attachments : [],
+          ...(attachments ? { attachments } : {}),
           ...(id_front_document_id ? { id_front_document_id } : {}),
           ...(id_back_document_id ? { id_back_document_id } : {}),
         };
@@ -245,7 +250,9 @@ export function mapFormPayloadToCustomerApi(input: Record<string, unknown>): Rec
   ? (input.references as Array<Record<string, unknown>>)
       .map((row) => {
         const sex = asCustomerSex(row.sex ?? row.gender);
+        const id = row.id != null ? String(row.id).trim() : "";
         return {
+          ...(id ? { id } : {}),
           full_name: String(row.full_name ?? row.name ?? "").trim(),
           phone:
             String(row.phone ?? row.phone_number ?? "").replace(/\D/g, "") ||
@@ -352,6 +359,7 @@ export function mapFormPayloadToCustomerApi(input: Record<string, unknown>): Rec
 
  if (collateral.length > 0) payload.collateral = collateral;
  if (guarantors.length > 0) payload.guarantors = guarantors;
+ if (references.length > 0) payload.references = references;
 
  if (email) payload.email = email;
  if (alternate_phone) payload.alternate_phone = alternate_phone;
