@@ -10,6 +10,8 @@ import {
   CUSTOMER_GUARANTOR_DOCUMENT_TYPE,
   CUSTOMER_GUARANTOR_PASSPORT_PHOTO_DOCUMENT_TYPE,
   CUSTOMER_GUARANTOR_PHOTO_DOCUMENT_TYPE,
+  CUSTOMER_GUARANTOR_WARD_LETTER_DOCUMENT_TYPE,
+  CUSTOMER_GUARANTOR_WARD_LETTER_UPLOAD_NAME,
 } from "@/lib/customer-document-types";
 
 async function uploadGuarantorFiles(
@@ -17,14 +19,15 @@ async function uploadGuarantorFiles(
   guarantorId: string,
   type: string,
   files: File[],
-  label: string
+  label: string,
+  options?: { documentName?: string }
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   if (files.length === 0) return { ok: true };
 
   const form = new FormData();
   form.append("type", type);
   form.append("guarantor_id", guarantorId);
-  form.append("name", files[0].name);
+  form.append("name", options?.documentName?.trim() || files[0].name);
   for (const file of files) {
     form.append("files[]", file, file.name);
   }
@@ -212,17 +215,32 @@ export async function uploadCustomerGuarantorDocuments(
       if (!result.ok) return result;
     }
 
-    const documents: File[] = [];
-    if (row.wardLetter) documents.push(row.wardLetter);
-    documents.push(...row.attachments);
-    if (documents.length > 0) {
-      const check = validateDocFiles(documents);
+    if (row.wardLetter) {
+      const check = validateDocFiles([row.wardLetter]);
+      if (!check.ok) return { ok: false, error: `${labelBase} ward letter: ${check.error}` };
+      const result = await uploadGuarantorFiles(
+        customerId,
+        guarantorId,
+        CUSTOMER_GUARANTOR_WARD_LETTER_DOCUMENT_TYPE,
+        [row.wardLetter],
+        `${labelBase} ward letter`,
+        {
+          // Stable label so GET /customers can map this file back to the Ward letter field
+          // (backend has no dedicated ward_letter document type / field).
+          documentName: `${CUSTOMER_GUARANTOR_WARD_LETTER_UPLOAD_NAME} — ${row.wardLetter.name}`,
+        }
+      );
+      if (!result.ok) return result;
+    }
+
+    if (row.attachments.length > 0) {
+      const check = validateDocFiles(row.attachments);
       if (!check.ok) return { ok: false, error: `${labelBase} document: ${check.error}` };
       const result = await uploadGuarantorFiles(
         customerId,
         guarantorId,
         CUSTOMER_GUARANTOR_DOCUMENT_TYPE,
-        documents,
+        row.attachments,
         `${labelBase} documents`
       );
       if (!result.ok) return result;

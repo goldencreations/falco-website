@@ -7,11 +7,17 @@ import { verifyCustomerUploadAccess } from "@/lib/server-customer-upload";
 import { falcoServerFetch } from "@/lib/server-falco";
 
 function collectFiles(incoming: FormData): File[] {
+  // Prefer `files[]` / `files`. Only fall back to `file` when those are empty so a
+  // client that accidentally sends both shapes does not create duplicate uploads.
   const files: File[] = [];
-  for (const key of ["files[]", "files", "file"]) {
+  for (const key of ["files[]", "files"]) {
     for (const value of incoming.getAll(key)) {
       if (value instanceof File && value.size > 0) files.push(value);
     }
+  }
+  if (files.length > 0) return files;
+  for (const value of incoming.getAll("file")) {
+    if (value instanceof File && value.size > 0) files.push(value);
   }
   return files;
 }
