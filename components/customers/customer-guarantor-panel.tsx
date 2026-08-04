@@ -24,6 +24,10 @@ function isPassportDoc(doc: CustomerGuarantorDocument) {
   return /passport/i.test(doc.name);
 }
 
+function hasPreview(doc: CustomerGuarantorDocument): boolean {
+  return Boolean(doc.previewUrl && doc.previewUrl.trim());
+}
+
 function GuarantorPassportAvatar({
   name,
   doc,
@@ -75,22 +79,24 @@ function GuarantorPhotoBlock({
         maxHeight="max-h-56"
         imageClassName="object-cover"
       />
-      {viewUrl ? (
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" size="sm" asChild>
-            <a href={viewUrl} target="_blank" rel="noopener noreferrer">
-              <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
-              View
-            </a>
-          </Button>
-          <Button type="button" variant="secondary" size="sm" asChild>
-            <a href={downloadUrl} download>
-              <Download className="mr-1.5 h-3.5 w-3.5" />
-              Download
-            </a>
-          </Button>
-        </div>
-      ) : null}
+      <div className="flex flex-wrap gap-2">
+        {viewUrl ? (
+          <>
+            <Button type="button" variant="outline" size="sm" asChild>
+              <a href={viewUrl} target="_blank" rel="noopener noreferrer">
+                <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                View
+              </a>
+            </Button>
+            <Button type="button" variant="secondary" size="sm" asChild>
+              <a href={downloadUrl} download>
+                <Download className="mr-1.5 h-3.5 w-3.5" />
+                Download
+              </a>
+            </Button>
+          </>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -102,12 +108,13 @@ function GuarantorMediaSection({
   title: string;
   items: CustomerGuarantorDocument[];
 }) {
-  if (items.length === 0) return null;
+  const previewableItems = items.filter(hasPreview);
+  if (previewableItems.length === 0) return null;
   return (
     <div className="space-y-2">
       <p className="text-sm font-medium">{title}</p>
       <div className="grid gap-4 md:grid-cols-2">
-        {items.map((doc) => (
+        {previewableItems.map((doc) => (
           <GuarantorPhotoBlock
             key={`${title}-${doc.name}-${doc.url}`}
             title={doc.name}
@@ -120,7 +127,15 @@ function GuarantorMediaSection({
   );
 }
 
-export function CustomerGuarantorPanel({ rows }: { rows: CustomerGuarantorRow[] }) {
+export function CustomerGuarantorPanel({
+  rows,
+  onDeleteDocument: _onDeleteDocument,
+  removingDocumentIds: _removingDocumentIds,
+}: {
+  rows: CustomerGuarantorRow[];
+  onDeleteDocument?: (documentId: string) => void;
+  removingDocumentIds?: Set<string>;
+}) {
   if (rows.length === 0) {
     return (
       <Card>
@@ -146,11 +161,15 @@ export function CustomerGuarantorPanel({ rows }: { rows: CustomerGuarantorRow[] 
         const otherPhotos = passportDoc
           ? row.photos.filter((doc) => doc !== passportDoc)
           : row.photos;
+        const previewableDocuments = row.documents.filter(hasPreview);
+        const previewablePhotos = otherPhotos.filter(hasPreview);
+        const previewableAttachments = row.attachments.filter(hasPreview);
+        const previewableCollateralImages = row.collateralImageAttachments.filter(hasPreview);
         const hasMedia =
-          row.documents.length > 0 ||
-          otherPhotos.length > 0 ||
-          row.attachments.length > 0 ||
-          row.collateralImageAttachments.length > 0;
+          previewableDocuments.length > 0 ||
+          previewablePhotos.length > 0 ||
+          previewableAttachments.length > 0 ||
+          previewableCollateralImages.length > 0;
 
         return (
           <Card key={`${row.applicationNumber}-${row.name}-${row.phone}`}>
@@ -210,12 +229,21 @@ export function CustomerGuarantorPanel({ rows }: { rows: CustomerGuarantorRow[] 
 
               {hasMedia ? (
                 <div className="space-y-4">
-                  <GuarantorMediaSection title="National ID photos" items={row.documents} />
-                  <GuarantorMediaSection title="Photos" items={otherPhotos} />
-                  <GuarantorMediaSection title="Attachments" items={row.attachments} />
+                  <GuarantorMediaSection
+                    title="National ID photos"
+                    items={previewableDocuments}
+                  />
+                  <GuarantorMediaSection
+                    title="Photos"
+                    items={previewablePhotos}
+                  />
+                  <GuarantorMediaSection
+                    title="Attachments"
+                    items={previewableAttachments}
+                  />
                   <GuarantorMediaSection
                     title="Collateral photos"
-                    items={row.collateralImageAttachments}
+                    items={previewableCollateralImages}
                   />
                 </div>
               ) : !passportDoc ? (

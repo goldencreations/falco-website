@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { toast } from "sonner";
 import {
  ArrowLeft,
  Phone,
@@ -235,6 +236,7 @@ export default function CustomerDetailPage() {
  const [blacklistError, setBlacklistError] = useState("");
  const [activeTab, setActiveTab] = useState("analytics");
  const [mountedTabs, setMountedTabs] = useState<Set<string>>(() => new Set(["analytics"]));
+ const [removingGuarantorDocIds, setRemovingGuarantorDocIds] = useState<Set<string>>(new Set());
 
  const handleTabChange = useCallback((value: string) => {
  setActiveTab(value);
@@ -269,6 +271,42 @@ export default function CustomerDetailPage() {
  const guarantorRows = useMemo(
   () => buildCustomerGuarantorRows(customer?.guarantors, applicationsForFiles, sourceRow),
   [customer?.guarantors, applicationsForFiles, sourceRow]
+ );
+
+ const deleteGuarantorDocument = useCallback(
+  async (documentId: string) => {
+   setRemovingGuarantorDocIds((prev) => new Set(prev).add(documentId));
+   try {
+    const res = await fetch(
+     `/api/customers/${encodeURIComponent(customerId)}/documents/${encodeURIComponent(documentId)}`,
+     { method: "DELETE", credentials: "include" }
+    );
+    if (!res.ok) {
+     const json = (await res.json().catch(() => ({}))) as { message?: string };
+     toast.error(json.message ?? `Could not remove document (${res.status})`);
+     return;
+    }
+    const detailRes = await fetch(`/api/customers/${encodeURIComponent(customerId)}`, {
+     credentials: "include",
+    });
+    const detailBody = (await detailRes.json().catch(() => ({}))) as unknown;
+    const refreshed = extractCustomerDetail(detailBody);
+    if (refreshed) {
+     setSourceRow(refreshed);
+     setCachedCustomerDetail(customerId, refreshed, adaptApiCustomerRowToCustomer(refreshed));
+    }
+    toast.success("Document removed.");
+   } catch {
+    toast.error("Network error while removing document.");
+   } finally {
+    setRemovingGuarantorDocIds((prev) => {
+     const next = new Set(prev);
+     next.delete(documentId);
+     return next;
+    });
+   }
+  },
+  [customerId]
  );
 
  const applyPortfolio = (body: CustomerPortfolioData) => {
@@ -1222,7 +1260,13 @@ export default function CustomerDetailPage() {
  </TabsContent>
 
  <TabsContent value="guarantors">
- {mountedTabs.has("guarantors") ? <CustomerGuarantorPanel rows={guarantorRows} /> : null}
+ {mountedTabs.has("guarantors") ? (
+                  <CustomerGuarantorPanel
+                    rows={guarantorRows}
+                    onDeleteDocument={deleteGuarantorDocument}
+                    removingDocumentIds={removingGuarantorDocIds}
+                  />
+                ) : null}
  </TabsContent>
  </Tabs>
  </div>

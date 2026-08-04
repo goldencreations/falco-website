@@ -282,7 +282,7 @@ export function CustomerCollateralFields({
                 JPG, JPEG, PNG, or WEBP — max 5MB each. You can select multiple images.
               </p>
               {row.existingImageUrls.length > 0 ? (
-                <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                   {row.existingImageUrls.map((authUrl, urlIndex) => {
                     const documentId = row.existingImageDocumentIds?.[urlIndex];
                     return (
@@ -298,7 +298,7 @@ export function CustomerCollateralFields({
                 </div>
               ) : null}
               {row.images.length > 0 ? (
-                <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                   {row.images.map((file, fileIndex) => (
                     <CollateralImagePreview
                       key={`${file.name}-${file.size}-${file.lastModified}-${fileIndex}`}

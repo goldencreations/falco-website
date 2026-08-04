@@ -270,11 +270,15 @@ export function normalizeGuarantors(raw: unknown[]): GuarantorRow[] {
           flatFrontPreview ??
           (id_front_url && !id_front_url.includes("/documents/") ? id_front_url : undefined),
         id_front_url,
+        id_front_document_id:
+          o.id_front_document_id != null ? String(o.id_front_document_id).trim() || undefined : undefined,
         id_back_preview_url:
           backDoc.preview_url ??
           flatBackPreview ??
           (id_back_url && !id_back_url.includes("/documents/") ? id_back_url : undefined),
         id_back_url,
+        id_back_document_id:
+          o.id_back_document_id != null ? String(o.id_back_document_id).trim() || undefined : undefined,
         photo_preview_url:
           photoDoc.preview_url ?? photoAttachments[0]?.preview_url ?? undefined,
         photo_url: photoDoc.url ?? photoAttachments[0]?.url ?? undefined,
@@ -378,10 +382,14 @@ export type GuarantorRow = {
   id_front_preview_url?: string;
   /** Authenticated download URL for ID front. */
   id_front_url?: string;
+  /** Backend document id — `DELETE /customers/{id}/documents/{id_front_document_id}`. */
+  id_front_document_id?: string;
   /** Direct <img> src for ID back — no auth required, expires ~15 min. */
   id_back_preview_url?: string;
   /** Authenticated download URL for ID back. */
   id_back_url?: string;
+  /** Backend document id — `DELETE /customers/{id}/documents/{id_back_document_id}`. */
+  id_back_document_id?: string;
   photo_preview_url?: string;
   photo_url?: string;
   photo_with_customer_preview_url?: string;

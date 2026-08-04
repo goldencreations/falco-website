@@ -118,17 +118,35 @@ export function buildCollectionActivityLoanOptions(
  return options;
 }
 
+/**
+ * Pulls the row array out of a paginated list response, tolerating a few response shapes beyond
+ * the documented `{ data: [...] }` — a bare top-level array, alternate keys some endpoints use
+ * (`items`, `results`, `collection_activities`), and a Laravel-paginator double-wrap
+ * (`{ data: { data: [...] } }`) that happens if a controller returns the paginator object as-is
+ * under a `data` key instead of spreading it.
+ */
 export function extractPaginatedData<T>(json: unknown): T[] {
- if (!json || typeof json !== "object") return [];
- const o = json as Record<string, unknown>;
- const raw = Array.isArray(o.data)
- ? o.data
- : Array.isArray(o.queue)
- ? o.queue
- : Array.isArray(o.activities)
- ? o.activities
- : [];
- return raw.filter((row): row is T => row != null && typeof row === "object");
+  if (Array.isArray(json)) {
+    return json.filter((row): row is T => row != null && typeof row === "object");
+  }
+  if (!json || typeof json !== "object") return [];
+  const o = json as Record<string, unknown>;
+
+  const candidates: unknown[] = [
+    o.data,
+    o.queue,
+    o.activities,
+    o.items,
+    o.results,
+    o.collection_activities,
+  ];
+  if (o.data && typeof o.data === "object" && !Array.isArray(o.data)) {
+    const nested = o.data as Record<string, unknown>;
+    candidates.push(nested.data, nested.items, nested.results);
+  }
+
+  const raw = candidates.find((c): c is unknown[] => Array.isArray(c)) ?? [];
+  return raw.filter((row): row is T => row != null && typeof row === "object");
 }
 
 export function adaptCollectionQueueRow(raw: Record<string, unknown>): CollectionQueueRow {

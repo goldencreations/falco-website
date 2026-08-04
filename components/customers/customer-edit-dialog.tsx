@@ -69,6 +69,7 @@ import {
   uploadCustomerSupportingDocuments,
 } from "@/lib/customer-location-photo-uploads";
 import {
+  applyApplicationGuarantorDocuments,
   customerGuarantorApiRecordsToForm,
   customerGuarantorFormToApiRecords,
   customerGuarantorRowsWithIdFiles,
@@ -77,6 +78,10 @@ import {
   validateCustomerGuarantors,
   type CustomerGuarantorFormRow,
 } from "@/lib/customer-guarantors";
+import { enrichCustomerApplicationsForMedia } from "@/lib/enrich-customer-applications";
+import { getCachedCustomerPortfolio } from "@/lib/customer-portfolio-cache";
+import type { ApplicationViewRow } from "@/lib/application-adapters";
+import type { CustomerPortfolioData } from "@/lib/customer-portfolio-detail";
 import {
   customerReferenceFormToRecords,
   customerReferenceRecordsToForm,
@@ -476,6 +481,36 @@ export function CustomerEditDialog({
   [customerId]
  );
 
+ const deleteCustomerGuarantor = useCallback(
+  async (guarantorId: string): Promise<boolean> => {
+   try {
+    const res = await fetch(
+     `/api/customers/${encodeURIComponent(customerId)}/guarantors/${encodeURIComponent(guarantorId)}`,
+     { method: "DELETE", credentials: "include" }
+    );
+    if (!res.ok) {
+      const json = (await res.json().catch(() => ({}))) as { message?: string };
+      toast.error(json.message ?? `Could not remove guarantor (${res.status})`);
+      return false;
+    }
+    const detailRes = await fetch(`/api/customers/${encodeURIComponent(customerId)}`, {
+      credentials: "include",
+    });
+    const detailBody = (await detailRes.json().catch(() => ({}))) as unknown;
+    const refreshed = extractCustomerDetail(detailBody);
+    if (refreshed) {
+      setLiveSourceRow(refreshed);
+    }
+    toast.success("Guarantor removed.");
+    return true;
+   } catch {
+    toast.error("Network error while removing guarantor.");
+    return false;
+   }
+  },
+  [customerId]
+ );
+
  const loadBranches = useCallback(async () => {
  setBranchesLoading(true);
  setBranchesError("");
@@ -580,9 +615,42 @@ export function CustomerEditDialog({
  const editForm = toEditForm(base);
  setForm(editForm);
  initialFormPatchRef.current = formToPatchBody(editForm);
- initialGuarantorsRef.current = customerGuarantorFormToApiRecords(loadedGuarantors);
+  initialGuarantorsRef.current = customerGuarantorFormToApiRecords(loadedGuarantors);
  initialLocationRef.current = locationPinsFromForm(editForm);
  }, [open, customer, sourceRow]);
+
+ // The customer record's own `guarantors[]` only carries a bare id_front/id_back document id —
+ // the backend has no route that resolves that id back to a url. The same guarantor recorded on
+ // a loan application often has the document fully embedded, so fetch applications and backfill
+ // any missing ID-scan preview urls from there (same source the profile page already uses).
+ useEffect(() => {
+  if (!open || !customerId) return;
+  let cancelled = false;
+
+  const applyFromApplications = (applications: ApplicationViewRow[]) => {
+   if (cancelled || applications.length === 0) return;
+   void enrichCustomerApplicationsForMedia(applications).then((enriched) => {
+    if (cancelled) return;
+    setGuarantors((prev) => applyApplicationGuarantorDocuments(prev, enriched));
+   });
+  };
+
+  const cached = getCachedCustomerPortfolio(customerId);
+  if (cached?.applications?.length) {
+   applyFromApplications(cached.applications);
+  } else {
+   void fetch(`/api/customers/${encodeURIComponent(customerId)}/portfolio`, { credentials: "include" })
+    .then((res) => (res.ok ? res.json() : null))
+    .then((body: CustomerPortfolioData | null) => {
+     if (!cancelled && body?.applications) applyFromApplications(body.applications);
+    })
+    .catch(() => undefined);
+  }
+
+  return () => {
+   cancelled = true;
+  };
+ }, [open, customerId]);
 
  const updateField = <K extends keyof EditForm>(key: K, value: EditForm[K]) => {
  setForm((prev) => {
@@ -673,9 +741,9 @@ export function CustomerEditDialog({
  const patchBody: Record<string, unknown> = {
   ...formToPatchBody(form),
   is_blacklisted: customer.is_blacklisted,
-  guarantors: nextGuarantors,
-  references: nextReferences,
  };
+ if (guarantorsChanged) patchBody.guarantors = nextGuarantors;
+ if (referencesChanged) patchBody.references = nextReferences;
  if (collateralMetadataChanged) {
   patchBody.collateral = nextCollateralMetadata;
  }
@@ -1250,13 +1318,20 @@ disabled
 
  <div className="space-y-1">
  <p className="text-sm font-semibold">Guarantors</p>
- <p className="text-xs text-muted-foreground">
-  Add guarantors with ID type, sex, and a circular passport photo upload
-  (<span className="font-mono text-[11px]">guarantor_passport_photo</span>).
-  ID front and back scans upload with other guarantor documents.
- </p>
- </div>
- <CustomerGuarantorsFields value={guarantors} onChange={setGuarantors} />
+          <p className="text-xs text-muted-foreground">
+            Add guarantors with ID type, sex, and a circular passport photo upload
+            (<span className="font-mono text-[11px]">guarantor_passport_photo</span>).
+            ID front and back scans link directly to the guarantor record.
+          </p>
+        </div>
+        <CustomerGuarantorsFields
+          value={guarantors}
+          onChange={setGuarantors}
+          customerId={customerId}
+          onDeleteExistingDocument={deleteCustomerDocument}
+          removingDocumentIds={removingDocumentIds}
+          onDeleteGuarantor={deleteCustomerGuarantor}
+        />
 
  <Separator />
 

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
  BarChart3,
+ BookOpen,
  CreditCard,
  LayoutDashboard,
  LogOut,
@@ -36,6 +37,7 @@ const accountantNav = [
  { title: "Dashboard", href: "/accountant/dashboard", icon: LayoutDashboard },
  { title: "Payments", href: "/accountant/payments", icon: CreditCard },
  { title: "Reconciliation", href: "/accountant/reconciliation", icon: Scale },
+ { title: "Cashbook", href: "/accountant/cashbook", icon: BookOpen },
  { title: "Collections", href: "/accountant/collections/activities", icon: ShieldCheck },
  { title: "Disbursements", href: "/accountant/disbursements", icon: WalletCards },
  { title: "Active Loans", href: "/accountant/loans", icon: Wallet },

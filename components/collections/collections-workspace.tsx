@@ -42,9 +42,8 @@ import {
  DialogContent,
  DialogDescription,
  DialogFooter,
- DialogHeader,
- DialogTitle,
- DialogTrigger,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { ActivityOverviewSheet } from "@/components/collections/activity-overview-sheet";
@@ -458,23 +457,197 @@ export function CollectionsWorkspace({
  </SelectContent>
  </Select>
  </div>
- <Dialog
- open={isDialogOpen}
- onOpenChange={(open) => {
- setIsDialogOpen(open);
- if (!open) {
- setPostError(null);
- setLoanPickerSearch("");
- }
- }}
- >
- <DialogTrigger asChild>
- <Button type="button" onClick={() => openLogActivityDialog()}>
- <Plus className="mr-2 h-4 w-4" />
- Log activity
- </Button>
- </DialogTrigger>
- <DialogContent className="flex max-h-[min(90dvh,36rem)] w-[calc(100%-1.5rem)] max-w-md flex-col gap-0 overflow-hidden p-0 sm:max-w-md [&>button]:z-10">
+          <Button type="button" onClick={() => openLogActivityDialog()}>
+            <Plus className="mr-2 h-4 w-4" />
+            Log activity
+          </Button>
+        </div>
+
+        <Card>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Loan #</TableHead>
+                  <TableHead>Customer</TableHead>
+                  <TableHead>Product</TableHead>
+                  <TableHead className="text-right">Outstanding</TableHead>
+                  <TableHead className="text-center">Days overdue</TableHead>
+                  <TableHead>Classification</TableHead>
+                  <TableHead>Last activity</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredLoans.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
+                      No overdue loans in queue
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredLoans.map((loan) => {
+                    const risk = riskBadgeClass(loan.risk_classification, loan.days_in_arrears);
+                    const productLabel =
+                      typeof loan.product_name === "string" && loan.product_name.trim()
+                        ? loan.product_name
+                        : "—";
+                    return (
+                      <TableRow key={loan.loan_id}>
+                        <TableCell className="font-mono text-sm">{loan.loan_number}</TableCell>
+                        <TableCell>
+                          <div>
+                            <p className="font-medium">{loan.customer_name}</p>
+                          </div>
+                        </TableCell>
+                        <TableCell>{productLabel}</TableCell>
+                        <TableCell className="text-right font-bold text-destructive">
+                          {formatCurrency(Number(loan.total_outstanding) || 0)}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <span className="text-xl font-bold text-destructive">{loan.days_in_arrears}</span>
+                        </TableCell>
+                        <TableCell>
+                          <Badge className={risk.className}>{risk.label}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          {loan.last_activity_at ? (
+                            <span className="text-sm text-muted-foreground">{formatDateTime(loan.last_activity_at)}</span>
+                          ) : (
+                            <span className="text-muted-foreground">No activity recorded</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button variant="ghost" size="sm" title="Call" type="button">
+                              <Phone className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="sm" title="SMS" type="button">
+                              <MessageSquare className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              title="Log activity"
+                              type="button"
+                              onClick={() => openLogActivityDialog(loan.loan_id)}
+                            >
+                              <Plus className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="sm" asChild>
+                              <Link href={`${basePath}/loans`}>Loans</Link>
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </TabsContent>
+
+      <TabsContent value="activities">
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent collection activities</CardTitle>
+            <CardDescription>Append-only history — open View for full details</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {activityViews.length === 0 ? (
+                <div className="flex flex-col items-start gap-2 py-2">
+                  <p className="text-sm text-muted-foreground">
+                    No follow-ups have been logged yet. Use &ldquo;Log activity&rdquo; on a loan to
+                    record a call, SMS, visit, or promise-to-pay — it will show up here.
+                  </p>
+                  <Button type="button" size="sm" variant="outline" onClick={() => openLogActivityDialog()}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Log activity
+                  </Button>
+                </div>
+              ) : (
+                activityViews.map((activity) => {
+                  const cfg = actionConfig[String(activity.action)] ?? {
+                    label: actionLabel(String(activity.action)),
+                    icon: FileText,
+                  };
+                  const ActionIcon = cfg.icon;
+                  const notesText = activity.notes ?? "";
+                  const notesPreview =
+                    notesText.length > 120 ? `${notesText.slice(0, 120)}…` : notesText;
+
+                  return (
+                    <div
+                      key={activity.id}
+                      className="flex gap-3 rounded-lg border border-border bg-card p-3 transition-colors hover:bg-muted/30"
+                    >
+                      <div className="rounded-full bg-muted p-2 h-fit shrink-0">
+                        <ActionIcon className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div>
+                            <p className="font-medium">{cfg.label}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {activity.customer_name} · {activity.loan_number}
+                            </p>
+                          </div>
+                          <Badge variant="outline" className="text-xs shrink-0">
+                            {activity.outcome || "No outcome"}
+                          </Badge>
+                        </div>
+                        <p className="text-sm line-clamp-2">{notesPreview}</p>
+                        <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
+                          <span>{formatDateTime(activity.performed_at)}</span>
+                          {activity.follow_up_date && (
+                            <span className="flex items-center gap-1">
+                              <Calendar className="h-3 w-3" />
+                              Follow-up {formatDate(activity.follow_up_date)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="shrink-0 self-center"
+                        onClick={() => setViewActivityId(activity.id)}
+                      >
+                        <Eye className="mr-1.5 h-3.5 w-3.5" />
+                        View
+                      </Button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </CardContent>
+        </Card>
+        <ActivityOverviewSheet
+          open={viewActivityId != null}
+          onOpenChange={(open) => {
+            if (!open) setViewActivityId(null);
+          }}
+          activity={viewActivity}
+        />
+      </TabsContent>
+      </Tabs>
+
+      <Dialog
+        open={isDialogOpen}
+        onOpenChange={(open) => {
+          setIsDialogOpen(open);
+          if (!open) {
+            setPostError(null);
+            setLoanPickerSearch("");
+          }
+        }}
+      >
+        <DialogContent className="flex max-h-[min(90dvh,36rem)] w-[calc(100%-1.5rem)] max-w-md flex-col gap-0 overflow-hidden p-0 sm:max-w-md [&>button]:z-10">
  <DialogHeader className="shrink-0 space-y-1 border-b px-4 py-3 text-left">
  <DialogTitle className="text-base">Log collection activity</DialogTitle>
  <DialogDescription className="text-xs leading-relaxed">
@@ -621,178 +794,12 @@ export function CollectionsWorkspace({
  "Log activity"
  )}
  </Button>
- </DialogFooter>
- </DialogContent>
- </Dialog>
- </div>
-
- <Card>
- <CardContent className="p-0">
- <Table>
- <TableHeader>
- <TableRow>
- <TableHead>Loan #</TableHead>
- <TableHead>Customer</TableHead>
- <TableHead>Product</TableHead>
- <TableHead className="text-right">Outstanding</TableHead>
- <TableHead className="text-center">Days overdue</TableHead>
- <TableHead>Classification</TableHead>
- <TableHead>Last activity</TableHead>
- <TableHead className="text-right">Actions</TableHead>
- </TableRow>
- </TableHeader>
- <TableBody>
- {filteredLoans.length === 0 ? (
- <TableRow>
- <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
- No overdue loans in queue
- </TableCell>
- </TableRow>
- ) : (
- filteredLoans.map((loan) => {
- const risk = riskBadgeClass(loan.risk_classification, loan.days_in_arrears);
- const productLabel =
- typeof loan.product_name === "string" && loan.product_name.trim()
- ? loan.product_name
- : "—";
- return (
- <TableRow key={loan.loan_id}>
- <TableCell className="font-mono text-sm">{loan.loan_number}</TableCell>
- <TableCell>
- <div>
- <p className="font-medium">{loan.customer_name}</p>
- </div>
- </TableCell>
- <TableCell>{productLabel}</TableCell>
- <TableCell className="text-right font-bold text-destructive">
- {formatCurrency(Number(loan.total_outstanding) || 0)}
- </TableCell>
- <TableCell className="text-center">
- <span className="text-xl font-bold text-destructive">{loan.days_in_arrears}</span>
- </TableCell>
- <TableCell>
- <Badge className={risk.className}>{risk.label}</Badge>
- </TableCell>
- <TableCell>
- {loan.last_activity_at ? (
- <span className="text-sm text-muted-foreground">{formatDateTime(loan.last_activity_at)}</span>
- ) : (
- <span className="text-muted-foreground">No activity recorded</span>
- )}
- </TableCell>
- <TableCell className="text-right">
- <div className="flex justify-end gap-1">
- <Button variant="ghost" size="sm" title="Call" type="button">
- <Phone className="h-4 w-4" />
- </Button>
- <Button variant="ghost" size="sm" title="SMS" type="button">
- <MessageSquare className="h-4 w-4" />
- </Button>
- <Button
- variant="ghost"
- size="sm"
- title="Log activity"
- type="button"
- onClick={() => openLogActivityDialog(loan.loan_id)}
- >
- <Plus className="h-4 w-4" />
- </Button>
- <Button variant="ghost" size="sm" asChild>
- <Link href={`${basePath}/loans`}>Loans</Link>
- </Button>
- </div>
- </TableCell>
- </TableRow>
- );
- })
- )}
- </TableBody>
- </Table>
- </CardContent>
- </Card>
- </TabsContent>
-
- <TabsContent value="activities">
- <Card>
- <CardHeader>
- <CardTitle>Recent collection activities</CardTitle>
- <CardDescription>Append-only history — open View for full details</CardDescription>
- </CardHeader>
- <CardContent>
- <div className="space-y-3">
- {activityViews.length === 0 ? (
- <p className="text-sm text-muted-foreground">No activities returned yet.</p>
- ) : (
- activityViews.map((activity) => {
- const cfg = actionConfig[String(activity.action)] ?? {
- label: actionLabel(String(activity.action)),
- icon: FileText,
- };
- const ActionIcon = cfg.icon;
- const notesText = activity.notes ?? "";
- const notesPreview =
- notesText.length > 120 ? `${notesText.slice(0, 120)}…` : notesText;
-
- return (
- <div
- key={activity.id}
- className="flex gap-3 rounded-lg border border-border bg-card p-3 transition-colors hover:bg-muted/30"
- >
- <div className="rounded-full bg-muted p-2 h-fit shrink-0">
- <ActionIcon className="h-4 w-4 text-muted-foreground" />
- </div>
- <div className="min-w-0 flex-1 space-y-1">
- <div className="flex flex-wrap items-start justify-between gap-2">
- <div>
- <p className="font-medium">{cfg.label}</p>
- <p className="text-sm text-muted-foreground">
- {activity.customer_name} · {activity.loan_number}
- </p>
- </div>
- <Badge variant="outline" className="text-xs shrink-0">
- {activity.outcome || "No outcome"}
- </Badge>
- </div>
- <p className="text-sm line-clamp-2">{notesPreview}</p>
- <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
- <span>{formatDateTime(activity.performed_at)}</span>
- {activity.follow_up_date && (
- <span className="flex items-center gap-1">
- <Calendar className="h-3 w-3" />
- Follow-up {formatDate(activity.follow_up_date)}
- </span>
- )}
- </div>
- </div>
- <Button
- type="button"
- variant="outline"
- size="sm"
- className="shrink-0 self-center"
- onClick={() => setViewActivityId(activity.id)}
- >
- <Eye className="mr-1.5 h-3.5 w-3.5" />
- View
- </Button>
- </div>
- );
- })
- )}
- </div>
- </CardContent>
- </Card>
- <ActivityOverviewSheet
- open={viewActivityId != null}
- onOpenChange={(open) => {
- if (!open) setViewActivityId(null);
- }}
- activity={viewActivity}
- />
- </TabsContent>
- </Tabs>
- </>
- )}
- </div>
+        </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      </>
+      )}
+    </div>
  </main>
  </>
  );

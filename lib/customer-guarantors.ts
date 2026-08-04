@@ -1,5 +1,7 @@
+import { normalizeGuarantors, type ApplicationViewRow } from "@/lib/application-adapters";
 import type { GuarantorFileRow } from "@/lib/application-linked-uploads";
 import { validateLocationPhoto, validateSupportingDocument } from "@/lib/customer-attachments";
+import { extractGuarantorsFromApplications } from "@/lib/customer-profile-extras";
 import type { CustomerIdType } from "@/lib/customer-id-types";
 import { normalizeCustomerIdType } from "@/lib/customer-id-types";
 import { parseCustomerMetadata } from "@/lib/customer-location";
@@ -22,9 +24,18 @@ export type CustomerGuarantorRecord = {
 };
 
 export type CustomerGuarantorMediaItem = {
+  id?: string;
   name?: string;
   url: string;
   preview_url?: string | null;
+};
+
+/** Already-uploaded guarantor attachment/collateral photo, shown (and removable) on the edit form. */
+export type CustomerGuarantorExistingFile = {
+  id?: string;
+  name: string;
+  url: string;
+  previewUrl?: string;
 };
 
 export type CustomerGuarantorApiRecord = CustomerGuarantorRecord & {
@@ -74,6 +85,9 @@ export type CustomerGuarantorFormRow = {
   existingIdBackPreviewUrl?: string;
   existingPassportPhotoUrl?: string;
   existingPassportPhotoPreviewUrl?: string;
+  /** Attachments/collateral photos already uploaded for this guarantor — shown with a remove action. */
+  existingAttachments: CustomerGuarantorExistingFile[];
+  existingCollateralImages: CustomerGuarantorExistingFile[];
 };
 
 export function asCustomerSex(v: unknown): CustomerSex | undefined {
@@ -104,6 +118,8 @@ export function emptyCustomerGuarantorRow(): CustomerGuarantorFormRow {
     wardLetter: null,
     attachments: [],
     collateralImages: [],
+    existingAttachments: [],
+    existingCollateralImages: [],
   };
 }
 
@@ -135,6 +151,160 @@ function readGuarantorDocumentField(
 function readMediaUrl(value: unknown): string | undefined {
   if (typeof value === "string" && value.trim()) return value.trim();
   return undefined;
+}
+
+/**
+ * Looks up a document by id in the customer row's top-level `documents[]` array (the same list
+ * `DELETE /customers/{id}/documents/{documentId}` operates on). Guarantor `id_front_document_id`/
+ * `id_back_document_id` are often bare foreign keys with no url embedded on the guarantor object
+ * itself — the real url/preview_url only shows up here, keyed by document id.
+ */
+function findCustomerDocumentById(
+  row: Record<string, unknown> | null | undefined,
+  documentId: string | undefined
+): { url?: string; preview_url?: string } {
+  if (!row || !documentId) return {};
+  const md =
+    row.metadata && typeof row.metadata === "object" && row.metadata !== null
+      ? (row.metadata as Record<string, unknown>)
+      : {};
+  const lists = [row.documents, md.documents].filter((v): v is unknown[] => Array.isArray(v));
+  for (const list of lists) {
+    for (const entry of list) {
+      if (!entry || typeof entry !== "object") continue;
+      const o = entry as Record<string, unknown>;
+      const entryId =
+        (o.id != null ? String(o.id).trim() : "") ||
+        (o.document_id != null ? String(o.document_id).trim() : "");
+      if (!entryId || entryId !== documentId) continue;
+      const url = readMediaUrl(o.url ?? o.download_url ?? o.href);
+      const preview_url = readMediaUrl(o.preview_url ?? o.signed_url ?? o.thumbnail_url) ?? url;
+      return { url, preview_url };
+    }
+  }
+  return {};
+}
+
+function normalizeUrlForMatch(url: string): string {
+  const trimmed = url.trim();
+  try {
+    const parsed = new URL(trimmed);
+    return `${parsed.origin}${parsed.pathname}`.toLowerCase();
+  } catch {
+    return trimmed.split("?")[0].split("#")[0].toLowerCase();
+  }
+}
+
+function urlBasenameForMatch(url: string): string {
+  const trimmed = url.trim();
+  if (!trimmed) return "";
+  try {
+    const parsed = new URL(trimmed);
+    const parts = parsed.pathname.split("/").filter(Boolean);
+    return (parts[parts.length - 1] ?? "").toLowerCase();
+  } catch {
+    const noQuery = trimmed.split("?")[0].split("#")[0];
+    const parts = noQuery.split("/").filter(Boolean);
+    return (parts[parts.length - 1] ?? "").toLowerCase();
+  }
+}
+
+/**
+ * Some guarantor media arrays (e.g. `attachments[]`) only carry a bare url with no `id` at all —
+ * unlike `id_front_document_id`, there's no foreign key to look up. As a best-effort fallback,
+ * match the url against the customer's top-level `documents[]` (by normalized path) to recover
+ * the document id so the item can still be deleted via `DELETE /customers/{id}/documents/{id}`.
+ */
+function findCustomerDocumentIdByUrl(
+  row: Record<string, unknown> | null | undefined,
+  url: string | undefined
+): string | undefined {
+  if (!row || !url?.trim()) return undefined;
+  const target = normalizeUrlForMatch(url);
+  const targetBase = urlBasenameForMatch(url);
+  if (!target) return undefined;
+  const md =
+    row.metadata && typeof row.metadata === "object" && row.metadata !== null
+      ? (row.metadata as Record<string, unknown>)
+      : {};
+  const lists = [row.documents, md.documents].filter((v): v is unknown[] => Array.isArray(v));
+  for (const list of lists) {
+    for (const entry of list) {
+      if (!entry || typeof entry !== "object") continue;
+      const o = entry as Record<string, unknown>;
+      const candidates = [o.url, o.download_url, o.href, o.preview_url, o.signed_url]
+        .map((v) => readMediaUrl(v))
+        .filter((v): v is string => Boolean(v));
+      const matched = candidates.some((c) => normalizeUrlForMatch(c) === target);
+      const matchedByFilename =
+        !matched &&
+        Boolean(targetBase) &&
+        candidates.some((c) => urlBasenameForMatch(c) === targetBase);
+      if (!matched && !matchedByFilename) continue;
+      const id =
+        (o.id != null ? String(o.id).trim() : "") ||
+        (o.document_id != null ? String(o.document_id).trim() : "");
+      if (id) return id;
+    }
+  }
+  return undefined;
+}
+
+function guarantorRowMatchKey(name: string, phone: string, nationalId?: string): string {
+  const n = name.trim().toLowerCase();
+  const p = phone.replace(/\D/g, "");
+  const id = (nationalId ?? "").trim().toLowerCase();
+  return `${n}|${p}|${id}`;
+}
+
+/**
+ * The customer record's own `guarantors[]` only carries a bare `id_front_document_id`/
+ * `id_back_document_id` — the backend doesn't expose any route that resolves that id back to a
+ * url (see `findCustomerDocumentById`). But the *same* guarantor, as recorded on one of the
+ * customer's loan applications, is often returned with the document fully embedded
+ * (`id_front_document: { url, preview_url }`) — this is exactly how the customer profile page
+ * (`buildCustomerGuarantorRows`) already resolves working previews. Cross-reference by
+ * name+phone+national id to recover a working preview url with no backend change required.
+ */
+export function applyApplicationGuarantorDocuments(
+  rows: CustomerGuarantorFormRow[],
+  applications: ApplicationViewRow[]
+): CustomerGuarantorFormRow[] {
+  if (applications.length === 0) return rows;
+  const fromApps = extractGuarantorsFromApplications(applications);
+  if (fromApps.length === 0) return rows;
+
+  const byKey = new Map<string, typeof fromApps>();
+  for (const g of fromApps) {
+    const key = guarantorRowMatchKey(
+      g.name,
+      g.phone === "—" ? "" : g.phone,
+      g.nationalId === "—" ? "" : g.nationalId
+    );
+    const list = byKey.get(key) ?? [];
+    list.push(g);
+    byKey.set(key, list);
+  }
+
+  return rows.map((row) => {
+    const matches = byKey.get(guarantorRowMatchKey(row.name, row.phone, row.nationalId)) ?? [];
+    if (matches.length === 0) return row;
+
+    const next = { ...row };
+    for (const m of matches) {
+      const front = m.documents.find((d) => d.name === "ID front");
+      const back = m.documents.find((d) => d.name === "ID back");
+      if (!next.existingIdFrontUrl?.trim() && front?.url) {
+        next.existingIdFrontUrl = front.url;
+        next.existingIdFrontPreviewUrl = front.previewUrl ?? front.url;
+      }
+      if (!next.existingIdBackUrl?.trim() && back?.url) {
+        next.existingIdBackUrl = back.url;
+        next.existingIdBackPreviewUrl = back.previewUrl ?? back.url;
+      }
+    }
+    return next;
+  });
 }
 
 /** Resolve guarantor passport photo URLs from API fields / `photos[]`. */
@@ -196,6 +366,123 @@ function readGuarantorPassportPhoto(o: Record<string, unknown>): {
   }
 
   return {};
+}
+
+/**
+ * Document `type` values that already render elsewhere on the guarantor (ID scans, portrait) —
+ * excluded from the generic `attachment_documents` bucket so they aren't shown twice.
+ */
+const ATTACHMENT_DOCUMENT_EXCLUDED_TYPES = new Set([
+  "guarantor_id_front",
+  "guarantor_id_back",
+  "guarantor_passport_photo",
+  "guarantor_photo_with_customer",
+  "guarantor_collateral_photo",
+]);
+
+/**
+ * Parses the newer `attachment_documents`/`collateral_image_documents` arrays — objects with a
+ * real `id`, `type`, `url`, and `preview_url` — as opposed to the legacy `attachments`/
+ * `collateral_image_attachments` arrays, which can be bare URL strings with no id at all.
+ */
+function readGuarantorDocumentObjectArray(
+  raw: unknown,
+  defaultName: string,
+  excludeTypes?: Set<string>
+): CustomerGuarantorMediaItem[] {
+  if (!Array.isArray(raw)) return [];
+  const out: CustomerGuarantorMediaItem[] = [];
+  raw.forEach((entry, i) => {
+    if (!entry || typeof entry !== "object") return;
+    const o = entry as Record<string, unknown>;
+    const type = String(o.type ?? o.document_type ?? "").trim().toLowerCase();
+    if (excludeTypes?.has(type)) return;
+    const url = readMediaUrl(o.url ?? o.download_url);
+    const previewUrl = readMediaUrl(o.preview_url ?? o.signed_url) ?? url;
+    if (!url && !previewUrl) return;
+    const id = o.id != null ? String(o.id).trim() || undefined : undefined;
+    const name = String(o.name ?? o.file_name ?? o.filename ?? "").trim() || `${defaultName} ${i + 1}`;
+    out.push({ id, name, url: url ?? previewUrl ?? "", preview_url: previewUrl ?? url });
+  });
+  return out.filter((d) => d.url);
+}
+
+/** Merges document arrays, preferring `primary` entries and adding any `fallback` entry not already present by url. */
+function mergeGuarantorMediaItems(
+  primary: CustomerGuarantorMediaItem[],
+  fallback: CustomerGuarantorMediaItem[]
+): CustomerGuarantorMediaItem[] {
+  if (fallback.length === 0) return primary;
+  const seen = new Set(primary.map((d) => d.url));
+  const merged = [...primary];
+  for (const item of fallback) {
+    if (!item.url || seen.has(item.url)) continue;
+    merged.push(item);
+    seen.add(item.url);
+  }
+  return merged;
+}
+
+/** Parses a guarantor's `attachments`/`collateral_image_attachments` array into displayable, removable files. */
+function readGuarantorMediaArray(
+  raw: unknown,
+  defaultName: string,
+  row?: Record<string, unknown> | null
+): CustomerGuarantorMediaItem[] {
+  if (!Array.isArray(raw)) return [];
+  const out: CustomerGuarantorMediaItem[] = [];
+  raw.forEach((entry, i) => {
+    if (typeof entry === "string") {
+      const url = readMediaUrl(entry);
+      if (url) {
+        out.push({ name: `${defaultName} ${i + 1}`, url, id: findCustomerDocumentIdByUrl(row, url) });
+      }
+      return;
+    }
+    if (!entry || typeof entry !== "object") return;
+    const o = entry as Record<string, unknown>;
+    const nested =
+      o.document && typeof o.document === "object" ? (o.document as Record<string, unknown>) : null;
+    const url =
+      readMediaUrl(o.url ?? o.download_url) ??
+      (nested ? readMediaUrl(nested.url ?? nested.download_url) : undefined);
+    const previewUrl =
+      readMediaUrl(o.preview_url ?? o.signed_url) ??
+      (nested ? readMediaUrl(nested.preview_url ?? nested.signed_url) : undefined) ??
+      url;
+    if (!url && !previewUrl) return;
+    const id =
+      (o.id != null ? String(o.id).trim() : "") ||
+      (o.document_id != null ? String(o.document_id).trim() : "") ||
+      (nested?.id != null ? String(nested.id).trim() : "") ||
+      findCustomerDocumentIdByUrl(row, url ?? previewUrl) ||
+      undefined;
+    const name =
+      String(o.name ?? o.file_name ?? o.filename ?? "").trim() || `${defaultName} ${i + 1}`;
+    out.push({ id, name, url: url ?? previewUrl ?? "", preview_url: previewUrl ?? url });
+  });
+  return out.filter((d) => d.url);
+}
+
+/** Converts parsed `CustomerGuarantorMediaItem[]` into the display shape the edit form renders. */
+function mediaItemsToExistingFiles(
+  items: CustomerGuarantorMediaItem[] | unknown[] | undefined,
+  defaultName: string
+): CustomerGuarantorExistingFile[] {
+  if (!Array.isArray(items)) return [];
+  const out: CustomerGuarantorExistingFile[] = [];
+  items.forEach((item, i) => {
+    if (!item || typeof item !== "object") return;
+    const m = item as CustomerGuarantorMediaItem;
+    if (!m.url) return;
+    out.push({
+      id: m.id,
+      name: m.name?.trim() || `${defaultName} ${i + 1}`,
+      url: m.url,
+      previewUrl: (m.preview_url ?? m.url) || undefined,
+    });
+  });
+  return out;
 }
 
 function resolveRelationship(row: CustomerGuarantorFormRow): string {
@@ -511,6 +798,11 @@ export function customerGuarantorApiRecordsToForm(
       ...(record.passport_photo_preview_url
         ? { existingPassportPhotoPreviewUrl: record.passport_photo_preview_url }
         : {}),
+      existingAttachments: mediaItemsToExistingFiles(record.attachments, "Attachment"),
+      existingCollateralImages: mediaItemsToExistingFiles(
+        record.collateral_image_attachments,
+        "Collateral photo"
+      ),
     };
   });
 
@@ -546,16 +838,39 @@ export function parseCustomerGuarantorApiRecordsFromRow(
     if (frontId) record.id_front_document_id = frontId;
     if (backId) record.id_back_document_id = backId;
 
+    // Prefer a direct match in the customer's top-level `documents[]` (real url from the backend)
+    // over a nested doc object on the guarantor itself, and only fall back to `normalizeGuarantors`'s
+    // guessed `/documents/{id}` URL (which the API may not actually serve) as a last resort.
+    const normalized = normalizeGuarantors([o])[0];
     const frontDoc = readGuarantorDocumentField(o, "id_front_document");
     const backDoc = readGuarantorDocumentField(o, "id_back_document");
-    if (frontDoc.url) record.id_front_url = frontDoc.url;
-    if (frontDoc.preview_url) record.id_front_preview_url = frontDoc.preview_url;
-    if (backDoc.url) record.id_back_url = backDoc.url;
-    if (backDoc.preview_url) record.id_back_preview_url = backDoc.preview_url;
+    const frontById = findCustomerDocumentById(row, frontId || undefined);
+    const backById = findCustomerDocumentById(row, backId || undefined);
+    const frontUrl = frontById.url ?? frontDoc.url ?? normalized?.id_front_url;
+    const frontPreview = frontById.preview_url ?? frontDoc.preview_url ?? normalized?.id_front_preview_url;
+    const backUrl = backById.url ?? backDoc.url ?? normalized?.id_back_url;
+    const backPreview = backById.preview_url ?? backDoc.preview_url ?? normalized?.id_back_preview_url;
+    if (frontUrl) record.id_front_url = frontUrl;
+    if (frontPreview) record.id_front_preview_url = frontPreview;
+    if (backUrl) record.id_back_url = backUrl;
+    if (backPreview) record.id_back_preview_url = backPreview;
 
     const passport = readGuarantorPassportPhoto(o);
     if (passport.url) record.passport_photo_url = passport.url;
     if (passport.preview_url) record.passport_photo_preview_url = passport.preview_url;
+
+    const attachments = mergeGuarantorMediaItems(
+      readGuarantorDocumentObjectArray(o.attachment_documents, "Attachment", ATTACHMENT_DOCUMENT_EXCLUDED_TYPES),
+      readGuarantorMediaArray(o.attachments, "Attachment", row)
+    );
+    if (attachments.length > 0) record.attachments = attachments;
+    const collateralImageAttachments = mergeGuarantorMediaItems(
+      readGuarantorDocumentObjectArray(o.collateral_image_documents, "Collateral photo"),
+      readGuarantorMediaArray(o.collateral_image_attachments, "Collateral photo", row)
+    );
+    if (collateralImageAttachments.length > 0) {
+      record.collateral_image_attachments = collateralImageAttachments;
+    }
 
     appendOptionalGuarantorFields(record, o);
     out.push(record);
