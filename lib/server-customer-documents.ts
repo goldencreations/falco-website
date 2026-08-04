@@ -49,6 +49,81 @@ export function extractUploadedDocumentId(json: unknown): string | null {
   return null;
 }
 
+/**
+ * Uploads a guarantor ID scan via the dedicated backend endpoint
+ * `POST /customers/{customerId}/guarantors/{guarantorId}/id-front|id-back`, which links the
+ * resulting document to the guarantor record server-side — no separate PATCH needed.
+ */
+export async function uploadCustomerGuarantorIdScan(
+  request: Request,
+  customerId: string,
+  guarantorId: string,
+  side: "id-front" | "id-back",
+  file: File
+): Promise<{ ok: true; documentId: string | null; data: unknown } | { ok: false; response: Response }> {
+  const token = await resolveFalcoAccessToken(request);
+  if (!token) {
+    return { ok: false, response: NextResponse.json({ message: "Unauthorized" }, { status: 401 }) };
+  }
+  if (!(file instanceof File) || file.size === 0) {
+    return { ok: false, response: NextResponse.json({ message: "file is required" }, { status: 400 }) };
+  }
+
+  const label = side === "id-front" ? "Guarantor ID front" : "Guarantor ID back";
+  const form = new FormData();
+  form.append("file", file, file.name);
+
+  try {
+    const res = await fetch(
+      `${getFalcoApiBaseUrl()}/customers/${encodeURIComponent(customerId)}/guarantors/${encodeURIComponent(guarantorId)}/${side}`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+        body: form,
+        cache: "no-store",
+      }
+    );
+
+    const text = await res.text();
+    let data: unknown = null;
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = { message: text };
+      }
+    }
+
+    if (!res.ok) {
+      const o = data && typeof data === "object" ? (data as Record<string, unknown>) : {};
+      const err = o.error && typeof o.error === "object" ? (o.error as Record<string, unknown>) : o;
+      return {
+        ok: false,
+        response: NextResponse.json(
+          {
+            message:
+              typeof err.message === "string"
+                ? err.message
+                : typeof o.message === "string"
+                  ? o.message
+                  : `${label} upload failed`,
+            details: err.details ?? o.details,
+          },
+          { status: res.status }
+        ),
+      };
+    }
+
+    return { ok: true, documentId: extractUploadedDocumentId(data), data: data ?? { ok: true } };
+  } catch (e) {
+    const message =
+      e instanceof Error && e.message
+        ? e.message
+        : "Could not reach the document service. Try a smaller file or try again.";
+    return { ok: false, response: NextResponse.json({ message }, { status: 502 }) };
+  }
+}
+
 export type CustomerDocumentUploadFields = {
   files: File[];
   type: string;

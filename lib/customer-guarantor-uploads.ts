@@ -44,6 +44,38 @@ async function uploadGuarantorFiles(
   return { ok: true };
 }
 
+/**
+ * Uploads a single guarantor ID scan via the dedicated per-guarantor endpoint, which — unlike
+ * the generic `guarantor_document` batch upload — links the resulting document id back onto the
+ * guarantor record as `id_front_document_id`/`id_back_document_id`. Without this link the ID
+ * scan has no way to be re-displayed as a preview later (it's just an untagged file in the
+ * customer's generic document list).
+ */
+async function uploadGuarantorIdScan(
+  customerId: string,
+  guarantorId: string,
+  field: "id-front" | "id-back",
+  file: File,
+  label: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const form = new FormData();
+  form.append("file", file, file.name);
+  form.append("name", file.name);
+
+  const res = await fetch(
+    `/api/customers/${encodeURIComponent(customerId)}/guarantors/${encodeURIComponent(guarantorId)}/${field}`,
+    { method: "POST", credentials: "include", body: form }
+  );
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: formatClientApiError(data, `${label} upload failed (${res.status})`),
+    };
+  }
+  return { ok: true };
+}
+
 function validatePhotoFiles(files: File[]): { ok: true } | { ok: false; error: string } {
   for (const file of files) {
     const check = validateLocationPhoto(file);
@@ -154,9 +186,33 @@ export async function uploadCustomerGuarantorDocuments(
       if (!result.ok) return result;
     }
 
+    if (row.idFront) {
+      const check = validateDocFiles([row.idFront]);
+      if (!check.ok) return { ok: false, error: `${labelBase} ID front: ${check.error}` };
+      const result = await uploadGuarantorIdScan(
+        customerId,
+        guarantorId,
+        "id-front",
+        row.idFront,
+        `${labelBase} ID front`
+      );
+      if (!result.ok) return result;
+    }
+
+    if (row.idBack) {
+      const check = validateDocFiles([row.idBack]);
+      if (!check.ok) return { ok: false, error: `${labelBase} ID back: ${check.error}` };
+      const result = await uploadGuarantorIdScan(
+        customerId,
+        guarantorId,
+        "id-back",
+        row.idBack,
+        `${labelBase} ID back`
+      );
+      if (!result.ok) return result;
+    }
+
     const documents: File[] = [];
-    if (row.idFront) documents.push(row.idFront);
-    if (row.idBack) documents.push(row.idBack);
     if (row.wardLetter) documents.push(row.wardLetter);
     documents.push(...row.attachments);
     if (documents.length > 0) {

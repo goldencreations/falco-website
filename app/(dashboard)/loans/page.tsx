@@ -17,7 +17,10 @@ import {
  CalendarRange,
  TrendingUp,
  Loader2,
+ Copy,
+ ShieldAlert,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Button } from "@/components/ui/button";
@@ -63,7 +66,7 @@ import {
 import { extractPaymentsPayload } from "@/lib/payment-adapters";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/formatters";
 import type { PaymentViewRow } from "@/lib/payment-adapters";
-import type { Customer, LoanStatus, RepaymentSchedule, RiskClassification } from "@/lib/types";
+import type { Customer, LoanStatus, RepaymentDetails, RepaymentSchedule, RiskClassification } from "@/lib/types";
 import { loanMatchesOfficerPortfolio } from "@/lib/loan-officer-portfolio";
 import { isBranchScopedStaffRole, rolePortalBase } from "@/lib/role-portal";
 import { useSessionUser } from "@/lib/use-session-user";
@@ -89,6 +92,128 @@ const riskConfig: Record<RiskClassification, { label: string; color: string }> =
  doubtful: { label: "Doubtful", color: "bg-destructive" },
  loss: { label: "Loss", color: "bg-foreground" },
 };
+
+const DEFAULT_ALLOCATION_ORDER = ["penalty", "fees", "interest", "principal"];
+
+function allocationStepLabel(step: string): string {
+ const s = step.trim().toLowerCase();
+ if (!s) return step;
+ return s[0].toUpperCase() + s.slice(1);
+}
+
+/**
+ * Customer-facing BillPay card for `loan.repayment_details` (see `RepaymentDetails` in lib/types.ts).
+ * `bill_pay_number` is the only number the customer should ever be given — never a ClickPesa
+ * transaction/receipt id from elsewhere in the UI.
+ */
+function RepaymentInstructionsCard({ repaymentDetails }: { repaymentDetails: RepaymentDetails }) {
+ const canAccept = repaymentDetails.can_accept_payment !== false && repaymentDetails.bill_pay_active !== false;
+ const allocationOrder =
+ repaymentDetails.allocation_order && repaymentDetails.allocation_order.length > 0
+ ? repaymentDetails.allocation_order
+ : DEFAULT_ALLOCATION_ORDER;
+
+ const copyBillPayNumber = async () => {
+ const number = repaymentDetails.bill_pay_number ?? "";
+ try {
+ await navigator.clipboard.writeText(number);
+ toast.success("BillPay number copied");
+ } catch {
+ toast.error("Could not copy — copy it manually instead.");
+ }
+ };
+
+ return (
+ <Card
+ className={
+ canAccept
+ ? "border-emerald-200/60 bg-gradient-to-br from-emerald-50/55 to-background"
+ : "border-muted bg-muted/30"
+ }
+ >
+ <CardHeader className="pb-2">
+ <div className="flex items-center justify-between gap-2">
+ <CardTitle className="text-base">Repayment Instructions</CardTitle>
+ {!canAccept ? (
+ <Badge variant="outline" className="gap-1 text-destructive">
+ <ShieldAlert className="h-3 w-3" />
+ Not currently accepting payments
+ </Badge>
+ ) : null}
+ </div>
+ </CardHeader>
+ <CardContent className="space-y-4">
+ <div>
+ <p className="text-xs text-muted-foreground">
+ BillPay number — the only number the customer should enter in mobile-money BillPay
+ </p>
+ <div className="mt-1 flex flex-wrap items-center gap-2">
+ <span className="rounded-md border border-emerald-200/70 bg-emerald-100/50 px-3 py-1.5 font-mono text-lg font-semibold tracking-wide">
+ {repaymentDetails.bill_pay_number}
+ </span>
+ <Button type="button" size="sm" variant="outline" onClick={() => void copyBillPayNumber()}>
+ <Copy className="mr-1.5 h-3.5 w-3.5" />
+ Copy
+ </Button>
+ </div>
+ </div>
+
+ <div className="grid gap-3 sm:grid-cols-2">
+ {repaymentDetails.amount_due != null ? (
+ <div className="rounded-lg border border-border/60 bg-background/60 p-3">
+ <p className="text-xs text-muted-foreground">Amount due</p>
+ <p className="text-lg font-semibold">{formatCurrency(repaymentDetails.amount_due)}</p>
+ </div>
+ ) : null}
+ {repaymentDetails.penalty_outstanding != null && repaymentDetails.penalty_outstanding > 0 ? (
+ <div className="rounded-lg border border-border/60 bg-background/60 p-3">
+ <p className="text-xs text-muted-foreground">Penalty outstanding</p>
+ <p className="text-lg font-semibold text-destructive">
+ {formatCurrency(repaymentDetails.penalty_outstanding)}
+ </p>
+ </div>
+ ) : null}
+ </div>
+
+ {repaymentDetails.accepts_partial_payments ? (
+ <p className="rounded-md bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+ Partial payments are allowed. Money received is applied in order:{" "}
+ <span className="font-medium text-foreground">
+ {allocationOrder.map(allocationStepLabel).join(" → ")}
+ </span>
+ .
+ </p>
+ ) : null}
+
+ {repaymentDetails.channels && repaymentDetails.channels.length > 0 ? (
+ <div className="space-y-2">
+ <p className="text-xs font-medium text-muted-foreground">Mobile-money channels</p>
+ <div className="grid gap-2 sm:grid-cols-2">
+ {repaymentDetails.channels.map((channel, i) => (
+ <div key={`${channel.name ?? "channel"}-${i}`} className="rounded-lg border border-border/60 bg-background/60 p-3 text-sm">
+ <p className="font-medium">{channel.name ?? channel.type ?? "Channel"}</p>
+ {channel.ussd_code ? (
+ <p className="mt-0.5 font-mono text-xs text-muted-foreground">{channel.ussd_code}</p>
+ ) : null}
+ {channel.instructions ? (
+ <p className="mt-1 text-xs text-muted-foreground">{channel.instructions}</p>
+ ) : null}
+ </div>
+ ))}
+ </div>
+ </div>
+ ) : null}
+
+ {!canAccept ? (
+ <p className="text-xs text-destructive">
+ This loan is not currently accepting BillPay payments. Do not share this number with the
+ customer until it is reactivated.
+ </p>
+ ) : null}
+ </CardContent>
+ </Card>
+ );
+}
 
 export default function LoansPage() {
  const { user } = useSessionUser();
@@ -772,20 +897,13 @@ export default function LoansPage() {
  <CalendarRange className="h-4 w-4 text-muted-foreground" />
  <span>Due: {formatDate(displayLoan.maturity_date)}</span>
  </div>
- {displayLoan.repayment_details?.bill_pay_number ? (
- <div className="flex items-center gap-2 text-sm">
- <CreditCard className="h-4 w-4 text-muted-foreground" />
- <span>
- BillPay: <span className="font-mono font-medium">{displayLoan.repayment_details.bill_pay_number}</span>
- {displayLoan.repayment_details.can_accept_payment === false ? (
- <span className="ml-1 text-xs text-destructive">(not accepting payments)</span>
- ) : null}
- </span>
- </div>
- ) : null}
  </CardContent>
  </Card>
  </div>
+
+ {displayLoan.repayment_details?.bill_pay_number ? (
+ <RepaymentInstructionsCard repaymentDetails={displayLoan.repayment_details} />
+ ) : null}
 
  <Card className="border-emerald-200/60 bg-gradient-to-br from-emerald-50/55 to-background ">
  <CardHeader className="pb-2">

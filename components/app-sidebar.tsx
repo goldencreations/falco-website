@@ -18,6 +18,7 @@ import {
  Calculator,
  MapPin,
  DatabaseBackup,
+ BookOpen,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { FalcoLogo } from "@/components/falco-logo";
@@ -167,6 +168,11 @@ const navigation: { title: string; items: SidebarNavItem[] }[] = [
  icon: BarChart3,
  },
  {
+ title: "Cashbook",
+ href: "/cashbook",
+ icon: BookOpen,
+ },
+ {
  title: "Loan Products",
  href: "/products",
  icon: Building2,
@@ -204,8 +210,9 @@ export function AppSidebar() {
  .map((group) => ({
  ...group,
  items: group.items.filter((item) => {
- if (item.href === "/users") return role === "super_admin";
- return true;
+        if (item.href === "/users") return role === "super_admin";
+        if (item.href === "/cashbook") return role === "super_admin" || role === "accountant";
+        return true;
  }),
  }))
  .filter((group) => group.items.length > 0);

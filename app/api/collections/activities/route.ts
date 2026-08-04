@@ -21,13 +21,13 @@ export async function GET(request: Request) {
  },
  });
 
- if (!res.ok) {
- return NextResponse.json(
- { message: res.error.message, details: res.error.details },
- { status: res.error.status }
- );
- }
- return NextResponse.json(res.data);
+  if (!res.ok) {
+    return NextResponse.json(
+      { message: res.error.message, details: res.error.details },
+      { status: res.error.status }
+    );
+  }
+  return NextResponse.json(res.data);
 }
 
 export async function POST(request: Request) {

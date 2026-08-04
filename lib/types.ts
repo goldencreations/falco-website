@@ -565,6 +565,78 @@ export interface AuditLog {
 }
 
 // -----------------------------------------------------------------------------
+// ACCOUNTING / CASHBOOK TYPES
+// -----------------------------------------------------------------------------
+export type FinancialEntryDirection = "in" | "out";
+/** `system` = auto-posted from loans/payments; `clickpesa` = unmatched gateway receipt awaiting classification; `manual` = accountant-entered. */
+export type FinancialEntrySource = "system" | "clickpesa" | "manual";
+
+export interface FinancialEntry {
+  id: string;
+  entry_number: string;
+  direction: FinancialEntryDirection;
+  /** e.g. `loan_repayment`, `registration_fee`, `loan_disbursement`, `unclassified`, or a manual category. */
+  category: string;
+  amount: number;
+  transaction_date: string;
+  source: FinancialEntrySource;
+  running_balance: number;
+  branch_id?: string;
+  branch_name?: string;
+  customer_id?: string;
+  customer_name?: string;
+  income_type?: string;
+  notes?: string;
+  /** ClickPesa `paymentReference` / provider receipt id — the number staff verify against the gateway. */
+  reference?: string;
+  /** Ledger/account name the entry posted against, when the backend returns one. */
+  account_name?: string;
+  is_reversed?: boolean;
+  reversal_reason?: string;
+  created_by?: string;
+  created_by_name?: string;
+  created_at?: string;
+}
+
+export interface CashbookSummary {
+  opening_balance: number;
+  cash_in: number;
+  cash_out: number;
+  closing_balance: number;
+}
+
+// -----------------------------------------------------------------------------
+// CLICKPESA WEBHOOK EVENTS
+// -----------------------------------------------------------------------------
+/** `duplicate` = normal deduplicated gateway delivery, not a failure. */
+export type WebhookEventStatus = "pending" | "processed" | "failed" | "duplicate";
+
+/** `GET /webhook-events/health?gateway=clickpesa&hours=24|168` summary. */
+export interface WebhookHealthSummary {
+  received: number;
+  processed: number;
+  failed: number;
+  pending: number;
+  duplicate: number;
+  oldest_pending_at?: string;
+}
+
+/**
+ * A row from `GET /webhook-events`. The API deliberately never returns the raw gateway payload to
+ * the browser, so there is no `payload`/`body` field here.
+ */
+export interface WebhookEvent {
+  id: string;
+  gateway: string;
+  event_type: string;
+  event_reference: string;
+  status: WebhookEventStatus;
+  received_at: string;
+  processed_at?: string;
+  error_message?: string;
+}
+
+// -----------------------------------------------------------------------------
 // PERMISSION MATRIX
 // -----------------------------------------------------------------------------
 export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {

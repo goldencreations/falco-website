@@ -665,37 +665,42 @@ export function getApplicationWorkflowActions(
  });
  }
 
- if (canReview && (app.status === "submitted" || app.status === "under_review")) {
- actions.push({
- id: "reject",
- label: "Reject",
- variant: "destructive",
- requiresRejectionReason: true,
- run: async (details) => {
- const r = await reviewApplicationApi(app.id, {
- decision: "reject",
- rejection_code: details?.rejection_code,
- rejection_reason:
- details?.rejection_reason?.trim() || `Rejected by ${actorName}.`,
- });
- return r.ok ? { ok: true } : { ok: false, error: r.error };
- },
- });
- }
+  // Backend allows reject from under_review or approved (Awaiting Treasury).
+  // Also expose reject from submitted so reviewers can decline before opening review.
+  if (
+    canReview &&
+    (app.status === "submitted" || app.status === "under_review" || app.status === "approved")
+  ) {
+    actions.push({
+      id: "reject",
+      label: "Reject",
+      variant: "destructive",
+      requiresRejectionReason: true,
+      run: async (details) => {
+        const r = await reviewApplicationApi(app.id, {
+          decision: "reject",
+          rejection_code: details?.rejection_code,
+          rejection_reason:
+            details?.rejection_reason?.trim() || `Rejected by ${actorName}.`,
+        });
+        return r.ok ? { ok: true } : { ok: false, error: r.error };
+      },
+    });
+  }
 
- if (canReview && app.status === "under_review") {
- actions.push({
- id: "more_info",
- label: "Request more information",
- run: async () => {
- const r = await reviewApplicationApi(app.id, {
- decision: "request_more_info",
- review_notes: `More information requested by ${actorName}.`,
- });
- return r.ok ? { ok: true } : { ok: false, error: r.error };
- },
- });
- }
+  if (canReview && (app.status === "under_review" || app.status === "approved")) {
+    actions.push({
+      id: "more_info",
+      label: "Request more information",
+      run: async () => {
+        const r = await reviewApplicationApi(app.id, {
+          decision: "request_more_info",
+          review_notes: `More information requested by ${actorName}.`,
+        });
+        return r.ok ? { ok: true } : { ok: false, error: r.error };
+      },
+    });
+  }
 
  return actions;
 }
