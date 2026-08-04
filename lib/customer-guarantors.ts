@@ -28,6 +28,8 @@ export type CustomerGuarantorMediaItem = {
   name?: string;
   url: string;
   preview_url?: string | null;
+  /** Backend document type when known (e.g. `guarantor_photo`, `guarantor_ward_letter`). */
+  type?: string;
 };
 
 /** Already-uploaded guarantor attachment/collateral photo, shown (and removable) on the edit form. */
@@ -49,6 +51,14 @@ export type CustomerGuarantorApiRecord = CustomerGuarantorRecord & {
   /** Guarantor passport / profile photo (`guarantor_passport_photo`). */
   passport_photo_url?: string;
   passport_photo_preview_url?: string;
+  /** Guarantor portrait (`guarantor_photo`). */
+  photo_document_id?: string;
+  photo_url?: string;
+  photo_preview_url?: string;
+  /** Ward letter (`guarantor_ward_letter` / ward_letter_document). */
+  ward_letter_document_id?: string;
+  ward_letter_url?: string;
+  ward_letter_preview_url?: string;
   photos?: CustomerGuarantorMediaItem[];
   attachments?: CustomerGuarantorMediaItem[] | unknown[];
   collateral_image_attachments?: CustomerGuarantorMediaItem[] | unknown[];
@@ -85,6 +95,14 @@ export type CustomerGuarantorFormRow = {
   existingIdBackPreviewUrl?: string;
   existingPassportPhotoUrl?: string;
   existingPassportPhotoPreviewUrl?: string;
+  /** Guarantor portrait (`guarantor_photo`) already on file. */
+  photoDocumentId?: string;
+  existingPhotoUrl?: string;
+  existingPhotoPreviewUrl?: string;
+  /** Ward letter already on file. */
+  wardLetterDocumentId?: string;
+  existingWardLetterUrl?: string;
+  existingWardLetterPreviewUrl?: string;
   /** Attachments/collateral photos already uploaded for this guarantor — shown with a remove action. */
   existingAttachments: CustomerGuarantorExistingFile[];
   existingCollateralImages: CustomerGuarantorExistingFile[];
@@ -368,17 +386,126 @@ function readGuarantorPassportPhoto(o: Record<string, unknown>): {
   return {};
 }
 
-/**
- * Document `type` values that already render elsewhere on the guarantor (ID scans, portrait) —
- * excluded from the generic `attachment_documents` bucket so they aren't shown twice.
- */
-const ATTACHMENT_DOCUMENT_EXCLUDED_TYPES = new Set([
-  "guarantor_id_front",
-  "guarantor_id_back",
-  "guarantor_passport_photo",
-  "guarantor_photo_with_customer",
-  "guarantor_collateral_photo",
-]);
+function mediaItemKey(item: CustomerGuarantorMediaItem): string {
+  if (item.id?.trim()) return `id:${item.id.trim()}`;
+  const url = (item.url || item.preview_url || "").trim();
+  if (!url) return "";
+  try {
+    const parsed = new URL(url);
+    const docMatch = parsed.pathname.match(/\/documents\/([^/]+)/i);
+    if (docMatch) return `doc:${docMatch[1].toLowerCase()}`;
+    return `${parsed.origin}${parsed.pathname}`.toLowerCase();
+  } catch {
+    return url.split("?")[0].split("#")[0].toLowerCase();
+  }
+}
+
+function isWardLetterMedia(item: CustomerGuarantorMediaItem & { type?: string }): boolean {
+  const type = String(item.type ?? "").trim().toLowerCase();
+  if (
+    type === "guarantor_ward_letter" ||
+    type === "ward_letter" ||
+    type === "guarantor_letter" ||
+    type === "street_letter"
+  ) {
+    return true;
+  }
+  return /ward\s*letter|^ward\b|street\s*letter/i.test(item.name ?? "");
+}
+
+/** Resolve guarantor portrait (`guarantor_photo`) from dedicated fields / photos[] / typed docs. */
+function readGuarantorPortraitPhoto(
+  o: Record<string, unknown>,
+  row?: Record<string, unknown> | null
+): { id?: string; url?: string; preview_url?: string } {
+  const photoDoc = readGuarantorDocumentField(o, "photo_document");
+  const typedDoc = readGuarantorDocumentField(o, "guarantor_photo_document");
+  const flatUrl = readMediaUrl(o.photo_url) ?? readMediaUrl(o.guarantor_photo_url);
+  const flatPreview =
+    readMediaUrl(o.photo_preview_url) ?? readMediaUrl(o.guarantor_photo_preview_url);
+  const flatId =
+    (o.photo_document_id != null ? String(o.photo_document_id).trim() : "") ||
+    (o.guarantor_photo_document_id != null ? String(o.guarantor_photo_document_id).trim() : "");
+
+  if (photoDoc.url || typedDoc.url || flatUrl) {
+    const url = photoDoc.url ?? typedDoc.url ?? flatUrl;
+    const preview = photoDoc.preview_url ?? typedDoc.preview_url ?? flatPreview ?? url;
+    return {
+      id: flatId || findCustomerDocumentIdByUrl(row, url ?? preview) || undefined,
+      url: url ?? preview,
+      preview_url: preview ?? url,
+    };
+  }
+
+  if (Array.isArray(o.photos)) {
+    for (const entry of o.photos) {
+      if (typeof entry === "string" && entry.trim()) {
+        return {
+          url: entry.trim(),
+          preview_url: entry.trim(),
+          id: findCustomerDocumentIdByUrl(row, entry.trim()) || undefined,
+        };
+      }
+      if (!entry || typeof entry !== "object") continue;
+      const p = entry as Record<string, unknown>;
+      const type = String(p.type ?? p.document_type ?? "").toLowerCase();
+      const name = String(p.name ?? "").toLowerCase();
+      if (/passport|profile|guarantor_passport|with[_ ]?customer/.test(type) || /passport|profile/.test(name)) {
+        continue;
+      }
+      const nested = readGuarantorDocumentField(p, "document");
+      const url = readMediaUrl(p.url) ?? readMediaUrl(p.download_url) ?? nested.url;
+      const preview = readMediaUrl(p.preview_url) ?? nested.preview_url ?? url;
+      if (!url && !preview) continue;
+      const id =
+        (p.id != null ? String(p.id).trim() : "") ||
+        (p.document_id != null ? String(p.document_id).trim() : "") ||
+        findCustomerDocumentIdByUrl(row, url ?? preview) ||
+        undefined;
+      if (type === "guarantor_photo" || o.photos.length === 1 || (!type && !/passport/.test(name))) {
+        return { id, url: url ?? preview, preview_url: preview ?? url };
+      }
+    }
+  }
+
+  return {};
+}
+
+/** Resolve ward letter from dedicated fields or typed/named attachment docs. */
+function readGuarantorWardLetter(
+  o: Record<string, unknown>,
+  attachmentDocs: CustomerGuarantorMediaItem[],
+  row?: Record<string, unknown> | null
+): { id?: string; url?: string; preview_url?: string; matchedAttachment?: CustomerGuarantorMediaItem } {
+  const wardDoc = readGuarantorDocumentField(o, "ward_letter_document");
+  const flatUrl = readMediaUrl(o.ward_letter_url);
+  const flatPreview = readMediaUrl(o.ward_letter_preview_url);
+  const flatId =
+    o.ward_letter_document_id != null ? String(o.ward_letter_document_id).trim() : "";
+
+  if (wardDoc.url || flatUrl) {
+    const url = wardDoc.url ?? flatUrl;
+    const preview = wardDoc.preview_url ?? flatPreview ?? url;
+    return {
+      id: flatId || findCustomerDocumentIdByUrl(row, url ?? preview) || undefined,
+      url: url ?? preview,
+      preview_url: preview ?? url,
+    };
+  }
+
+  for (const item of attachmentDocs) {
+    const typed = item as CustomerGuarantorMediaItem & { type?: string };
+    if (!isWardLetterMedia(typed)) continue;
+    return {
+      id: item.id,
+      url: item.url,
+      preview_url: item.preview_url ?? item.url,
+      matchedAttachment: item,
+    };
+  }
+
+  return {};
+}
 
 /**
  * Parses the newer `attachment_documents`/`collateral_image_documents` arrays — objects with a
@@ -402,7 +529,13 @@ function readGuarantorDocumentObjectArray(
     if (!url && !previewUrl) return;
     const id = o.id != null ? String(o.id).trim() || undefined : undefined;
     const name = String(o.name ?? o.file_name ?? o.filename ?? "").trim() || `${defaultName} ${i + 1}`;
-    out.push({ id, name, url: url ?? previewUrl ?? "", preview_url: previewUrl ?? url });
+    out.push({
+      id,
+      name,
+      url: url ?? previewUrl ?? "",
+      preview_url: previewUrl ?? url,
+      ...(type ? { type } : {}),
+    });
   });
   return out.filter((d) => d.url);
 }
@@ -459,7 +592,16 @@ function readGuarantorMediaArray(
       undefined;
     const name =
       String(o.name ?? o.file_name ?? o.filename ?? "").trim() || `${defaultName} ${i + 1}`;
-    out.push({ id, name, url: url ?? previewUrl ?? "", preview_url: previewUrl ?? url });
+    const type = String(o.type ?? o.document_type ?? nested?.type ?? nested?.document_type ?? "")
+      .trim()
+      .toLowerCase();
+    out.push({
+      id,
+      name,
+      url: url ?? previewUrl ?? "",
+      preview_url: previewUrl ?? url,
+      ...(type ? { type } : {}),
+    });
   });
   return out.filter((d) => d.url);
 }
@@ -798,6 +940,22 @@ export function customerGuarantorApiRecordsToForm(
       ...(record.passport_photo_preview_url
         ? { existingPassportPhotoPreviewUrl: record.passport_photo_preview_url }
         : {}),
+      ...(record.photo_document_id ? { photoDocumentId: record.photo_document_id } : {}),
+      ...(record.photo_url ? { existingPhotoUrl: record.photo_url } : {}),
+      ...(record.photo_preview_url
+        ? { existingPhotoPreviewUrl: record.photo_preview_url }
+        : record.photo_url
+          ? { existingPhotoPreviewUrl: record.photo_url }
+          : {}),
+      ...(record.ward_letter_document_id
+        ? { wardLetterDocumentId: record.ward_letter_document_id }
+        : {}),
+      ...(record.ward_letter_url ? { existingWardLetterUrl: record.ward_letter_url } : {}),
+      ...(record.ward_letter_preview_url
+        ? { existingWardLetterPreviewUrl: record.ward_letter_preview_url }
+        : record.ward_letter_url
+          ? { existingWardLetterPreviewUrl: record.ward_letter_url }
+          : {}),
       existingAttachments: mediaItemsToExistingFiles(record.attachments, "Attachment"),
       existingCollateralImages: mediaItemsToExistingFiles(
         record.collateral_image_attachments,
@@ -859,10 +1017,114 @@ export function parseCustomerGuarantorApiRecordsFromRow(
     if (passport.url) record.passport_photo_url = passport.url;
     if (passport.preview_url) record.passport_photo_preview_url = passport.preview_url;
 
-    const attachments = mergeGuarantorMediaItems(
-      readGuarantorDocumentObjectArray(o.attachment_documents, "Attachment", ATTACHMENT_DOCUMENT_EXCLUDED_TYPES),
-      readGuarantorMediaArray(o.attachments, "Attachment", row)
+    const portrait = readGuarantorPortraitPhoto(o, row);
+    if (portrait.url) record.photo_url = portrait.url;
+    if (portrait.preview_url) record.photo_preview_url = portrait.preview_url;
+    if (portrait.id) record.photo_document_id = portrait.id;
+
+    // Include typed photo/ward docs here so we can pull them into dedicated fields before
+    // the leftover list becomes "Additional attachments".
+    const typedAttachmentDocs = readGuarantorDocumentObjectArray(
+      o.attachment_documents,
+      "Attachment"
     );
+    const legacyAttachments = readGuarantorMediaArray(o.attachments, "Attachment", row);
+    const rawAttachments = mergeGuarantorMediaItems(typedAttachmentDocs, legacyAttachments);
+
+    if (!record.photo_url) {
+      for (const item of rawAttachments) {
+        if (item.type !== "guarantor_photo") continue;
+        record.photo_url = item.url;
+        record.photo_preview_url = item.preview_url ?? item.url;
+        if (item.id) record.photo_document_id = item.id;
+        break;
+      }
+    }
+
+    let ward = readGuarantorWardLetter(o, rawAttachments, row);
+    if (!ward.url) {
+      // Older uploads stored ward letters as generic `guarantor_document` with no type/name
+      // marker. When that is the only leftover supporting file, treat it as the ward letter.
+      const candidates = rawAttachments.filter((item) => {
+        if (item.type === "guarantor_photo" || item.type === "guarantor_passport_photo") return false;
+        if (item.type === "guarantor_collateral_photo") return false;
+        if (record.photo_url && mediaItemKey(item) === mediaItemKey({ url: record.photo_url, id: record.photo_document_id })) {
+          return false;
+        }
+        if (record.passport_photo_url && mediaItemKey(item) === mediaItemKey({ url: record.passport_photo_url })) {
+          return false;
+        }
+        return item.type === "guarantor_document" || item.type === "guarantor_ward_letter" || !item.type;
+      });
+      // Deduplicate same file stored twice (legacy dual file/files[] upload).
+      const uniqueCandidates: CustomerGuarantorMediaItem[] = [];
+      const seenCandidate = new Set<string>();
+      for (const item of candidates) {
+        const key = mediaItemKey(item) || item.name?.toLowerCase() || item.url;
+        if (!key || seenCandidate.has(key)) continue;
+        // Also collapse exact same filename when URLs differ only by document id.
+        const nameKey = (item.name ?? "").trim().toLowerCase();
+        if (nameKey && uniqueCandidates.some((c) => (c.name ?? "").trim().toLowerCase() === nameKey)) {
+          continue;
+        }
+        seenCandidate.add(key);
+        uniqueCandidates.push(item);
+      }
+      if (!record.photo_url && uniqueCandidates.length === 2) {
+        // Legacy create often left portrait + ward letter both typed as guarantor_document.
+        const [first, second] = uniqueCandidates;
+        record.photo_url = first.url;
+        record.photo_preview_url = first.preview_url ?? first.url;
+        if (first.id) record.photo_document_id = first.id;
+        ward = {
+          id: second.id,
+          url: second.url,
+          preview_url: second.preview_url ?? second.url,
+          matchedAttachment: second,
+        };
+      } else if (uniqueCandidates.length === 1) {
+        const only = uniqueCandidates[0];
+        ward = {
+          id: only.id,
+          url: only.url,
+          preview_url: only.preview_url ?? only.url,
+          matchedAttachment: only,
+        };
+      }
+    }
+    if (ward.url) record.ward_letter_url = ward.url;
+    if (ward.preview_url) record.ward_letter_preview_url = ward.preview_url;
+    if (ward.id) record.ward_letter_document_id = ward.id;
+
+    const claimedKeys = new Set<string>();
+    for (const claim of [
+      { url: record.photo_url, id: record.photo_document_id },
+      { url: record.ward_letter_url, id: record.ward_letter_document_id },
+      { url: record.passport_photo_url },
+      { url: record.id_front_url, id: record.id_front_document_id },
+      { url: record.id_back_url, id: record.id_back_document_id },
+    ]) {
+      if (!claim.url) continue;
+      const key = mediaItemKey({ url: claim.url, id: claim.id });
+      if (key) claimedKeys.add(key);
+    }
+
+    const attachments = rawAttachments.filter((item) => {
+      const key = mediaItemKey(item);
+      if (key && claimedKeys.has(key)) return false;
+      if (
+        item.type === "guarantor_photo" ||
+        item.type === "guarantor_ward_letter" ||
+        item.type === "guarantor_passport_photo" ||
+        item.type === "guarantor_id_front" ||
+        item.type === "guarantor_id_back" ||
+        item.type === "guarantor_collateral_photo"
+      ) {
+        return false;
+      }
+      if (isWardLetterMedia(item)) return false;
+      return true;
+    });
     if (attachments.length > 0) record.attachments = attachments;
     const collateralImageAttachments = mergeGuarantorMediaItems(
       readGuarantorDocumentObjectArray(o.collateral_image_documents, "Collateral photo"),

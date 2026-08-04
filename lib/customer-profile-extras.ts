@@ -182,9 +182,11 @@ function readDocumentField(
 const ATTACHMENT_DOCUMENT_EXCLUDED_TYPES = new Set([
   "guarantor_id_front",
   "guarantor_id_back",
+  "guarantor_photo",
   "guarantor_passport_photo",
   "guarantor_photo_with_customer",
   "guarantor_collateral_photo",
+  "guarantor_ward_letter",
 ]);
 
 function filterMediaDocumentsByExcludedType(raw: unknown, excluded: Set<string>): unknown[] {
@@ -324,12 +326,25 @@ function mergeGuarantorMediaLists(
   extra: CustomerGuarantorDocument[]
 ): CustomerGuarantorDocument[] {
   if (extra.length === 0) return base;
-  const seen = new Set(base.map((d) => d.url));
+  const mediaKey = (url: string): string => {
+    const trimmed = url.trim();
+    if (!trimmed) return "";
+    try {
+      const parsed = new URL(trimmed);
+      const docMatch = parsed.pathname.match(/\/documents\/([^/]+)/i);
+      if (docMatch) return `doc:${docMatch[1].toLowerCase()}`;
+      return `${parsed.origin}${parsed.pathname}`.toLowerCase();
+    } catch {
+      return trimmed.split("?")[0].split("#")[0].toLowerCase();
+    }
+  };
+  const seen = new Set(base.map((d) => mediaKey(d.url)).filter(Boolean));
   const merged = [...base];
   for (const doc of extra) {
-    if (!doc.url || seen.has(doc.url)) continue;
+    const key = mediaKey(doc.url);
+    if (!key || seen.has(key)) continue;
     merged.push(doc);
-    seen.add(doc.url);
+    seen.add(key);
   }
   return merged;
 }

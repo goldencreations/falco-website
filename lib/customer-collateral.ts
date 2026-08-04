@@ -12,9 +12,10 @@ export type CustomerCollateralApiRecord = {
   image_document_ids?: string[];
   image_url?: string;
   image_preview_url?: string;
-  attachments: string[];
-  collateral_image_attachments: string[];
-  collaterall_image_attachment: string[];
+  attachments?: string[];
+  collateral_image_attachments?: string[];
+  /** Legacy misspelled field some backends still return. */
+  collaterall_image_attachment?: string[];
 };
 
 export type CustomerCollateralFormRow = {
@@ -104,14 +105,36 @@ function mediaUrlDedupKey(url: string): string {
   }
 }
 
+/** Filename key used to collapse duplicate uploads of the same photo under different document IDs. */
+function mediaUrlBasenameKey(url: string): string {
+  const trimmed = url.trim();
+  if (!trimmed) return "";
+  try {
+    const pathname = new URL(trimmed).pathname;
+    const base = decodeURIComponent(pathname.split("/").pop() ?? "").trim().toLowerCase();
+    if (base && /\.(jpe?g|png|webp|gif|heic|heif|pdf)$/i.test(base)) return `file:${base}`;
+  } catch {
+    const pathOnly = trimmed.split("?")[0].split("#")[0];
+    const base = decodeURIComponent(pathOnly.split("/").pop() ?? "").trim().toLowerCase();
+    if (base && /\.(jpe?g|png|webp|gif|heic|heif|pdf)$/i.test(base)) return `file:${base}`;
+  }
+  return "";
+}
+
 export function dedupeMediaUrls(urls: string[]): string[] {
   const seen = new Set<string>();
+  const seenBasenames = new Set<string>();
   const out: string[] = [];
   for (const url of urls) {
-    const key = mediaUrlDedupKey(url);
+    const trimmed = url.trim();
+    if (!trimmed) continue;
+    const key = mediaUrlDedupKey(trimmed);
     if (!key || seen.has(key)) continue;
+    const basename = mediaUrlBasenameKey(trimmed);
+    if (basename && seenBasenames.has(basename)) continue;
     seen.add(key);
-    out.push(url.trim());
+    if (basename) seenBasenames.add(basename);
+    out.push(trimmed);
   }
   return out;
 }
@@ -158,10 +181,14 @@ export function extractCollateralImageEntriesFromItem(item: unknown): Collateral
   }
 
   const seen = new Map<string, CollateralImageEntry>();
+  const seenBasenames = new Set<string>();
   for (const entry of candidates) {
     const key = mediaUrlDedupKey(entry.url);
     if (!key || seen.has(key)) continue;
+    const basename = mediaUrlBasenameKey(entry.url);
+    if (basename && seenBasenames.has(basename)) continue;
     seen.set(key, entry);
+    if (basename) seenBasenames.add(basename);
   }
   return [...seen.values()];
 }
@@ -244,22 +271,24 @@ function collateralApiRecordFromRow(
     return null;
   }
 
-  const existingUrls = extractCollateralImageUrlsFromItem(item);
-  const attachmentUrls = options?.attachmentUrls ?? existingUrls;
-  const imageDocumentIds =
-    options?.imageDocumentIds ??
-  (options?.imageDocumentId
-    ? [...new Set([...readImageDocumentIds(item), options.imageDocumentId])]
-    : readImageDocumentIds(item));
+  const existingUrls = dedupeMediaUrls(options?.attachmentUrls ?? extractCollateralImageUrlsFromItem(item));
+  const imageDocumentIds = [
+    ...new Set(
+      options?.imageDocumentIds ??
+        (options?.imageDocumentId
+          ? [...readImageDocumentIds(item), options.imageDocumentId]
+          : readImageDocumentIds(item))
+    ),
+  ].filter(Boolean);
 
+  // Write a single image list — previously the same URLs were copied into three fields and
+  // some backends stored each copy, producing duplicate photos on the profile.
   const record: Record<string, unknown> = {
     ...(id ? { id } : {}),
     collateral_type,
     estimated_value,
     description,
-    attachments: attachmentUrls,
-    collateral_image_attachments: attachmentUrls,
-    collaterall_image_attachment: attachmentUrls,
+    collateral_image_attachments: existingUrls,
   };
 
   if (imageDocumentIds.length > 0) {
@@ -452,9 +481,7 @@ export function parseCustomerCollateralFromRow(
         : {}),
       image_url: normalized?.image_url ?? imageUrls[0],
       image_preview_url: normalized?.image_preview_url ?? imageUrls[0],
-      attachments: imageUrls,
       collateral_image_attachments: imageUrls,
-      collaterall_image_attachment: imageUrls,
     });
   }
 

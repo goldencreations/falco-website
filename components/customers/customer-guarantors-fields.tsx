@@ -201,7 +201,8 @@ function FileField({
   const inputRef = useRef<HTMLInputElement>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const isImage = Boolean(file && (/^image\//i.test(file.type) || /\.(jpe?g|png|webp)$/i.test(file.name)));
-  const hasExistingPreview = Boolean(existingPreviewUrl?.trim());
+  const resolvedExistingPreview = existingPreviewUrl?.trim() || existingUrl?.trim() || "";
+  const hasExistingPreview = Boolean(resolvedExistingPreview);
 
   useEffect(() => {
     if (!file || !isImage) {
@@ -259,8 +260,8 @@ function FileField({
       ) : hasExistingPreview ? (
         <div className="mt-2 space-y-1 overflow-hidden rounded-md border bg-background">
           <CachedMediaPreview
-            previewUrl={existingPreviewUrl}
-            authUrl={existingUrl}
+            previewUrl={resolvedExistingPreview}
+            authUrl={existingUrl || resolvedExistingPreview}
             alt={`${label} on file`}
             maxHeight="max-h-44"
             imageClassName="object-contain"
@@ -394,12 +395,14 @@ function ExistingFilesGrid({
   onRemove?: (documentId: string) => void;
   removingIds?: Set<string>;
 }) {
-  if (docs.length === 0) return null;
+  // Hide legacy URL-only files (no document id) — they can't be deleted and only clutter the grid.
+  const deletableDocs = docs.filter((doc) => Boolean(doc.id?.trim()));
+  if (deletableDocs.length === 0) return null;
   return (
     <div className="mt-2 space-y-1.5">
       <p className="text-[11px] font-medium text-muted-foreground">Already on file</p>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
-        {docs.map((doc, i) => (
+        {deletableDocs.map((doc, i) => (
           <ExistingFileThumb
             key={doc.id ?? `${doc.url}-${i}`}
             doc={doc}
@@ -519,6 +522,36 @@ export function CustomerGuarantorsFields({
                 idBackDocumentId: undefined,
                 existingIdBackUrl: undefined,
                 existingIdBackPreviewUrl: undefined,
+              }
+          : row
+      )
+    );
+  };
+
+  const removeExistingSingleDocument = async (
+    index: number,
+    field: "photo" | "wardLetter",
+    documentId: string
+  ) => {
+    if (onDeleteExistingDocument) {
+      const ok = await onDeleteExistingDocument(documentId);
+      if (!ok) return;
+    }
+    onChange(
+      value.map((row, i) =>
+        i === index
+          ? field === "photo"
+            ? {
+                ...row,
+                photoDocumentId: undefined,
+                existingPhotoUrl: undefined,
+                existingPhotoPreviewUrl: undefined,
+              }
+            : {
+                ...row,
+                wardLetterDocumentId: undefined,
+                existingWardLetterUrl: undefined,
+                existingWardLetterPreviewUrl: undefined,
               }
           : row
       )
@@ -846,6 +879,14 @@ export function CustomerGuarantorsFields({
                 file={row.photo}
                 error={rowFieldError(fieldErrors, index, "photo")}
                 fieldKey={`guarantors.${index}.photo`}
+                existingUrl={row.existingPhotoUrl}
+                existingPreviewUrl={
+                  row.existingPhotoPreviewUrl ??
+                  customerDocumentProxyUrl(customerId, row.photoDocumentId)
+                }
+                existingDocumentId={row.photoDocumentId}
+                removingExisting={Boolean(row.photoDocumentId && removingDocumentIds?.has(row.photoDocumentId))}
+                onRemoveExisting={(documentId) => void removeExistingSingleDocument(index, "photo", documentId)}
                 onChange={(file) => updateRow(index, "photo", file)}
               />
               <FileField
@@ -854,6 +895,18 @@ export function CustomerGuarantorsFields({
                 file={row.wardLetter}
                 error={rowFieldError(fieldErrors, index, "wardLetter")}
                 fieldKey={`guarantors.${index}.wardLetter`}
+                existingUrl={row.existingWardLetterUrl}
+                existingPreviewUrl={
+                  row.existingWardLetterPreviewUrl ??
+                  customerDocumentProxyUrl(customerId, row.wardLetterDocumentId)
+                }
+                existingDocumentId={row.wardLetterDocumentId}
+                removingExisting={Boolean(
+                  row.wardLetterDocumentId && removingDocumentIds?.has(row.wardLetterDocumentId)
+                )}
+                onRemoveExisting={(documentId) =>
+                  void removeExistingSingleDocument(index, "wardLetter", documentId)
+                }
                 onChange={(file) => updateRow(index, "wardLetter", file)}
               />
             </div>

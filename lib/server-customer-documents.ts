@@ -134,7 +134,8 @@ export type CustomerDocumentUploadFields = {
 
 /**
  * Proxy multipart upload to `POST /customers/{id}/documents`.
- * Sends `files[]` (and a single `file` when only one) so backends that expect either shape work.
+ * Send only `files[]` — also appending `file` for single uploads made backends that
+ * accept both shapes store the same photo twice.
  */
 export async function uploadCustomerDocument(
   request: Request,
@@ -159,10 +160,6 @@ export async function uploadCustomerDocument(
   form.append("name", fields.name?.trim() || files[0].name);
   for (const file of files) {
     form.append("files[]", file, file.name);
-  }
-  // Backward-compatible single-file field for older LMS builds.
-  if (files.length === 1) {
-    form.append("file", files[0], files[0].name);
   }
   if (fields.collateralId) {
     form.append("collateral_id", fields.collateralId);

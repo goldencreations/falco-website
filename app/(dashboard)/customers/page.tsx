@@ -38,12 +38,11 @@ import {
 } from "@/components/ui/select";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { resolveMediaViewUrl } from "@/components/media/cached-media-preview";
-import { extractCustomersList } from "@/lib/customer-adapters";
 import { addHiddenCustomerId, getHiddenCustomerIds } from "@/lib/customer-hidden-client";
+import { fetchAllCustomersFromApi } from "@/lib/customer-list-fetch";
 import { customerDisplayPhones } from "@/lib/customer-phones";
 import { useTranslations } from "@/lib/i18n/use-translations";
 import { formatCurrency, formatDate } from "@/lib/formatters";
-import { formatApiResponseError } from "@/lib/falco-api";
 import { extractLoansList, type LoanListRow } from "@/lib/loan-adapters";
 import { daysUntilDate, earliestDueDate } from "@/lib/loan-due-date";
 import type { Customer, RiskGrade } from "@/lib/types";
@@ -134,22 +133,10 @@ export default function CustomersPage() {
  try {
  const params = new URLSearchParams();
  if (scopeBranchId) params.set("branch_id", scopeBranchId);
- params.set("page_size", "100");
  const useEnrichedList = isManagerView || (isSuperAdmin && scopeBranchId);
- const endpoint = useEnrichedList
- ? `/api/customers/with-assignments?${params.toString()}`
- : `/api/customers?${params.toString()}`;
- const res = await fetch(endpoint, { credentials: "include", cache: "no-store" });
- const json = (await res.json().catch(() => ({}))) as {
- customers?: Customer[];
- message?: string;
- };
- if (!res.ok) {
- throw new Error(formatApiResponseError(json, t("customers.loadError")));
- }
- const list = useEnrichedList && Array.isArray(json.customers)
- ? json.customers
- : extractCustomersList(json);
+ const endpoint = useEnrichedList ? "/api/customers/with-assignments" : "/api/customers";
+ // Backend caps page_size at 100; walk pages so newer customers (e.g. id 132) are not dropped.
+ const list = await fetchAllCustomersFromApi(params, { endpoint, pageSize: 100 });
  setCustomers(list);
  } catch (e) {
  setCustomers([]);
