@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import {
  LayoutDashboard,
  Users,
@@ -210,15 +209,20 @@ const navigation: { title: string; items: SidebarNavItem[] }[] = [
 
 export function AppSidebar() {
  const { activePath } = useNavigationTransition();
- const searchParams = useSearchParams();
  const { user } = useSessionUser();
  const { language } = useLanguage();
  const L = (text: string) => tLabel(text, language);
  const [isLoggingOut, setIsLoggingOut] = useState(false);
  const activePathname = activePath.split("?")[0];
- const activeQuery = activePath.includes("?")
- ? new URLSearchParams(activePath.slice(activePath.indexOf("?") + 1))
- : searchParams;
+ const activeQuery = useMemo(() => {
+  if (activePath.includes("?")) {
+   return new URLSearchParams(activePath.slice(activePath.indexOf("?") + 1));
+  }
+  if (typeof window !== "undefined") {
+   return new URLSearchParams(window.location.search);
+  }
+  return new URLSearchParams();
+ }, [activePath]);
  const isActiveHref = (href: string) => {
  const pathname = href.split("?")[0];
  return activePathname === pathname || activePathname.startsWith(`${pathname}/`);
