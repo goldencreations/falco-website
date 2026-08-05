@@ -39,7 +39,7 @@ export function CachedMediaPreview({
   const [loaded, setLoaded] = useState(false);
 
   const proxyUrl = authUrl?.trim() ? toProxyUrl(authUrl) : null;
-  const preview = previewUrl?.trim() || null;
+  const preview = previewUrl?.trim() ? toProxyUrl(previewUrl) : null;
   const activeSrc = useProxy ? proxyUrl : preview ?? proxyUrl;
 
   useEffect(() => {
@@ -118,7 +118,7 @@ export function resolveMediaViewUrl(
   authUrl?: string | null
 ): string | null {
   const preview = previewUrl?.trim();
-  if (preview) return preview;
+  if (preview) return toProxyUrl(preview) ?? preview;
   if (authUrl?.trim()) return toProxyUrl(authUrl) ?? authUrl;
   return null;
 }

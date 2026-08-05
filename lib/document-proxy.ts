@@ -1,26 +1,63 @@
-import { DEFAULT_FALCO_API_BASE_URL } from "@/lib/falco-api";
+import {
+  getAllowedDocumentProxyHostnames,
+  getFalcoApiBaseUrl,
+  getFalcoApiHostname,
+} from "@/lib/falco-api";
 
-const BACKEND_HOSTS = new Set(["falcobackend.habitek.co.tz"]);
+/** Paths the Falco API serves for customer/application media. */
+const BACKEND_MEDIA_PATH =
+  /^\/(storage|documents|media|uploads|files)(\/|$)/i;
 
-function backendBaseUrl(): string {
-  const fromEnv =
-    typeof process !== "undefined"
-      ? process.env.NEXT_PUBLIC_FALCO_API_URL?.trim() ||
-        process.env.FALCO_API_BASE_URL?.trim()
-      : undefined;
-  return (fromEnv || DEFAULT_FALCO_API_BASE_URL).replace(/\/+$/, "");
+function isBackendMediaPath(pathname: string): boolean {
+  return BACKEND_MEDIA_PATH.test(pathname);
 }
 
-function isBackendHost(hostname: string): boolean {
-  return BACKEND_HOSTS.has(hostname);
+/**
+ * Force absolute media URLs onto `FALCO_API_BASE_URL`.
+ * Backend responses often still embed a previous host (e.g. habitek); keep path/query, swap origin.
+ */
+export function rewriteToConfiguredBackendUrl(url: string): string {
+  const trimmed = url.trim();
+  if (!trimmed) return trimmed;
+
+  if (trimmed.startsWith("/")) {
+    return `${getFalcoApiBaseUrl()}${trimmed}`;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    const configuredHost = getFalcoApiHostname();
+    const allowed = getAllowedDocumentProxyHostnames();
+    const shouldRewrite =
+      parsed.hostname !== configuredHost &&
+      (allowed.includes(parsed.hostname) || isBackendMediaPath(parsed.pathname));
+
+    if (shouldRewrite) {
+      const base = getFalcoApiBaseUrl();
+      return `${base}${parsed.pathname}${parsed.search}${parsed.hash}`;
+    }
+  } catch {
+    return trimmed;
+  }
+
+  return trimmed;
+}
+
+function isProxiedBackendUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const allowed = getAllowedDocumentProxyHostnames();
+    if (allowed.includes(parsed.hostname)) return true;
+    if (parsed.hostname === getFalcoApiHostname()) return true;
+    return isBackendMediaPath(parsed.pathname);
+  } catch {
+    return false;
+  }
 }
 
 /**
  * Convert an authenticated backend document URL to a same-origin proxy URL.
- * The proxy route (/api/document-proxy) reads the session cookie server-side
- * and adds the required `Authorization: Bearer` header before forwarding the
- * request to the backend, so plain <img src> and <a href> tags work normally.
- *
+ * Rewrites legacy backend hosts to `FALCO_API_BASE_URL` first.
  * Non-backend URLs (e.g. blob:, data:, signed CDN URLs) are returned as-is.
  */
 export function toProxyUrl(url: string | null | undefined): string | null {
@@ -30,19 +67,20 @@ export function toProxyUrl(url: string | null | undefined): string | null {
 
   if (trimmed.startsWith("/api/document-proxy")) return trimmed;
 
-  if (trimmed.startsWith("/")) {
-    const absolute = `${backendBaseUrl()}${trimmed}`;
+  const rewritten = rewriteToConfiguredBackendUrl(trimmed);
+
+  if (rewritten.startsWith("/")) {
+    const absolute = `${getFalcoApiBaseUrl()}${rewritten}`;
     return `/api/document-proxy?url=${encodeURIComponent(absolute)}`;
   }
 
   try {
-    const parsed = new URL(trimmed);
-    if (isBackendHost(parsed.hostname)) {
-      return `/api/document-proxy?url=${encodeURIComponent(trimmed)}`;
+    if (isProxiedBackendUrl(rewritten)) {
+      return `/api/document-proxy?url=${encodeURIComponent(rewritten)}`;
     }
   } catch {
-    return trimmed;
+    return rewritten;
   }
 
-  return trimmed;
+  return rewritten;
 }

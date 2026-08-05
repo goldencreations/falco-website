@@ -85,34 +85,37 @@ export async function POST(request: Request) {
 
  return response;
  } catch (e) {
- if (e instanceof FalcoApiError) {
- const extra = formatValidationDetails(e.details);
- const message = extra ? `${e.message} (${extra})` : e.message;
- const status =
- e.status === 403
- ? 403
- : e.status === 422
- ? 422
- : e.status === 401
- ? 401
- : e.status === 404
- ? 404
- : e.status === 409
- ? 409
- : e.status === 429
- ? 429
- : e.status >= 500 && e.status < 600
- ? e.status
- : 401;
- return NextResponse.json({ message }, { status });
- }
- const message = e instanceof Error ? e.message : "Login failed";
- if (message.includes("FALCO_API_BASE_URL")) {
- return NextResponse.json(
- { message: "Server is not configured with FALCO_API_BASE_URL" },
- { status: 500 }
- );
- }
- return NextResponse.json({ message: "Unable to reach authentication service" }, { status: 502 });
+  if (e instanceof FalcoApiError) {
+   if (e.code === "CONFIG_ERROR") {
+    return NextResponse.json({ message: e.message }, { status: 500 });
+   }
+   const extra = formatValidationDetails(e.details);
+   const message = extra ? `${e.message} (${extra})` : e.message;
+   const status =
+    e.status === 403
+     ? 403
+     : e.status === 422
+      ? 422
+      : e.status === 401
+       ? 401
+       : e.status === 404
+        ? 404
+        : e.status === 409
+         ? 409
+         : e.status === 429
+          ? 429
+          : e.status >= 500 && e.status < 600
+           ? e.status
+           : 401;
+   return NextResponse.json({ message }, { status });
+  }
+  const message = e instanceof Error ? e.message : "Login failed";
+  if (message.includes("FALCO_API_BASE_URL")) {
+   return NextResponse.json(
+    { message: "Server is not configured with FALCO_API_BASE_URL" },
+    { status: 500 }
+   );
+  }
+  return NextResponse.json({ message: "Unable to reach authentication service" }, { status: 502 });
  }
 }

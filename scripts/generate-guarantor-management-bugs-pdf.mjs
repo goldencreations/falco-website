@@ -157,7 +157,7 @@ y = 52;
 paragraph(
   "This report documents two confirmed backend bugs found while testing guarantor add/remove and " +
     "ID-document workflows on the Customer Edit screen. Both were reproduced live against " +
-    "https://falcobackend.habitek.co.tz using customer #49 (two guarantors: id 172 \u2018Amina Nguyu\u2019 " +
+    "https://falco.goldencreations.online using customer #49 (two guarantors: id 172 \u2018Amina Nguyu\u2019 " +
     "and id 177 \u2018test\u2019). The frontend behavior was verified correct in both cases by logging the exact " +
     "outgoing request body and the raw backend response.",
   { size: 9.7 }

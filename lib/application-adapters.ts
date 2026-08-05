@@ -5,7 +5,7 @@ import {
  type ApplicationWorkflowStage,
 } from "@/lib/application-status";
 import { resolveCustomerLoanOfficerId } from "@/lib/customer-adapters";
-import { DEFAULT_FALCO_API_BASE_URL } from "@/lib/falco-api";
+import { getFalcoApiBaseUrl } from "@/lib/falco-api";
 import { calculateLoanFormula, monthsFromTermDays } from "@/lib/loan-formula";
 import type {
  InterestType,
@@ -124,10 +124,7 @@ function extractDocumentField(
 function documentUrlFromDocumentId(id: unknown): string | undefined {
   const s = id != null ? String(id).trim() : "";
   if (!s) return undefined;
-  const base =
-    (typeof process !== "undefined" && process.env.NEXT_PUBLIC_FALCO_API_URL?.trim()) ||
-    (typeof process !== "undefined" && process.env.FALCO_API_BASE_URL?.trim()) ||
-    DEFAULT_FALCO_API_BASE_URL;
+  const base = getFalcoApiBaseUrl();
   return `${base.replace(/\/+$/, "")}/documents/${encodeURIComponent(s)}`;
 }
 
