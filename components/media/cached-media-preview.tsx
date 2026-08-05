@@ -13,7 +13,16 @@ type CachedMediaPreviewProps = {
   className?: string;
   imageClassName?: string;
   maxHeight?: string;
+  /** Shrink-wrap to the image aspect ratio; whole image visible within max bounds. */
+  fit?: boolean;
 };
+
+/** Tailwind classes for responsive attachment previews in forms. */
+export const FORM_ATTACHMENT_PREVIEW_MAX_HEIGHT = "max-h-44 sm:max-h-56";
+export const FORM_ATTACHMENT_PREVIEW_IMAGE_CLASS = cn(
+  "h-auto w-auto max-w-full object-contain",
+  FORM_ATTACHMENT_PREVIEW_MAX_HEIGHT
+);
 
 /** Image preview: preview URL first, same-origin proxy fallback for authenticated files. */
 export function CachedMediaPreview({
@@ -23,6 +32,7 @@ export function CachedMediaPreview({
   className,
   imageClassName,
   maxHeight = "max-h-48",
+  fit = false,
 }: CachedMediaPreviewProps) {
   const [useProxy, setUseProxy] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -45,7 +55,7 @@ export function CachedMediaPreview({
       <div
         className={cn(
           "flex items-center justify-center rounded-md border bg-muted/20 px-3 text-center text-xs text-muted-foreground",
-          maxHeight === "max-h-48" ? "min-h-32" : "min-h-40",
+          fit ? "min-h-24 w-fit max-w-full" : maxHeight === "max-h-48" ? "min-h-32" : "min-h-40",
           className
         )}
       >
@@ -58,13 +68,20 @@ export function CachedMediaPreview({
     <div
       className={cn(
         "relative overflow-hidden rounded-md border bg-muted/20",
-        maxHeight === "max-h-48" ? "min-h-32" : "min-h-40",
+        fit
+          ? "inline-block w-fit max-w-full min-h-0"
+          : maxHeight === "max-h-48"
+            ? "min-h-32"
+            : "min-h-40",
         className
       )}
     >
       {!loaded ? (
         <div
-          className="absolute inset-0 z-10 flex items-center justify-center bg-muted/30 text-xs text-muted-foreground"
+          className={cn(
+            "absolute inset-0 z-10 flex items-center justify-center bg-muted/30 text-xs text-muted-foreground",
+            fit && "min-h-24 min-w-24"
+          )}
           aria-hidden
         >
           Loading…
@@ -76,7 +93,12 @@ export function CachedMediaPreview({
         src={activeSrc}
         alt={alt}
         decoding="async"
-        className={cn("w-full object-contain", maxHeight, imageClassName)}
+        className={cn(
+          fit
+            ? cn("h-auto w-auto max-w-full object-contain", maxHeight)
+            : cn("w-full object-contain", maxHeight),
+          imageClassName
+        )}
         onLoad={() => setLoaded(true)}
         onError={() => {
           if (!useProxy && proxyUrl && activeSrc !== proxyUrl) {

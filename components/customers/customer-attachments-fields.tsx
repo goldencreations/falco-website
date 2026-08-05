@@ -4,6 +4,8 @@ import { useEffect, useId, useRef, useState } from "react";
 import { ExternalLink, FileText, Home, Store, Trash2, Upload, User } from "lucide-react";
 import {
   CachedMediaPreview,
+  FORM_ATTACHMENT_PREVIEW_IMAGE_CLASS,
+  FORM_ATTACHMENT_PREVIEW_MAX_HEIGHT,
   resolveMediaViewUrl,
 } from "@/components/media/cached-media-preview";
 import { Badge } from "@/components/ui/badge";
@@ -97,14 +99,14 @@ function SingleImageUploadField({
       <p className="text-xs text-muted-foreground">{hint}</p>
 
       {!file && existingViewUrl ? (
-        <div className="space-y-2">
+        <div className="w-fit max-w-full space-y-2">
           <p className="text-[11px] font-medium text-muted-foreground">Current photo on file</p>
           <CachedMediaPreview
             previewUrl={existingPreviewUrl}
             authUrl={existingUrl ?? existingPreviewUrl ?? ""}
             alt={title}
-            maxHeight="max-h-44"
-            imageClassName="object-cover"
+            fit
+            maxHeight={FORM_ATTACHMENT_PREVIEW_MAX_HEIGHT}
           />
         </div>
       ) : null}
@@ -151,9 +153,19 @@ function SingleImageUploadField({
       </div>
 
       {previewUrl ? (
-        <div className="overflow-hidden rounded-md border bg-background">
+        <div className="relative inline-block w-fit max-w-full overflow-hidden rounded-md border bg-background">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={previewUrl} alt={`${title} preview`} className="max-h-48 w-full object-cover" />
+          <img src={previewUrl} alt={`${title} preview`} className={FORM_ATTACHMENT_PREVIEW_IMAGE_CLASS} />
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon"
+            className="absolute right-2 top-2 h-7 w-7"
+            onClick={() => onSelect(null)}
+            aria-label={`Remove ${title}`}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
         </div>
       ) : null}
 
@@ -264,18 +276,18 @@ function MultiImageUploadField({
           <p className="text-[11px] font-medium text-muted-foreground">
             {existingPhotos.length === 1 ? "Current photo on file" : "Current photos on file"}
           </p>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="flex flex-wrap gap-3">
             {existingPhotos.map((photo, index) => (
               <div
                 key={`${photo.url}-${index}`}
-                className="overflow-hidden rounded-md border border-border bg-background"
+                className="inline-flex w-fit max-w-full flex-col overflow-hidden rounded-md border border-border bg-background"
               >
                 <CachedMediaPreview
                   previewUrl={photo.previewUrl}
                   authUrl={photo.url}
                   alt={photo.name}
-                  maxHeight="max-h-44"
-                  imageClassName="object-cover"
+                  fit
+                  maxHeight={FORM_ATTACHMENT_PREVIEW_MAX_HEIGHT}
                 />
                 <p className="truncate border-t px-2 py-1 text-[11px] text-muted-foreground">
                   {photo.name}
@@ -292,14 +304,14 @@ function MultiImageUploadField({
       ) : null}
 
       {files.length > 0 ? (
-        <ul className="space-y-3">
+        <ul className="flex flex-wrap gap-3">
           {files.map((file, index) => (
             <li
               key={fileKey(file, index)}
-              className="overflow-hidden rounded-md border bg-background"
+              className="w-fit max-w-full overflow-hidden rounded-md border bg-background"
             >
               <div className="flex items-center justify-between gap-2 border-b px-3 py-2 text-xs">
-                <span className="truncate text-muted-foreground">{file.name}</span>
+                <span className="max-w-[12rem] truncate text-muted-foreground">{file.name}</span>
                 <Button
                   type="button"
                   variant="ghost"
@@ -312,12 +324,14 @@ function MultiImageUploadField({
                 </Button>
               </div>
               {previewUrls[index] ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={previewUrls[index]}
-                  alt={`${title} preview ${index + 1}`}
-                  className="max-h-48 w-full object-cover"
-                />
+                <div className="relative inline-block w-fit max-w-full">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={previewUrls[index]}
+                    alt={`${title} preview ${index + 1}`}
+                    className={FORM_ATTACHMENT_PREVIEW_IMAGE_CLASS}
+                  />
+                </div>
               ) : null}
             </li>
           ))}
@@ -558,13 +572,19 @@ export function CustomerAttachmentsFields({
         {existingDocuments.length > 0 ? (
           <div className="space-y-1">
             <p className="text-[11px] font-medium text-muted-foreground">On file</p>
-            <ul className="space-y-2">
+            <ul className="flex flex-wrap gap-3">
               {existingDocuments.map((doc) => {
                 const viewUrl = resolveMediaViewUrl(doc.previewUrl, doc.url);
                 const showPreview = isImageDocument(doc);
 
                 return (
-                  <li key={doc.url} className="overflow-hidden rounded-md border bg-background text-xs">
+                  <li
+                    key={doc.url}
+                    className={cn(
+                      "overflow-hidden rounded-md border bg-background text-xs",
+                      showPreview ? "w-fit max-w-full" : "w-full min-w-0"
+                    )}
+                  >
                     <div className="flex items-center justify-between gap-2 px-3 py-2">
                       <span className="flex min-w-0 items-center gap-2">
                         <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
@@ -580,12 +600,13 @@ export function CustomerAttachmentsFields({
                       ) : null}
                     </div>
                     {showPreview ? (
-                      <div className="border-t px-3 pb-3 pt-2">
+                      <div className="inline-block w-fit max-w-full border-t px-3 pb-3 pt-2">
                         <CachedMediaPreview
                           previewUrl={doc.previewUrl}
                           authUrl={doc.url}
                           alt={doc.name}
-                          maxHeight="max-h-44"
+                          fit
+                          maxHeight={FORM_ATTACHMENT_PREVIEW_MAX_HEIGHT}
                         />
                       </div>
                     ) : null}
