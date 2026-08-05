@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
  LayoutDashboard,
  Users,
@@ -166,6 +167,17 @@ const navigation: { title: string; items: SidebarNavItem[] }[] = [
  title: "Reports",
  href: "/reports",
  icon: BarChart3,
+ subItems: [
+ { title: "Reports Overview", href: "/reports" },
+ { title: "Lead Performance", href: "/reports?view=leads-performance" },
+ { title: "Customer Demographics", href: "/reports?view=customer-demographics" },
+ { title: "Application Analytics", href: "/reports?view=applications" },
+ { title: "Expected Collections", href: "/reports?view=expected-collections" },
+ { title: "Portfolio & Aging", href: "/reports?view=portfolio-aging" },
+ { title: "Disbursements", href: "/reports?view=disbursements" },
+ { title: "Group Performance", href: "/reports?view=groups-performance" },
+ { title: "Financial Ledger", href: "/reports?view=financial-ledger" },
+ ],
  },
  {
  title: "Cashbook",
@@ -198,11 +210,26 @@ const navigation: { title: string; items: SidebarNavItem[] }[] = [
 
 export function AppSidebar() {
  const { activePath } = useNavigationTransition();
+ const searchParams = useSearchParams();
  const { user } = useSessionUser();
  const { language } = useLanguage();
  const L = (text: string) => tLabel(text, language);
  const [isLoggingOut, setIsLoggingOut] = useState(false);
- const isActiveHref = (href: string) => activePath === href || activePath.startsWith(`${href}/`);
+ const activePathname = activePath.split("?")[0];
+ const activeQuery = activePath.includes("?")
+ ? new URLSearchParams(activePath.slice(activePath.indexOf("?") + 1))
+ : searchParams;
+ const isActiveHref = (href: string) => {
+ const pathname = href.split("?")[0];
+ return activePathname === pathname || activePathname.startsWith(`${pathname}/`);
+ };
+ const isActiveSubItem = (href: string) => {
+ const [pathname, query = ""] = href.split("?");
+ if (activePathname !== pathname) return false;
+ if (pathname !== "/reports") return true;
+ const targetView = new URLSearchParams(query).get("view");
+ return targetView ? activeQuery.get("view") === targetView : !activeQuery.get("view");
+ };
 
  const visibleNavigation = useMemo(() => {
  const role = user?.role ?? "loan_officer";
@@ -255,7 +282,11 @@ export function AppSidebar() {
  <SidebarMenu>
  {group.items.map((item) =>
  "subItems" in item ? (
- <Collapsible key={item.title} className="group/collapsible">
+ <Collapsible
+ key={item.title}
+ className="group/collapsible"
+ defaultOpen={isActiveHref(item.href)}
+ >
  <SidebarMenuItem>
  <CollapsibleTrigger asChild>
  <SidebarMenuButton
@@ -276,9 +307,9 @@ export function AppSidebar() {
  <SidebarMenuSubItem key={subItem.href}>
  <SidebarMenuSubButton
  asChild
- isActive={isActiveHref(subItem.href)}
+ isActive={isActiveSubItem(subItem.href)}
  className={cn(
- isActiveHref(subItem.href) && "text-sidebar-primary font-medium"
+ isActiveSubItem(subItem.href) && "bg-sidebar-primary/15 text-sidebar-primary font-medium"
  )}
  >
  <NavigationLink href={subItem.href}>

@@ -1,0 +1,204 @@
+
+===== PAGE 1 =====
+Falco Financial Services - Reporting Frontend Handoff
+Page 1
+ Falco Financial Services
+ Reporting API
+ Frontend implementation handoff
+Purpose
+Build report pages from authorized backend results.
+Backend calculations are the official source of truth.
+Scope
+Live reports, filters, exports, branch permissions, menu
+mapping, and unavailable views.
+All report calls require Authorization: Bearer <token>. Do not compute official KPIs from paginated frontend data;
+render the metrics returned by the API.
+The Reports menu must show a clear "Backend report not available yet" state for endpoints marked Planned
+below. Do not substitute a different endpoint or create partial browser calculations.
+
+===== PAGE 2 =====
+Falco Financial Services - Reporting Frontend Handoff
+Page 2
+1. Reports Menu Mapping
+Frontend view
+API status
+Endpoint / implementation
+Reports Overview
+Live building blocks
+GET /reports/portfolio-summary, /aging, /collections. Combine only as separate
+cards.
+Lead Performance
+Planned
+/reports/leads-performance and /details are not deployed yet.
+Customer Demographics
+Live
+GET /reports/customer-demographics
+Application Analytics
+Live
+GET /reports/application-performance
+Expected Collections
+Live
+GET /reports/expected-collections
+Portfolio and Aging
+Live
+GET /reports/portfolio-summary and /reports/aging
+Disbursements
+Live
+GET /reports/disbursements
+Group Performance
+Live
+GET /reports/group-performance
+Financial Ledger
+Partial
+Use GET /financial-entries for cashbook rows and /reports/financial-summary
+for totals. /reports/financial-ledger is planned.
+2. Shared Request Rules
+-
+Use ISO dates: from=YYYY-MM-DD&to=YYYY-MM-DD. Required for disbursements, collections, expected
+collections, financial summary, and export of those report types.
+-
+Use branch_id only when permitted. Branch-scoped users may request their own branch or omit it; a different branch
+returns 403.
+-
+Use page and page_size for disbursements. Render the returned meta object and keep pagination server-side.
+-
+Use as_of for portfolio summary and aging. Use granularity=daily|monthly for collections.
+-
+For application performance: from, to, branch_id, sla_hours, and stalled_hours. For branch performance: branch_id
+and period=YYYY-MM. For group performance: group_id.
+3. Common UI States
+Status
+Frontend behavior
+401
+Use the established session refresh/login flow.
+403
+Show access denied. Do not retry with a wider branch scope.
+404
+Show unavailable report state for an unsupported report/export type.
+422
+Show field-level filter errors; keep selected filters intact.
+Empty data
+Render zero/empty state, not an error.
+
+===== PAGE 3 =====
+Falco Financial Services - Reporting Frontend Handoff
+Page 3
+4. Live Report Endpoints
+Endpoint
+What to render
+Key response fields
+/portfolio-summary
+Portfolio KPI cards and breakdown tables
+as_of; metrics; by_product; by_branch
+/aging
+Aging/provision table or chart
+rows[classification, days_from, days_to, loan_count,
+outstanding_amount, provision_amount,
+percentage]; totals
+/disbursements
+Paginated management table
+rows[loan_id, loan_number, customer_name,
+amount, disbursement_date, branch_name,
+product_name]; meta
+/collections
+Expected vs collected chart
+rows[period_start, period_end, expected_amount,
+collected_amount, collection_rate, branch_id]
+/customer-demographics
+Demographic cards/charts
+total_customers; by_sex; by_age_group;
+by_economic_activity; by_location
+/application-performance
+Pipeline, TAT, SLA, rejections, stalled queues
+pipeline; turnaround; rejections; abandonment
+/branch-performance
+Targets, cash flow, branch/officer
+leaderboards
+branches[target_vs_actual, cash_flow, timeline,
+officer_leaderboard]
+/expected-collections
+Due schedule table and totals
+rows; totals; period buckets and overdue values
+/loan-product-performance
+Product comparison table
+rows by product with disbursed, collected,
+outstanding, recovery, PAR
+/group-performance
+Group operational scorecard
+rows with attendance, collection efficiency, member
+exposure, PAR, officer data
+/financial-summary
+Finance summary cards/category table
+loan_collections; registration_fees; other_income;
+expenses; by_category
+5. Export Contract
+Every live report supports GET /reports/{type}/export. Use the same filters as the visible report plus format=csv, xlsx,
+or pdf. The backend recalculates and re-authorizes the export.
+GET /reports/disbursements/export?from=2026-08-01&to=2026-08-31&branch_id=branch-001&format=xlsx
+Authorization: Bearer <token>
+Use the Content-Type and Content-Disposition headers.
+Treat the response as a binary download, not JSON.
+-
+Export requires reports.export in addition to the report access matrix. A 403 is expected for unauthorized staff.
+-
+Supported types: portfolio-summary, aging, disbursements, collections, customer-demographics,
+application-performance, branch-performance, expected-collections, loan-product-performance, group-performance,
+financial-summary.
+-
+Do not send browser-computed totals, custom filenames, or untrusted data to the export endpoint.
+
+===== PAGE 4 =====
+Falco Financial Services - Reporting Frontend Handoff
+Page 4
+6. Page-Level Display Guidance
+Page
+Recommended frontend layout
+Overview
+Use separate cards sourced from portfolio summary, aging, and collections. Label the selected
+branch/as-of/date filters.
+Demographics
+Use backend percentage and count fields directly. Support gender, age group, activity, and
+region/district grouping.
+Applications
+Show pipeline stages, average/median TAT, SLA breaches, current queue aging, rejection codes,
+stalled applications, and abandonment.
+Collections
+Present expected amount, verified collected amount, shortfall, and collection rate. Display underlying
+due rows where supplied.
+Portfolio and Aging
+Show classification, days-in-arrears boundaries, outstanding, provision, and percentage. Do not
+recalculate PAR/provisions locally.
+Disbursements
+Use server pagination. Preserve links/IDs so staff can navigate to a loan/application after selecting a
+row.
+Financial
+Use financial-summary for totals. For individual cashbook entries, use the existing financial-entries
+endpoint and its filters.
+7. Filters and State Management
+-
+Keep report filters in the URL so a report can be shared/reloaded: branch_id, from, to, as_of, period, granularity,
+group_id, page, and page_size as relevant.
+-
+On every backend response, show the returned period/as_of and branch context beside the title. Never claim a
+different scope than the response.
+-
+When filters change, cancel or ignore stale requests; keep the last valid report visible only when clearly labelled as
+loading/stale.
+-
+Use a per-report loading, error, empty, table, and export state. Exports should not reuse a different page's filter state.
+8. Frontend Acceptance Checklist
+-
+Branch users cannot select or receive another branch's totals; 403 is displayed cleanly.
+-
+Date range errors from 422 map to the filter controls.
+-
+Disbursement tables use server meta.pagination and never silently cap rows.
+-
+Charts use returned numbers, labels, and classifications exactly; no browser KPI formulas.
+-
+CSV, XLSX, and PDF exports download correctly from binary responses with the same active filters.
+-
+Lead Performance and Financial Ledger menu items show a deliberate unavailable/partial state until their dedicated
+report APIs are released.
+Swagger/OpenAPI is the live API reference after deployment. Use its Reports section for request schemas and
+try-it-out testing.
