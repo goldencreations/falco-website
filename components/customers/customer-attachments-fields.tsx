@@ -4,6 +4,8 @@ import { useEffect, useId, useRef, useState } from "react";
 import { ExternalLink, FileText, Home, Store, Trash2, Upload, User } from "lucide-react";
 import {
   CachedMediaPreview,
+  FORM_ATTACHMENT_PREVIEW_IMAGE_CLASS,
+  FORM_ATTACHMENT_PREVIEW_MAX_HEIGHT,
   resolveMediaViewUrl,
 } from "@/components/media/cached-media-preview";
 import { Badge } from "@/components/ui/badge";
@@ -102,14 +104,14 @@ function SingleImageUploadField({
       <p className="text-xs text-muted-foreground">{hint}</p>
 
       {!file && existingViewUrl ? (
-        <div className="space-y-2">
+        <div className="w-fit max-w-full space-y-2">
           <p className="text-[11px] font-medium text-muted-foreground">Current photo on file</p>
           <CachedMediaPreview
             previewUrl={existingPreviewUrl}
             authUrl={existingUrl ?? existingPreviewUrl ?? ""}
             alt={title}
-            maxHeight="max-h-44"
-            imageClassName="object-cover"
+            fit
+            maxHeight={FORM_ATTACHMENT_PREVIEW_MAX_HEIGHT}
           />
         </div>
       ) : null}
@@ -327,14 +329,14 @@ function MultiImageUploadField({
       ) : null}
 
       {files.length > 0 ? (
-        <ul className="space-y-3">
+        <ul className="flex flex-wrap gap-3">
           {files.map((file, index) => (
             <li
               key={fileKey(file, index)}
-              className="overflow-hidden rounded-md border bg-background"
+              className="w-fit max-w-full overflow-hidden rounded-md border bg-background"
             >
               <div className="flex items-center justify-between gap-2 border-b px-3 py-2 text-xs">
-                <span className="truncate text-muted-foreground">{file.name}</span>
+                <span className="max-w-[12rem] truncate text-muted-foreground">{file.name}</span>
                 <Button
                   type="button"
                   variant="ghost"
@@ -624,14 +626,20 @@ export function CustomerAttachmentsFields({
         {existingDocuments.length > 0 ? (
           <div className="space-y-1">
             <p className="text-[11px] font-medium text-muted-foreground">On file</p>
-            <ul className="space-y-2">
+            <ul className="flex flex-wrap gap-3">
               {existingDocuments.map((doc) => {
                 const viewUrl = resolveMediaViewUrl(doc.previewUrl, doc.url);
                 const showPreview = isImageDocument(doc);
                 const isRemoving = Boolean(doc.id && removingDocumentIds?.has(doc.id));
 
                 return (
-                  <li key={doc.url} className="overflow-hidden rounded-md border bg-background text-xs">
+                  <li
+                    key={doc.url}
+                    className={cn(
+                      "overflow-hidden rounded-md border bg-background text-xs",
+                      showPreview ? "w-fit max-w-full" : "w-full min-w-0"
+                    )}
+                  >
                     <div className="flex items-center justify-between gap-2 px-3 py-2">
                       <span className="flex min-w-0 items-center gap-2">
                         <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
@@ -662,12 +670,13 @@ export function CustomerAttachmentsFields({
                       </span>
                     </div>
                     {showPreview ? (
-                      <div className="border-t px-3 pb-3 pt-2">
+                      <div className="inline-block w-fit max-w-full border-t px-3 pb-3 pt-2">
                         <CachedMediaPreview
                           previewUrl={doc.previewUrl}
                           authUrl={doc.url}
                           alt={doc.name}
-                          maxHeight="max-h-44"
+                          fit
+                          maxHeight={FORM_ATTACHMENT_PREVIEW_MAX_HEIGHT}
                         />
                       </div>
                     ) : null}
