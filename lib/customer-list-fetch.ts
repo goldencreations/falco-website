@@ -38,6 +38,74 @@ export function sortCustomersNewestFirst(customers: Customer[]): Customer[] {
   });
 }
 
+export type CustomersPageResult = {
+  customers: Customer[];
+  page: number;
+  pageSize: number;
+  total: number;
+};
+
+/**
+ * Loads a single page of customers (default page_size 10).
+ * Prefer this for list UIs so the first paint does not wait on every page.
+ */
+export async function fetchCustomersPage(
+  baseParams: URLSearchParams,
+  options?: {
+    endpoint?: string;
+    page?: number;
+    pageSize?: number;
+    signal?: AbortSignal;
+  }
+): Promise<CustomersPageResult> {
+  const endpoint = options?.endpoint ?? "/api/customers";
+  const page = options?.page ?? 1;
+  const pageSize = options?.pageSize ?? 10;
+  const params = new URLSearchParams(baseParams);
+  params.set("page", String(page));
+  params.set("page_size", String(pageSize));
+
+  const res = await fetch(`${endpoint}?${params.toString()}`, {
+    credentials: "include",
+    cache: "no-store",
+    signal: options?.signal,
+  });
+  const json = (await res.json().catch(() => ({}))) as {
+    message?: string;
+    customers?: Customer[];
+    data?: unknown;
+    meta?: unknown;
+  };
+  if (!res.ok) {
+    throw new Error(
+      typeof json.message === "string" ? json.message : `Failed to load customers (${res.status})`
+    );
+  }
+
+  const list = Array.isArray(json.customers)
+    ? json.customers
+    : extractCustomersList(json);
+  const meta = extractCustomersListMeta(json);
+  const customers = sortCustomersNewestFirst(list);
+
+  let total = meta.total;
+  if (total == null) {
+    if (customers.length < pageSize) {
+      total = (page - 1) * pageSize + customers.length;
+    } else {
+      // Full page and no reported total — keep Next enabled until a short page.
+      total = page * pageSize + 1;
+    }
+  }
+
+  return {
+    customers,
+    page: meta.page || page,
+    pageSize: meta.pageSize || pageSize,
+    total,
+  };
+}
+
 /**
  * Loads every page of `GET /api/customers` (backend max page_size is 100).
  * Without this, customers with id > first-page window never appear in the UI.

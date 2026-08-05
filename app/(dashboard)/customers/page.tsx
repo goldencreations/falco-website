@@ -14,6 +14,8 @@ import {
  User,
  AlertTriangle,
  Trash2,
+ ChevronLeft,
+ ChevronRight,
 } from "lucide-react";
 import { DeleteCustomerDialog } from "@/components/customers/delete-customer-dialog";
 import { DashboardHeader } from "@/components/dashboard-header";
@@ -39,7 +41,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { resolveMediaViewUrl } from "@/components/media/cached-media-preview";
 import { addHiddenCustomerId, getHiddenCustomerIds } from "@/lib/customer-hidden-client";
-import { fetchAllCustomersFromApi } from "@/lib/customer-list-fetch";
+import { fetchAllCustomersFromApi, fetchCustomersPage } from "@/lib/customer-list-fetch";
 import { customerDisplayPhones } from "@/lib/customer-phones";
 import { useTranslations } from "@/lib/i18n/use-translations";
 import { formatCurrency, formatDate } from "@/lib/formatters";
@@ -47,6 +49,8 @@ import { extractLoansList, type LoanListRow } from "@/lib/loan-adapters";
 import { daysUntilDate, earliestDueDate } from "@/lib/loan-due-date";
 import type { Customer, RiskGrade } from "@/lib/types";
 import { useSessionUser } from "@/lib/use-session-user";
+
+const PAGE_SIZE = 10;
 
 const riskGradeConfig: Record<RiskGrade, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
  A: { label: "Grade A", variant: "default" },
@@ -126,6 +130,30 @@ export default function CustomersPage() {
  const [loans, setLoans] = useState<LoanListRow[]>([]);
  const [loading, setLoading] = useState(true);
  const [loadError, setLoadError] = useState<string | null>(null);
+ const [page, setPage] = useState(1);
+ const [totalCount, setTotalCount] = useState(0);
+ const [searchQuery, setSearchQuery] = useState("");
+ const [debouncedSearch, setDebouncedSearch] = useState("");
+ const [typeFilter, setTypeFilter] = useState<string>("all");
+ const [riskFilter, setRiskFilter] = useState<string>("all");
+ const [loanStatusFilter, setLoanStatusFilter] = useState<string>("all");
+ const [deleteTarget, setDeleteTarget] = useState<Customer | null>(null);
+ const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+ const [hiddenCustomerIds, setHiddenCustomerIds] = useState<Set<string>>(new Set());
+ const [softDeleteNotice, setSoftDeleteNotice] = useState<string | null>(null);
+
+ // Loan-status / type filtering needs the full set; otherwise fetch one API page at a time.
+ const needsFullList = typeFilter !== "all" || loanStatusFilter !== "all";
+ const requestPage = needsFullList ? 1 : page;
+
+ useEffect(() => {
+  const timer = window.setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300);
+  return () => window.clearTimeout(timer);
+ }, [searchQuery]);
+
+ useEffect(() => {
+  setPage(1);
+ }, [debouncedSearch, typeFilter, riskFilter, loanStatusFilter, scopeBranchId]);
 
  const loadCustomers = useCallback(async () => {
  setLoading(true);
@@ -133,18 +161,26 @@ export default function CustomersPage() {
  try {
  const params = new URLSearchParams();
  if (scopeBranchId) params.set("branch_id", scopeBranchId);
- const useEnrichedList = isManagerView || (isSuperAdmin && scopeBranchId);
- const endpoint = useEnrichedList ? "/api/customers/with-assignments" : "/api/customers";
- // Backend caps page_size at 100; walk pages so newer customers (e.g. id 132) are not dropped.
- const list = await fetchAllCustomersFromApi(params, { endpoint, pageSize: 100 });
- setCustomers(list);
+ if (debouncedSearch) params.set("q", debouncedSearch);
+ if (riskFilter !== "all") params.set("risk_grade", riskFilter);
+
+ if (needsFullList) {
+  const list = await fetchAllCustomersFromApi(params, { pageSize: 100 });
+  setCustomers(list);
+  setTotalCount(list.length);
+ } else {
+  const result = await fetchCustomersPage(params, { page: requestPage, pageSize: PAGE_SIZE });
+  setCustomers(result.customers);
+  setTotalCount(result.total);
+ }
  } catch (e) {
  setCustomers([]);
+ setTotalCount(0);
  setLoadError(e instanceof Error ? e.message : t("customers.loadError"));
  } finally {
  setLoading(false);
  }
- }, [scopeBranchId, isManagerView, isSuperAdmin, t]);
+ }, [scopeBranchId, debouncedSearch, riskFilter, needsFullList, requestPage, t]);
 
  useEffect(() => {
  void loadCustomers();
@@ -174,21 +210,6 @@ export default function CustomersPage() {
  };
  }, [scopeBranchId]);
 
- const [searchQuery, setSearchQuery] = useState("");
- const [typeFilter, setTypeFilter] = useState<string>("all");
- const [riskFilter, setRiskFilter] = useState<string>("all");
- const [loanStatusFilter, setLoanStatusFilter] = useState<string>("all");
- const [deleteTarget, setDeleteTarget] = useState<Customer | null>(null);
- const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
- const [hiddenCustomerIds, setHiddenCustomerIds] = useState<Set<string>>(new Set());
- const [softDeleteNotice, setSoftDeleteNotice] = useState<string | null>(null);
- const visibleCustomers =
- scopeBranchId
- ? customers.filter(
-     (customer) => customer.branch_id === scopeBranchId && !hiddenCustomerIds.has(customer.id)
-   )
- : customers.filter((customer) => !hiddenCustomerIds.has(customer.id));
-
  useEffect(() => {
  setHiddenCustomerIds(getHiddenCustomerIds());
  }, []);
@@ -208,17 +229,25 @@ export default function CustomersPage() {
  const activeLoansForCustomer = (customerId: string) =>
  customerLoanStatus(loanStatusByCustomer.get(customerId) ?? []);
 
+ const visibleCustomers =
+ scopeBranchId
+ ? customers.filter(
+     (customer) => customer.branch_id === scopeBranchId && !hiddenCustomerIds.has(customer.id)
+   )
+ : customers.filter((customer) => !hiddenCustomerIds.has(customer.id));
+
  const filteredCustomers = visibleCustomers.filter((customer) => {
  const loanStatus = activeLoansForCustomer(customer.id);
+ const q = debouncedSearch.toLowerCase();
  const matchesSearch =
- searchQuery === "" ||
- customer.first_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
- customer.last_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
- customer.customer_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
- customer.phone_primary.includes(searchQuery) ||
- (customer.phone_numbers ?? []).some((phone) => phone.includes(searchQuery)) ||
- (customer.phone_secondary ?? "").includes(searchQuery) ||
- customer.national_id.includes(searchQuery);
+ q === "" ||
+ customer.first_name.toLowerCase().includes(q) ||
+ customer.last_name.toLowerCase().includes(q) ||
+ customer.customer_number.toLowerCase().includes(q) ||
+ customer.phone_primary.includes(debouncedSearch) ||
+ (customer.phone_numbers ?? []).some((phone) => phone.includes(debouncedSearch)) ||
+ (customer.phone_secondary ?? "").includes(debouncedSearch) ||
+ customer.national_id.includes(debouncedSearch);
 
  const matchesType = typeFilter === "all" || customer.customer_type === typeFilter;
  const matchesRisk = riskFilter === "all" || customer.risk_grade === riskFilter;
@@ -231,10 +260,27 @@ export default function CustomersPage() {
  return matchesSearch && matchesType && matchesRisk && matchesLoanStatus;
  });
 
- const totalCustomers = visibleCustomers.length;
+ const pagedCustomers = useMemo(() => {
+  if (!needsFullList) return filteredCustomers;
+  const start = (page - 1) * PAGE_SIZE;
+  return filteredCustomers.slice(start, start + PAGE_SIZE);
+ }, [filteredCustomers, needsFullList, page]);
+
+ const listTotal = needsFullList ? filteredCustomers.length : totalCount;
+ const totalPages = Math.max(1, Math.ceil(listTotal / PAGE_SIZE));
+ const safePage = Math.min(page, totalPages);
+ const rangeStart = listTotal === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1;
+ const rangeEnd = Math.min(safePage * PAGE_SIZE, listTotal);
+
+ useEffect(() => {
+  if (page > totalPages) setPage(totalPages);
+ }, [page, totalPages]);
+
+ const totalCustomers = needsFullList ? visibleCustomers.length : totalCount;
  const individualCount = visibleCustomers.filter((c) => c.customer_type === "individual").length;
  const businessCount = visibleCustomers.filter((c) => c.customer_type === "business").length;
  const blacklistedCount = visibleCustomers.filter((c) => c.is_blacklisted).length;
+ const showTypeBreakdown = needsFullList;
 
  return (
  <>
@@ -285,15 +331,15 @@ export default function CustomersPage() {
  </div>
  <div className="rounded-lg border bg-background p-3">
  <p className="text-xs text-muted-foreground">Individual</p>
- <p className="text-lg font-semibold">{individualCount}</p>
+ <p className="text-lg font-semibold">{showTypeBreakdown ? individualCount : "—"}</p>
  </div>
  <div className="rounded-lg border bg-background p-3">
  <p className="text-xs text-muted-foreground">Business</p>
- <p className="text-lg font-semibold">{businessCount}</p>
+ <p className="text-lg font-semibold">{showTypeBreakdown ? businessCount : "—"}</p>
  </div>
  <div className="rounded-lg border border-destructive/20 bg-background p-3">
  <p className="text-xs text-muted-foreground">Blacklisted</p>
- <p className="text-lg font-semibold text-destructive">{blacklistedCount}</p>
+ <p className="text-lg font-semibold text-destructive">{showTypeBreakdown ? blacklistedCount : "—"}</p>
  </div>
  </div>
  </CardContent>
@@ -318,7 +364,7 @@ export default function CustomersPage() {
  </CardTitle>
  </CardHeader>
  <CardContent>
- <div className="text-xl font-bold lg:text-2xl">{individualCount}</div>
+ <div className="text-xl font-bold lg:text-2xl">{showTypeBreakdown ? individualCount : "—"}</div>
  </CardContent>
  </Card>
  <Card className="border-emerald-100 bg-emerald-50/30">
@@ -329,7 +375,7 @@ export default function CustomersPage() {
  </CardTitle>
  </CardHeader>
  <CardContent>
- <div className="text-xl font-bold lg:text-2xl">{businessCount}</div>
+ <div className="text-xl font-bold lg:text-2xl">{showTypeBreakdown ? businessCount : "—"}</div>
  </CardContent>
  </Card>
  <Card className="border-destructive/20 bg-destructive/5">
@@ -340,7 +386,7 @@ export default function CustomersPage() {
  </CardTitle>
  </CardHeader>
  <CardContent>
- <div className="text-xl font-bold text-destructive lg:text-2xl">{blacklistedCount}</div>
+ <div className="text-xl font-bold text-destructive lg:text-2xl">{showTypeBreakdown ? blacklistedCount : "—"}</div>
  </CardContent>
  </Card>
  </div>
@@ -408,12 +454,12 @@ export default function CustomersPage() {
  <Card className="overflow-hidden border-emerald-100">
  <CardContent className="space-y-4 p-0">
  <div className="grid gap-3 p-4 sm:hidden">
- {filteredCustomers.length === 0 ? (
+ {pagedCustomers.length === 0 ? (
  <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
  {isOfficerView ? t("customers.noCustomersOfficer") : t("customers.noCustomers")}
  </p>
  ) : (
- filteredCustomers.map((customer) => {
+ pagedCustomers.map((customer) => {
  const risk = riskGradeConfig[customer.risk_grade];
  const loanStatus = activeLoansForCustomer(customer.id);
  const avatarSrc = resolveMediaViewUrl(
@@ -574,14 +620,14 @@ export default function CustomersPage() {
  </TableRow>
  </TableHeader>
  <TableBody>
- {filteredCustomers.length === 0 ? (
+ {pagedCustomers.length === 0 ? (
  <TableRow>
  <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
  {isOfficerView ? t("customers.noCustomersOfficer") : t("customers.noCustomers")}
  </TableCell>
  </TableRow>
  ) : (
- filteredCustomers.map((customer) => {
+ pagedCustomers.map((customer) => {
  const risk = riskGradeConfig[customer.risk_grade];
  const loanStatus = activeLoansForCustomer(customer.id);
  const avatarSrc = resolveMediaViewUrl(
@@ -725,6 +771,39 @@ export default function CustomersPage() {
  </Table>
  </div>
  </div>
+
+ {listTotal > 0 ? (
+ <div className="flex flex-col gap-3 border-t border-emerald-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+ <p className="text-sm text-muted-foreground">
+ Showing {rangeStart}–{rangeEnd} of {listTotal}
+ </p>
+ <div className="flex items-center gap-2">
+ <Button
+ type="button"
+ variant="outline"
+ size="sm"
+ disabled={safePage <= 1 || loading}
+ onClick={() => setPage((p) => Math.max(1, p - 1))}
+ >
+ <ChevronLeft className="mr-1 h-4 w-4" />
+ Previous
+ </Button>
+ <span className="min-w-[5.5rem] text-center text-sm tabular-nums text-muted-foreground">
+ Page {safePage} of {totalPages}
+ </span>
+ <Button
+ type="button"
+ variant="outline"
+ size="sm"
+ disabled={safePage >= totalPages || loading}
+ onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+ >
+ Next
+ <ChevronRight className="ml-1 h-4 w-4" />
+ </Button>
+ </div>
+ </div>
+ ) : null}
  </CardContent>
  </Card>
  </>
