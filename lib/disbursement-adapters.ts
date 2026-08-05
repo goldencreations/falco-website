@@ -169,6 +169,10 @@ export function adaptApiDisbursementRow(raw: Record<string, unknown>): Disbursem
 
  const gateway = row.gateway != null ? str(row.gateway) : null;
 
+ const canRetryRaw = row.can_retry ?? row.canRetry;
+ const can_retry =
+  canRetryRaw === true || canRetryRaw === 1 || canRetryRaw === "1" || canRetryRaw === "true";
+
  return {
  id: str(row.id),
  loan_id: str(row.loan_id ?? loan?.id),
@@ -181,6 +185,7 @@ export function adaptApiDisbursementRow(raw: Record<string, unknown>): Disbursem
  status: asStatus(row.status ? str(row.status) : undefined, gateway),
  gateway,
  order_reference: row.order_reference != null ? str(row.order_reference) : null,
+ can_retry: can_retry || undefined,
  metadata:
  row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
  ? (row.metadata as Record<string, unknown>)
