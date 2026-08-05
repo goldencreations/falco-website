@@ -6,6 +6,22 @@ import {
 import { verifyCustomerUploadAccess } from "@/lib/server-customer-upload";
 import { falcoServerFetch } from "@/lib/server-falco";
 
+function collectFiles(incoming: FormData): File[] {
+  // Prefer `files[]` / `files`. Only fall back to `file` when those are empty so a
+  // client that accidentally sends both shapes does not create duplicate uploads.
+  const files: File[] = [];
+  for (const key of ["files[]", "files"]) {
+    for (const value of incoming.getAll(key)) {
+      if (value instanceof File && value.size > 0) files.push(value);
+    }
+  }
+  if (files.length > 0) return files;
+  for (const value of incoming.getAll("file")) {
+    if (value instanceof File && value.size > 0) files.push(value);
+  }
+  return files;
+}
+
 export async function POST(
   request: Request,
   context: { params: Promise<{ id: string }> }
@@ -40,20 +56,22 @@ export async function POST(
   }
 
   const incoming = await request.formData();
-  const file = incoming.get("file");
-  if (!(file instanceof File)) {
-    return NextResponse.json({ message: "file is required" }, { status: 400 });
+  const files = collectFiles(incoming);
+  if (files.length === 0) {
+    return NextResponse.json({ message: "file or files[] is required" }, { status: 400 });
   }
 
   const type = String(incoming.get("type") ?? CUSTOMER_COLLATERAL_IMAGE_DOCUMENT_TYPE).trim();
-  const name = String(incoming.get("name") ?? file.name).trim() || file.name;
+  const name = String(incoming.get("name") ?? files[0].name).trim() || files[0].name;
   const collateralId = String(incoming.get("collateral_id") ?? "").trim() || undefined;
+  const guarantorId = String(incoming.get("guarantor_id") ?? "").trim() || undefined;
 
   const uploaded = await uploadCustomerDocument(request, id, {
-    file,
+    files,
     type,
     name,
     collateralId,
+    guarantorId,
   });
   if (!uploaded.ok) return uploaded.response;
   return NextResponse.json(uploaded.data ?? { ok: true });

@@ -1,11 +1,19 @@
 import { adaptApiLoanRow, extractLoansList } from "@/lib/loan-adapters";
 import type { Disbursement, DisbursementPaymentChannel, DisbursementStatus } from "@/lib/disbursement-types";
 
-const STATUSES: DisbursementStatus[] = ["pending_approval", "approved", "completed", "rejected"];
+const STATUSES: DisbursementStatus[] = [
+ "pending_approval",
+ "approved",
+ "processing",
+ "completed",
+ "rejected",
+];
 
 function asStatus(v: string | undefined): DisbursementStatus {
  const s = (v ?? "pending_approval").toLowerCase().replace(/-/g, "_").replace(/\s+/g, "_");
- if (s === "pending" || s === "awaiting_approval") return "pending_approval";
+ if (s === "awaiting_approval") return "pending_approval";
+ // Gateway payout in flight — keep distinct from console "pending_approval".
+ if (s === "pending" || s === "processing" || s === "submitted") return "processing";
  return STATUSES.includes(s as DisbursementStatus) ? (s as DisbursementStatus) : "pending_approval";
 }
 
@@ -162,6 +170,12 @@ export function adaptApiDisbursementRow(raw: Record<string, unknown>): Disbursem
  bank_name: bankName,
  transaction_reference: row.transaction_reference != null ? str(row.transaction_reference) : null,
  status: asStatus(row.status ? str(row.status) : undefined),
+ gateway: row.gateway != null ? str(row.gateway) : null,
+ order_reference: row.order_reference != null ? str(row.order_reference) : null,
+ metadata:
+ row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+ ? (row.metadata as Record<string, unknown>)
+ : undefined,
  prepared_by: str(row.prepared_by ?? row.created_by ?? ""),
  approved_by: row.approved_by != null ? str(row.approved_by) : null,
  approved_at: row.approved_at ? str(row.approved_at) : null,
@@ -386,23 +400,38 @@ const BLOCKING_DISBURSEMENT_STATUSES = new Set([
  "processing",
 ]);
 
+function isAmbiguousRejectedDisbursement(d: DisbursementViewRow): boolean {
+ if (d.status !== "rejected") return false;
+ const err = d.metadata?.gateway_error;
+ const text = typeof err === "string" ? err : "";
+ return /cURL error 28|timed out|timeout|ambiguous/i.test(text);
+}
+
 /** Loans that already have an active disbursement attempt (`disbursements-controller.md`). */
 export function loanIdsWithBlockingDisbursement(disbursements: DisbursementViewRow[]): Set<string> {
  const ids = new Set<string>();
  for (const d of disbursements) {
  if (!d.loan_id) continue;
  const status = String(d.status).toLowerCase().replace(/-/g, "_");
- if (BLOCKING_DISBURSEMENT_STATUSES.has(status)) ids.add(d.loan_id);
+ if (BLOCKING_DISBURSEMENT_STATUSES.has(status) || isAmbiguousRejectedDisbursement(d)) {
+ ids.add(d.loan_id);
+ }
  }
  return ids;
 }
 
-/** Principal reserved by in-flight console rows (pending approval / approved). */
+/** Principal reserved by in-flight console rows (pending approval / ClickPesa in flight). */
 export function inFlightReservedByLoanId(disbursements: DisbursementViewRow[]): Map<string, number> {
  const map = new Map<string, number>();
  for (const d of disbursements) {
  if (!d.loan_id || d.status === "rejected") continue;
- if (d.status !== "pending_approval" && d.status !== "approved") continue;
+ if (
+ d.status !== "pending_approval" &&
+ d.status !== "approved" &&
+ d.status !== "processing"
+ ) {
+ continue;
+ }
  map.set(d.loan_id, (map.get(d.loan_id) ?? 0) + d.amount);
  }
  return map;
@@ -629,6 +658,27 @@ export function mergeEligibleLoanLists(...lists: EligibleLoanRow[][]): EligibleL
  return Array.from(byId.values()).sort((a, b) => a.loan_number.localeCompare(b.loan_number));
 }
 
+/**
+ * Normalize a Tanzanian mobile number to the `255XXXXXXXXX` format required by the
+ * mobile-money disbursement gateway (mpesa/airtel_money/yas/halopesa).
+ * Accepts `07XXXXXXXX`, `+255XXXXXXXXX`, `255XXXXXXXXX`, or bare `7XXXXXXXX` input.
+ */
+export function normalizeTanzanianMsisdn(raw: string): string {
+ const digits = raw.replace(/\D/g, "");
+ if (!digits) return "";
+ if (digits.startsWith("255") && digits.length === 12) return digits;
+ if (digits.startsWith("0") && digits.length === 10) return `255${digits.slice(1)}`;
+ if (digits.length === 9) return `255${digits}`;
+ // Fallback: strip a leading country-code-looking "255" duplication or return digits as-is
+ // so validation (below) can flag it rather than silently mangling an unrecognized format.
+ return digits;
+}
+
+/** `true` only for a well-formed `255XXXXXXXXX` (12-digit) Tanzanian MSISDN. */
+export function isValidTanzanianMsisdn(value: string): boolean {
+ return /^255\d{9}$/.test(value);
+}
+
 /** Map UI create form → `POST /disbursements` console body (Falco channel fields + UI aliases). */
 export function mapUiDisbursementCreateToFalco(body: Record<string, unknown>): Record<string, unknown> {
  const loanIdRaw = String(body.loan_id ?? "").trim();
@@ -667,9 +717,10 @@ export function mapUiDisbursementCreateToFalco(body: Record<string, unknown>): R
  if (!payload.bank_account_name) payload.bank_account_name = accountName;
  }
  if (accountNumber) {
- payload.account_number = accountNumber;
- if (!payload.mobile_money_phone && channelPayload.disbursement_channel === "mobile_money") {
- payload.mobile_money_phone = accountNumber.replace(/\s+/g, "");
+ const isMobileMoney = channelPayload.disbursement_channel === "mobile_money";
+ payload.account_number = isMobileMoney ? normalizeTanzanianMsisdn(accountNumber) : accountNumber;
+ if (!payload.mobile_money_phone && isMobileMoney) {
+ payload.mobile_money_phone = normalizeTanzanianMsisdn(accountNumber);
  }
  if (!payload.bank_account_number && channelPayload.disbursement_channel === "bank_transfer") {
  payload.bank_account_number = accountNumber;
@@ -678,6 +729,11 @@ export function mapUiDisbursementCreateToFalco(body: Record<string, unknown>): R
 
  const bankName = body.bank_name != null ? String(body.bank_name).trim() : "";
  if (bankName) payload.bank_name = bankName;
+ const bankBic = body.bank_bic != null ? String(body.bank_bic).trim() : "";
+ if (bankBic) payload.bank_bic = bankBic;
+ const bankTransferType =
+ body.bank_transfer_type != null ? String(body.bank_transfer_type).trim().toUpperCase() : "";
+ if (bankTransferType) payload.bank_transfer_type = bankTransferType;
 
  const txRef = body.transaction_reference != null ? String(body.transaction_reference).trim() : "";
  if (txRef) payload.transaction_reference = txRef;
@@ -714,14 +770,15 @@ export function mapUiLoanDisburseToFalco(body: Record<string, unknown>): Record<
  };
 
  if (disbursement_channel === "mobile_money") {
- base.mobile_money_phone = String(body.account_number ?? body.mobile_money_phone ?? "").replace(/\s+/g, "") || null;
+ const rawPhone = String(body.account_number ?? body.mobile_money_phone ?? "");
+ base.mobile_money_phone = rawPhone.trim() ? normalizeTanzanianMsisdn(rawPhone) : null;
  }
 
  if (disbursement_channel === "bank_transfer") {
  base.bank_account_number = String(body.account_number ?? "").trim() || null;
  base.bank_account_name = String(body.account_name ?? "").trim() || null;
- base.bank_bic = String(body.bank_bic ?? "000000000").trim();
- base.bank_transfer_type = String(body.bank_transfer_type ?? "domestic");
+ base.bank_bic = String(body.bank_bic ?? "").trim() || null;
+ base.bank_transfer_type = String(body.bank_transfer_type ?? "").trim().toUpperCase() || null;
  }
 
  return base;

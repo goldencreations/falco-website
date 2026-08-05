@@ -27,17 +27,19 @@ export function useSessionUser() {
  useEffect(() => {
  let active = true;
 
- const load = async (bypassCache = false) => {
+ const load = async () => {
  try {
+ // Always bypass the client fetch cache — session identity must not linger across logins.
  const response = await fetch(
  "/api/session",
- bypassCache
- ? withCacheBypass({ credentials: "include", cache: "no-store" })
- : { credentials: "include" }
+ withCacheBypass({ credentials: "include", cache: "no-store" })
  );
- if (!response.ok) return;
+ if (!response.ok) {
+ if (active) setUser(null);
+ return;
+ }
  const payload = (await response.json()) as { user?: SessionUserClient };
- if (active && payload.user) setUser(payload.user);
+ if (active) setUser(payload.user ?? null);
  } finally {
  if (active) setLoaded(true);
  }
@@ -47,7 +49,7 @@ export function useSessionUser() {
 
  const interval = window.setInterval(() => {
  if (document.visibilityState !== "visible") return;
- void load(true);
+ void load();
  }, SESSION_KEEPALIVE_MS);
 
  return () => {

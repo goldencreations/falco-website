@@ -38,6 +38,7 @@ export async function GET(request: Request) {
  let loans = await enrichLoansFully(extractLoansList(res.data), {
  request,
  branchId: branchId ?? undefined,
+ includeNextDue: url.searchParams.get("include_next_due") === "1",
  });
 
  if (auth.user.role === "loan_officer" && branchId) {

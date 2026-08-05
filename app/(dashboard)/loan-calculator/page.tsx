@@ -1,11 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Calculator, Loader2, RefreshCcw } from "lucide-react";
+import { AlertTriangle, Calculator, Download, FileSpreadsheet, Loader2, RefreshCcw } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { MoneyInput } from "@/components/forms/money-input";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -31,14 +31,21 @@ import {
   extractCalculatorResult,
   getProductCalculatorValidationError,
   mapUiCalculatorPreviewToApi,
+  termDaysFromLoanPeriodMonths,
   type CalculatorPreviewForm,
   type CalculatorResultView,
 } from "@/lib/calculator-adapters";
+import {
+  exportLoanCalculatorExcel,
+  exportLoanCalculatorPdf,
+  type LoanCalculatorExportMeta,
+} from "@/lib/loan-calculator-export";
 import { formatApiResponseError } from "@/lib/falco-api";
-import { forceCachedReload } from "@/lib/client-fetch-cache";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import { parseJsonResponse } from "@/lib/parse-json-response";
 import { extractProductsList } from "@/lib/product-adapters";
+import { parseMoneyInput } from "@/lib/money-input";
+import { calculateLoanFormula, monthsFromTermDays } from "@/lib/loan-formula";
 import type { LoanProduct } from "@/lib/types";
 
 const defaultForm: CalculatorPreviewForm = {
@@ -55,6 +62,8 @@ const defaultForm: CalculatorPreviewForm = {
   startDate: new Date().toISOString().slice(0, 10),
 };
 
+type CalculatorFieldErrors = Partial<Record<keyof CalculatorPreviewForm, string>>;
+
 function frequencyLabel(value: string): string {
   if (value === "weekly") return "Weekly";
   if (value === "daily") return "Daily";
@@ -64,6 +73,10 @@ function frequencyLabel(value: string): string {
 
 function interestTypeLabel(value: string): string {
   return value === "flat" || value === "flat_interest" ? "Flat interest" : "Declining balance";
+}
+
+function simpleCalculatorError(message: string): string {
+  return message.replaceAll("_", " ");
 }
 
 function ProductPricingSummary({ product }: { product: LoanProduct }) {
@@ -100,22 +113,241 @@ function ProductPricingSummary({ product }: { product: LoanProduct }) {
   );
 }
 
+function productInterestRatePerMonth(product: LoanProduct): number {
+  if (product.interest_rate_per_month != null && product.interest_rate_per_month > 0) {
+    return product.interest_rate_per_month;
+  }
+  if (product.interest_rate > 0) return product.interest_rate / 12;
+  return 0;
+}
+
+function buildCalculatorResultFromFormula(
+  form: CalculatorPreviewForm,
+  config: {
+    principal: number;
+    months: number;
+    termDays: number;
+    interestRatePerMonth: string | number;
+    processingFeePercent: string | number;
+    insuranceFeePercent: string | number;
+    repaymentFrequency: CalculatorPreviewForm["repaymentFrequency"];
+  },
+  parsed?: CalculatorResultView
+): CalculatorResultView {
+  const formula = calculateLoanFormula({
+    principal: config.principal,
+    months: config.months,
+    interestRatePerMonth: config.interestRatePerMonth,
+    processingFeePercent: config.processingFeePercent,
+    insuranceFeePercent: config.insuranceFeePercent,
+    repaymentFrequency: config.repaymentFrequency,
+    interestType: "flat",
+  });
+  const {
+    interestRate,
+    processingFee,
+    insuranceFee,
+    interestOnPrincipal,
+    interestOnProcessingFee,
+    interestAmount,
+    totalRepayment,
+    repaymentCount,
+    installmentAmount,
+  } = formula;
+  const principalDue = config.principal / repaymentCount;
+  const interestDue = interestAmount / repaymentCount;
+  const feesDue = (processingFee + insuranceFee) / repaymentCount;
+  const generatedSchedulePreview = Array.from({ length: repaymentCount }, (_, index) => {
+    const installmentNumber = index + 1;
+    return {
+      installmentNumber,
+      dueDate: manualScheduleDueDate(
+        form.startDate,
+        config.repaymentFrequency,
+        installmentNumber
+      ),
+      principalDue,
+      interestDue,
+      feesDue,
+      totalDue: installmentAmount,
+    };
+  });
+  const schedulePreview =
+    parsed?.schedulePreview && parsed.schedulePreview.length > 0
+      ? parsed.schedulePreview.map((row, index) => ({
+          ...row,
+          installmentNumber: row.installmentNumber || index + 1,
+          principalDue,
+          interestDue,
+          feesDue,
+          totalDue: installmentAmount,
+        }))
+      : generatedSchedulePreview;
+
+  return {
+    ...(parsed ?? {}),
+    principal: config.principal,
+    termDays: config.termDays,
+    loanPeriodMonths: config.months,
+    interestRate,
+    interestType: "flat",
+    interestAmount,
+    interestOnPrincipal,
+    interestOnProcessingFee,
+    processingFee,
+    insuranceFee,
+    totalFees: processingFee + insuranceFee,
+    totalRepayment,
+    installmentAmount,
+    repaymentCount,
+    repaymentFrequency: config.repaymentFrequency,
+    firstRepaymentDate: parsed?.firstRepaymentDate ?? generatedSchedulePreview[0]?.dueDate,
+    penaltyAmount: parsed?.penaltyAmount,
+    schedulePreview,
+  };
+}
+
+function applyProductFormula(
+  form: CalculatorPreviewForm,
+  product: LoanProduct
+): CalculatorResultView {
+  const principal = Number(parseMoneyInput(form.principal));
+  const termDays = Math.max(1, Math.round(Number(form.termDays) || 0));
+  const months = monthsFromTermDays(termDays);
+  return buildCalculatorResultFromFormula(form, {
+    principal,
+    months,
+    termDays,
+    interestRatePerMonth: productInterestRatePerMonth(product),
+    processingFeePercent: product.processing_fee_percent,
+    insuranceFeePercent: product.insurance_fee_percent,
+    repaymentFrequency: product.repayment_frequency,
+  });
+}
+
+function applyManualFormula(
+  form: CalculatorPreviewForm,
+  parsed?: CalculatorResultView
+): CalculatorResultView {
+  const principal = Number(parseMoneyInput(form.principal));
+  const months = Math.max(1, Math.round(Number(form.loanPeriodMonths) || 0));
+  return buildCalculatorResultFromFormula(
+    form,
+    {
+      principal,
+      months,
+      termDays: months * 30,
+      interestRatePerMonth: form.interestRatePerMonth,
+      processingFeePercent: form.processingFeePercent,
+      insuranceFeePercent: form.insuranceFeePercent,
+      repaymentFrequency: form.repaymentFrequency,
+    },
+    parsed
+  );
+}
+
+function parseScheduleDate(value: string): Date {
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return new Date();
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function formatScheduleDate(date: Date): string {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function addScheduleDays(date: Date, days: number): Date {
+  const next = new Date(date.getTime());
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+}
+
+function addScheduleMonths(date: Date, months: number): Date {
+  const next = new Date(date.getTime());
+  next.setUTCMonth(next.getUTCMonth() + months);
+  return next;
+}
+
+function manualScheduleDueDate(
+  startDate: string,
+  frequency: CalculatorPreviewForm["repaymentFrequency"],
+  installmentNumber: number
+): string {
+  const baseDate = parseScheduleDate(startDate);
+
+  if (frequency === "daily") {
+    return formatScheduleDate(addScheduleDays(baseDate, installmentNumber));
+  }
+  if (frequency === "weekly") {
+    return formatScheduleDate(addScheduleDays(baseDate, installmentNumber * 7));
+  }
+  if (frequency === "bi_weekly") {
+    return formatScheduleDate(addScheduleDays(baseDate, installmentNumber * 14));
+  }
+  return formatScheduleDate(addScheduleMonths(baseDate, installmentNumber));
+}
+
 function ResultBreakdown({
   result,
   latePaymentPenaltyPercent,
+  exportMeta,
 }: {
   result: CalculatorResultView;
   latePaymentPenaltyPercent?: number;
+  exportMeta: LoanCalculatorExportMeta;
 }) {
+  const usesManualFormula =
+    result.interestOnPrincipal != null || result.interestOnProcessingFee != null;
+  const [exportingExcel, setExportingExcel] = useState(false);
+
+  const handleExcel = async () => {
+    setExportingExcel(true);
+    try {
+      await exportLoanCalculatorExcel(result, exportMeta);
+    } finally {
+      setExportingExcel(false);
+    }
+  };
+
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Calculation result</CardTitle>
-        <CardDescription>
-          {result.termDays != null && `${result.termDays} days`}
-          {result.loanPeriodMonths != null && ` · ${result.loanPeriodMonths} months`} ·{" "}
-          {frequencyLabel(result.repaymentFrequency)} · {interestTypeLabel(result.interestType)}
-        </CardDescription>
+      <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-1.5">
+          <CardTitle>Calculation result</CardTitle>
+          <CardDescription>
+            {result.termDays != null && `${result.termDays} days`}
+            {result.loanPeriodMonths != null && ` · ${result.loanPeriodMonths} months`} ·{" "}
+            {frequencyLabel(result.repaymentFrequency)} · {interestTypeLabel(result.interestType)}
+          </CardDescription>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => exportLoanCalculatorPdf(result, exportMeta)}
+          >
+            <Download className="mr-1.5 h-3.5 w-3.5" />
+            PDF
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={exportingExcel}
+            onClick={() => void handleExcel()}
+          >
+            {exportingExcel ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <FileSpreadsheet className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            Excel
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -124,9 +356,21 @@ function ResultBreakdown({
             <p className="mt-1 text-lg font-semibold">{formatCurrency(result.principal)}</p>
           </div>
           <div className="rounded-lg border bg-background p-3">
-            <p className="text-xs text-muted-foreground">Interest ({result.interestRate}% / mo)</p>
-            <p className="mt-1 text-lg font-semibold">{formatCurrency(result.interestAmount)}</p>
+            <p className="text-xs text-muted-foreground">
+              {usesManualFormula ? "Interest on principal" : "Interest"} ({result.interestRate}% / mo)
+            </p>
+            <p className="mt-1 text-lg font-semibold">
+              {formatCurrency(result.interestOnPrincipal ?? result.interestAmount)}
+            </p>
           </div>
+          {usesManualFormula ? (
+            <div className="rounded-lg border bg-background p-3">
+              <p className="text-xs text-muted-foreground">Interest on processing fee</p>
+              <p className="mt-1 text-lg font-semibold">
+                {formatCurrency(result.interestOnProcessingFee ?? 0)}
+              </p>
+            </div>
+          ) : null}
           <div className="rounded-lg border bg-background p-3">
             <p className="text-xs text-muted-foreground">Processing fee</p>
             <p className="mt-1 text-lg font-semibold">{formatCurrency(result.processingFee)}</p>
@@ -153,7 +397,9 @@ function ResultBreakdown({
             </p>
           </div>
           <div className="text-right">
-            <p className="text-xs text-muted-foreground">Total repayment</p>
+            <p className="text-xs text-muted-foreground">
+              {usesManualFormula ? "Total Loan" : "Total repayment"}
+            </p>
             <p className="text-2xl font-bold">{formatCurrency(result.totalRepayment)}</p>
           </div>
         </div>
@@ -238,6 +484,7 @@ export default function LoanCalculatorPage() {
   const [loadingDefaults, setLoadingDefaults] = useState(false);
   const [calculating, setCalculating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<CalculatorFieldErrors>({});
 
   const activeProduct = useMemo(
     () => products.find((p) => p.id === form.productId) ?? productDefaults,
@@ -320,7 +567,86 @@ export default function LoanCalculatorPage() {
     }
   }, [form.mode, form.productId, loadProductDefaults]);
 
+  const updateForm = <K extends keyof CalculatorPreviewForm>(
+    key: K,
+    value: CalculatorPreviewForm[K]
+  ) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+    setFieldErrors((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+
+  const resetCalculatorValues = () => {
+    setForm((prev) => ({
+      ...prev,
+      principal: "0",
+      termDays: "0",
+      loanPeriodMonths: "0",
+      interestRatePerMonth: "0",
+      processingFeePercent: "0",
+      insuranceFeePercent: "0",
+    }));
+    setError(null);
+    setFieldErrors({});
+    setResult(null);
+  };
+
+  const validateCalculatorFields = (): CalculatorFieldErrors => {
+    const next: CalculatorFieldErrors = {};
+    const principal = Number(parseMoneyInput(form.principal));
+    if (!Number.isFinite(principal) || principal <= 0) {
+      next.principal = "Principal Amount must be more than 0.";
+    }
+
+    if (form.mode === "product") {
+      const termDays = Number(form.termDays);
+      if (!Number.isFinite(termDays) || termDays <= 0) {
+        next.termDays = "Loan term must be more than 0 days.";
+      }
+      return next;
+    }
+
+    const loanPeriodMonths = Number(form.loanPeriodMonths);
+    const interestRate = Number(form.interestRatePerMonth);
+    const processingFee = Number(form.processingFeePercent);
+    const insuranceFee = Number(form.insuranceFeePercent);
+
+    if (!Number.isFinite(loanPeriodMonths) || loanPeriodMonths <= 0) {
+      next.loanPeriodMonths = "Loan period must be more than 0 months.";
+    }
+    if (!Number.isFinite(interestRate) || interestRate < 0) {
+      next.interestRatePerMonth = "Interest rate must be 0% or more.";
+    }
+    if (!Number.isFinite(processingFee) || processingFee < 0) {
+      next.processingFeePercent = "Processing fee must be 0% or more.";
+    }
+    if (!Number.isFinite(insuranceFee) || insuranceFee < 0) {
+      next.insuranceFeePercent = "Insurance fee must be 0% or more.";
+    }
+    return next;
+  };
+
   const runPreview = async () => {
+    const validationErrors = validateCalculatorFields();
+    if (Object.keys(validationErrors).length > 0) {
+      const firstError = Object.values(validationErrors)[0] ?? "Fix the highlighted fields.";
+      setFieldErrors(validationErrors);
+      setError(firstError);
+      setResult(null);
+      return;
+    }
+
+    if (form.mode === "manual") {
+      setError(null);
+      setFieldErrors({});
+      setResult(applyManualFormula(form));
+      return;
+    }
+
     if (form.mode === "product") {
       const validationError = getProductCalculatorValidationError(form, activeProduct);
       if (validationError) {
@@ -328,14 +654,23 @@ export default function LoanCalculatorPage() {
         setResult(null);
         return;
       }
+      if (!activeProduct) {
+        setError("Select a loan product to calculate.");
+        setResult(null);
+        return;
+      }
+      setError(null);
+      setFieldErrors({});
+      setResult(applyProductFormula(form, activeProduct));
+      return;
     }
 
     const payload = mapUiCalculatorPreviewToApi(form, activeProduct);
     if (!payload) {
       setError(
         form.mode === "product"
-          ? "Enter loan amount and term (days) within the product limits."
-          : "Enter loan amount and period (months) to calculate."
+          ? "Enter Principal Amount and term (days) within the product limits."
+          : "Enter Principal Amount and period (months) to calculate."
       );
       setResult(null);
       return;
@@ -343,6 +678,7 @@ export default function LoanCalculatorPage() {
 
     setCalculating(true);
     setError(null);
+    setFieldErrors({});
     try {
       const res = await fetch("/api/calculator/preview", {
         method: "POST",
@@ -363,7 +699,7 @@ export default function LoanCalculatorPage() {
       setResult(parsed);
     } catch (e) {
       setResult(null);
-      setError(e instanceof Error ? e.message : "Calculation failed");
+      setError(e instanceof Error ? simpleCalculatorError(e.message) : "Calculation failed");
     } finally {
       setCalculating(false);
     }
@@ -380,7 +716,7 @@ export default function LoanCalculatorPage() {
     <>
       <DashboardHeader
         title="Loan Calculator"
-        description="Product-backed previews and manual simulations via POST /calculator/preview"
+        description="Preview principal amounts, repayment terms, and charges before applying."
       />
       <main className="flex-1 overflow-auto p-4 lg:p-6">
         <div className="mx-auto max-w-6xl space-y-6">
@@ -407,7 +743,7 @@ export default function LoanCalculatorPage() {
               >
                 <span className="text-sm font-medium">Product-backed preview</span>
                 <span className="text-[11px] font-normal leading-snug text-muted-foreground">
-                  Uses product interest, processing fee & insurance from the server
+                  Uses product interest, processing fee, and insurance settings
                 </span>
               </TabsTrigger>
               <TabsTrigger
@@ -430,7 +766,7 @@ export default function LoanCalculatorPage() {
                   </CardTitle>
                   <CardDescription>
                     Select a loan product — processing fee, insurance, and interest come from the
-                    product. Client overrides are ignored by the API.
+                    product. Custom rates are only used in manual simulation.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -465,41 +801,41 @@ export default function LoanCalculatorPage() {
                           </SelectContent>
                         </Select>
                       </Field>
-                      <Field>
-                        <FieldLabel>Loan amount (TZS)</FieldLabel>
-                        <MoneyInput
-                          value={form.principal}
-                          onValueChange={(value) =>
-                            setForm((prev) => ({ ...prev, principal: value }))
-                          }
-                          placeholder="e.g., 1,000,000"
-                        />
-                      </Field>
-                      <Field>
-                        <FieldLabel>Loan term (days)</FieldLabel>
+                        <Field>
+                          <FieldLabel>Principal Amount (TZS)</FieldLabel>
+                          <MoneyInput
+                            value={form.principal}
+                            onValueChange={(value) => updateForm("principal", value)}
+                            placeholder="e.g., 1,000,000"
+                            className={fieldErrors.principal ? "border-destructive" : undefined}
+                            title={fieldErrors.principal}
+                          />
+                          {fieldErrors.principal ? <FieldError>{fieldErrors.principal}</FieldError> : null}
+                        </Field>
+                        <Field>
+                          <FieldLabel>Loan term (days)</FieldLabel>
                         <Input
                           type="number"
                           min={activeProduct?.min_term_days ?? 1}
                           max={activeProduct?.max_term_days ?? undefined}
                           value={form.termDays}
-                          onChange={(e) =>
-                            setForm((prev) => ({ ...prev, termDays: e.target.value }))
-                          }
+                          onChange={(e) => updateForm("termDays", e.target.value)}
+                          className={fieldErrors.termDays ? "border-destructive" : undefined}
+                          title={fieldErrors.termDays}
                           placeholder={
                             activeProduct
                               ? `${activeProduct.min_term_days}–${activeProduct.max_term_days}`
                               : "e.g., 90"
                           }
                         />
+                        {fieldErrors.termDays ? <FieldError>{fieldErrors.termDays}</FieldError> : null}
                       </Field>
                       <Field className="md:col-span-2">
                         <FieldLabel>Start date</FieldLabel>
                         <Input
                           type="date"
                           value={form.startDate}
-                          onChange={(e) =>
-                            setForm((prev) => ({ ...prev, startDate: e.target.value }))
-                          }
+                          onChange={(e) => updateForm("startDate", e.target.value)}
                         />
                       </Field>
                     </div>
@@ -526,8 +862,8 @@ export default function LoanCalculatorPage() {
                     Manual simulation
                   </CardTitle>
                   <CardDescription>
-                    Enter principal, term, interest, and fee percentages. Required fields match the
-                    Falco manual preview schema.
+                    Total Loan = Principal Amount + Processing Fee Amount + Interest on Processing
+                    Fee + Interest on Principal Amount + Insurance Amount.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
@@ -536,14 +872,15 @@ export default function LoanCalculatorPage() {
                     <FieldGroup>
                       <div className="grid gap-4 md:grid-cols-2">
                         <Field>
-                          <FieldLabel>Loan amount (TZS)</FieldLabel>
+                          <FieldLabel>Principal Amount (TZS)</FieldLabel>
                           <MoneyInput
                             value={form.principal}
-                            onValueChange={(value) =>
-                              setForm((prev) => ({ ...prev, principal: value }))
-                            }
+                            onValueChange={(value) => updateForm("principal", value)}
                             placeholder="e.g., 1,000,000"
+                            className={fieldErrors.principal ? "border-destructive" : undefined}
+                            title={fieldErrors.principal}
                           />
+                          {fieldErrors.principal ? <FieldError>{fieldErrors.principal}</FieldError> : null}
                         </Field>
                         <Field>
                           <FieldLabel>Loan period (months)</FieldLabel>
@@ -551,20 +888,23 @@ export default function LoanCalculatorPage() {
                             type="number"
                             min={1}
                             value={form.loanPeriodMonths}
-                            onChange={(e) =>
-                              setForm((prev) => ({ ...prev, loanPeriodMonths: e.target.value }))
-                            }
+                            onChange={(e) => updateForm("loanPeriodMonths", e.target.value)}
+                            className={fieldErrors.loanPeriodMonths ? "border-destructive" : undefined}
+                            title={fieldErrors.loanPeriodMonths}
                           />
+                          {fieldErrors.loanPeriodMonths ? (
+                            <FieldError>{fieldErrors.loanPeriodMonths}</FieldError>
+                          ) : null}
                         </Field>
                         <Field>
                           <FieldLabel>Repayment frequency</FieldLabel>
                           <Select
                             value={form.repaymentFrequency}
                             onValueChange={(value) =>
-                              setForm((prev) => ({
-                                ...prev,
-                                repaymentFrequency: value as CalculatorPreviewForm["repaymentFrequency"],
-                              }))
+                              updateForm(
+                                "repaymentFrequency",
+                                value as CalculatorPreviewForm["repaymentFrequency"]
+                              )
                             }
                           >
                             <SelectTrigger>
@@ -581,12 +921,10 @@ export default function LoanCalculatorPage() {
                         <Field>
                           <FieldLabel>Start date</FieldLabel>
                           <Input
-                            type="date"
-                            value={form.startDate}
-                            onChange={(e) =>
-                              setForm((prev) => ({ ...prev, startDate: e.target.value }))
-                            }
-                          />
+                          type="date"
+                          value={form.startDate}
+                          onChange={(e) => updateForm("startDate", e.target.value)}
+                        />
                         </Field>
                       </div>
                     </FieldGroup>
@@ -602,9 +940,7 @@ export default function LoanCalculatorPage() {
                           <FieldLabel>Interest type</FieldLabel>
                           <Select
                             value={form.interestType}
-                            onValueChange={(value) =>
-                              setForm((prev) => ({ ...prev, interestType: value }))
-                            }
+                            onValueChange={(value) => updateForm("interestType", value)}
                           >
                             <SelectTrigger>
                               <SelectValue />
@@ -621,15 +957,14 @@ export default function LoanCalculatorPage() {
                             type="number"
                             step="0.01"
                             min={0}
-                            max={100}
                             value={form.interestRatePerMonth}
-                            onChange={(e) =>
-                              setForm((prev) => ({
-                                ...prev,
-                                interestRatePerMonth: e.target.value,
-                              }))
-                            }
+                            onChange={(e) => updateForm("interestRatePerMonth", e.target.value)}
+                            className={fieldErrors.interestRatePerMonth ? "border-destructive" : undefined}
+                            title={fieldErrors.interestRatePerMonth}
                           />
+                          {fieldErrors.interestRatePerMonth ? (
+                            <FieldError>{fieldErrors.interestRatePerMonth}</FieldError>
+                          ) : null}
                         </Field>
                       </div>
                     </FieldGroup>
@@ -640,7 +975,7 @@ export default function LoanCalculatorPage() {
                   <div className="space-y-3">
                     <p className="text-sm font-medium">Processing & insurance fees</p>
                     <p className="text-xs text-muted-foreground">
-                      Processing fee and insurance fee are percentages of principal in manual mode.
+                      Processing fee and insurance fee are percentages of the principal amount.
                       Late payment penalties are not simulated here — they apply when installments
                       are overdue.
                     </p>
@@ -652,15 +987,14 @@ export default function LoanCalculatorPage() {
                             type="number"
                             step="0.01"
                             min={0}
-                            max={100}
                             value={form.processingFeePercent}
-                            onChange={(e) =>
-                              setForm((prev) => ({
-                                ...prev,
-                                processingFeePercent: e.target.value,
-                              }))
-                            }
+                            onChange={(e) => updateForm("processingFeePercent", e.target.value)}
+                            className={fieldErrors.processingFeePercent ? "border-destructive" : undefined}
+                            title={fieldErrors.processingFeePercent}
                           />
+                          {fieldErrors.processingFeePercent ? (
+                            <FieldError>{fieldErrors.processingFeePercent}</FieldError>
+                          ) : null}
                         </Field>
                         <Field>
                           <FieldLabel>Insurance fee (%)</FieldLabel>
@@ -668,15 +1002,14 @@ export default function LoanCalculatorPage() {
                             type="number"
                             step="0.01"
                             min={0}
-                            max={100}
                             value={form.insuranceFeePercent}
-                            onChange={(e) =>
-                              setForm((prev) => ({
-                                ...prev,
-                                insuranceFeePercent: e.target.value,
-                              }))
-                            }
+                            onChange={(e) => updateForm("insuranceFeePercent", e.target.value)}
+                            className={fieldErrors.insuranceFeePercent ? "border-destructive" : undefined}
+                            title={fieldErrors.insuranceFeePercent}
                           />
+                          {fieldErrors.insuranceFeePercent ? (
+                            <FieldError>{fieldErrors.insuranceFeePercent}</FieldError>
+                          ) : null}
                         </Field>
                       </div>
                     </FieldGroup>
@@ -707,11 +1040,10 @@ export default function LoanCalculatorPage() {
             <Button
               type="button"
               variant="outline"
-              disabled={loadingProducts}
-              onClick={() => forceCachedReload(loadProducts)}
+              onClick={resetCalculatorValues}
             >
               <RefreshCcw className="mr-2 h-4 w-4" />
-              Refresh products
+              Reset values
             </Button>
           </div>
 
@@ -719,6 +1051,12 @@ export default function LoanCalculatorPage() {
             <ResultBreakdown
               result={result}
               latePaymentPenaltyPercent={penaltyPercentForResult}
+              exportMeta={{
+                mode: form.mode === "product" ? "product" : "manual",
+                productName: form.mode === "product" ? activeProduct?.name ?? null : null,
+                startDate: form.startDate || null,
+                latePaymentPenaltyPercent: penaltyPercentForResult ?? null,
+              }}
             />
           ) : null}
         </div>

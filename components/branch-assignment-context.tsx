@@ -44,22 +44,20 @@ export function BranchAssignmentProvider({
  );
  const [users, setUsers] = useState<User[]>([]);
 
- const refresh = async () => {
- if (useScopedBranchOnly) {
- if (sessionUser?.branch_id?.trim()) {
- setBranches([syntheticBranchFromSession(sessionUser as SessionUser)]);
- }
- return;
- }
- try {
- if (mode === "light") {
- const branchesRes = await fetch("/api/falco/branches", { credentials: "include" });
- if (branchesRes.ok) {
- const b = await branchesRes.json();
- setBranches(extractBranchesList(b));
- }
- return;
- }
+  const refresh = async () => {
+    try {
+      if (mode === "light") {
+        // `/api/falco/branches` scopes to the caller's own branch for branch-scoped roles (see
+        // `fetchBranchesForSessionUser`), so this is safe for managers/officers too and returns
+        // their branch's real name instead of the "Branch"/`Branch {id}` synthetic placeholder.
+        const branchesRes = await fetch("/api/falco/branches", { credentials: "include" });
+        if (branchesRes.ok) {
+          const b = await branchesRes.json();
+          const list = extractBranchesList(b);
+          if (list.length > 0) setBranches(list);
+        }
+        return;
+      }
 
  const [branchesRes, usersRes, managersRes, officersRes] = await Promise.all([
  fetch("/api/falco/branches", { credentials: "include" }),

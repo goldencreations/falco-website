@@ -2,10 +2,11 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
-import { CachedMediaPreview } from "@/components/media/cached-media-preview";
+import { CachedMediaPreview, resolveMediaViewUrl } from "@/components/media/cached-media-preview";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { ApplicationViewRow, CollateralRow, GuarantorRow, ReferenceRow } from "@/lib/application-adapters";
 import {
@@ -16,7 +17,12 @@ import {
   buildApplicationChecklist,
   canDeleteApplication,
   getApplicationWorkflowActions,
+  type ApplicationWorkflowAction,
 } from "@/lib/application-workflow";
+import {
+  applicationAgingBucketLabel,
+  applicationOperationalStatusLabel,
+} from "@/lib/application-status";
 import {
   dedupeCollateralRows,
   dedupeGuarantorRows,
@@ -75,8 +81,8 @@ export const applicationStatusConfig: Record<
   draft: { label: "Draft", variant: "outline", icon: FileText },
   submitted: { label: "Submitted", variant: "secondary", icon: Clock },
   under_review: { label: "Under Review", variant: "secondary", icon: Clock },
-  approved: { label: "Approved", variant: "default", icon: CheckCircle },
-  pending_disbursement: { label: "Pending disbursement", variant: "default", icon: CheckCircle },
+  approved: { label: "Awaiting Treasury", variant: "default", icon: CheckCircle },
+  pending_disbursement: { label: "Ready for Disbursement", variant: "default", icon: CheckCircle },
   rejected: { label: "Rejected", variant: "destructive", icon: XCircle },
   disbursed: { label: "Disbursed", variant: "default", icon: CheckCircle },
   cancelled: { label: "Cancelled", variant: "outline", icon: XCircle },
@@ -164,6 +170,7 @@ type ApplicationDetailPanelProps = {
   ) => void;
   onDelete: (app: ApplicationViewRow) => void;
   onExportPdf: () => void;
+  onRejectRequest: (app: ApplicationViewRow, run: ApplicationWorkflowAction["run"]) => void;
 };
 
 export function ApplicationDetailPanel({
@@ -179,9 +186,26 @@ export function ApplicationDetailPanel({
   onWorkflowAction,
   onDelete,
   onExportPdf,
+  onRejectRequest,
 }: ApplicationDetailPanelProps) {
   const status = applicationStatusConfig[application.status];
   const StatusIcon = status.icon;
+  const statusLabel = applicationOperationalStatusLabel(
+    application.status,
+    application.operational_state,
+    status.label
+  );
+  const agingLabel = applicationAgingBucketLabel(application.aging_bucket);
+  const customerPhotoUrl = resolveMediaViewUrl(
+    application.customerPassportPhotoPreviewUrl,
+    application.customerPassportPhotoUrl
+  );
+  const customerInitials = application.customerDisplayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || "C";
   const customerHref = resolvePortalPath(
     effectiveRole as Parameters<typeof resolvePortalPath>[0],
     `/customers/${application.customer_id}`
@@ -262,27 +286,48 @@ export function ApplicationDetailPanel({
       <Card className="overflow-hidden border-border/80 py-0 shadow-sm">
         <CardContent className="space-y-5 p-4 sm:p-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div className="min-w-0 space-y-2">
-              <p className="font-mono text-xs text-muted-foreground">{application.application_number}</p>
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
-                  {application.customerDisplayName}
-                </h1>
-                <Badge
-                  variant="outline"
-                  className={cn("gap-1 capitalize", statusBadgeClass(application.status))}
-                >
-                  <StatusIcon className="h-3 w-3" />
-                  {status.label}
-                </Badge>
+            <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start">
+              <Avatar className="h-16 w-16 shrink-0 ring-2 ring-primary/15 sm:h-20 sm:w-20">
+                {customerPhotoUrl ? (
+                  <AvatarImage
+                    src={customerPhotoUrl}
+                    alt={`${application.customerDisplayName} profile photo`}
+                    className="object-cover"
+                    loading="lazy"
+                  />
+                ) : null}
+                <AvatarFallback className="bg-primary/10 text-lg font-semibold text-primary">
+                  {customerInitials}
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-0 space-y-2">
+                <p className="font-mono text-xs text-muted-foreground">{application.application_number}</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="break-words text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+                    {application.customerDisplayName}
+                  </h1>
+                  <Badge
+                    variant="outline"
+                    className={cn("gap-1", statusBadgeClass(application.status))}
+                  >
+                    <StatusIcon className="h-3 w-3" />
+                    {statusLabel}
+                  </Badge>
+                  {agingLabel ? (
+                    <Badge variant="outline" className="gap-1 text-muted-foreground">
+                      <Clock className="h-3 w-3" />
+                      {agingLabel}
+                    </Badge>
+                  ) : null}
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  {application.productName}
+                  {application.branchName ? ` · ${application.branchName}` : ""}
+                </p>
+                <Button variant="link" className="h-auto p-0 text-sm" asChild>
+                  <Link href={customerHref}>View customer profile</Link>
+                </Button>
               </div>
-              <p className="text-sm text-muted-foreground">
-                {application.productName}
-                {application.branchName ? ` · ${application.branchName}` : ""}
-              </p>
-              <Button variant="link" className="h-auto p-0 text-sm" asChild>
-                <Link href={customerHref}>View customer profile</Link>
-              </Button>
             </div>
             {detailLoading ? (
               <Badge variant="secondary" className="w-fit gap-1">
@@ -343,6 +388,20 @@ export function ApplicationDetailPanel({
                     <DetailRow label="Approved amount" value={formatCurrency(application.approved_amount)} />
                   ) : null}
                   <DetailRow label="Term" value={formatTermDays(application.term_days)} />
+                  <DetailRow
+                    label="Repayment frequency"
+                    value={
+                      application.repayment_frequency === "daily"
+                        ? "Daily"
+                        : application.repayment_frequency === "weekly"
+                          ? "Weekly"
+                          : application.repayment_frequency === "bi_weekly"
+                            ? "Bi-weekly"
+                            : application.repayment_frequency === "monthly"
+                              ? "Monthly"
+                              : "—"
+                    }
+                  />
                   {application.installment_amount ? (
                     <DetailRow
                       label="Installment"
@@ -850,7 +909,9 @@ export function ApplicationDetailPanel({
               onClick={() =>
                 void (wf.id === "admin_activate"
                   ? onAdminActivate(application)
-                  : onWorkflowAction(application.id, wf.run))
+                  : wf.requiresRejectionReason
+                    ? onRejectRequest(application, wf.run)
+                    : onWorkflowAction(application.id, wf.run))
               }
             >
               {actionBusyId === application.id ? (

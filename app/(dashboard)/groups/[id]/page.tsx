@@ -7,16 +7,16 @@ import { ArrowLeft, UserCheck, Users, Loader2, Wallet } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { GroupMembersPanel } from "@/components/group-members-panel";
 import { GroupMeetingLocationCard } from "@/components/groups/group-meeting-location-card";
+import { GroupDeleteDangerZone } from "@/components/groups/group-delete-danger-zone";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useBranchAssignment } from "@/components/branch-assignment-context";
 import { extractGroupDetail, type GroupDetailView } from "@/lib/group-adapters";
-import { extractCustomersList } from "@/lib/customer-adapters";
+import { enrichGroupMembersOnClient } from "@/lib/group-member-enrichment";
 import { extractLoansList } from "@/lib/loan-adapters";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import { buildVikundiCollectionDetail } from "@/lib/vikundi-collection-summary";
-import type { GroupMemberRow } from "@/lib/group-adapters";
 import { resolvePortalHref } from "@/lib/portal-paths";
 import { useSessionUser } from "@/lib/use-session-user";
 
@@ -67,7 +67,7 @@ export default function GroupDetailPage() {
  setMemberOutstanding(null);
  return;
  }
- const detail = extractGroupDetail(json);
+ let detail = extractGroupDetail(json);
  if (!detail) {
  setError("Group not found");
  setGroup(null);
@@ -76,40 +76,7 @@ export default function GroupDetailPage() {
  return;
  }
 
- const needsEnrichment = detail.members.some(
- (m) => !m.phone || !m.customerNumber || m.customerName === m.customerId
- );
- if (needsEnrichment && detail.branch_id) {
- try {
- const params = new URLSearchParams({
- branch_id: detail.branch_id,
- is_active: "true",
- page_size: "200",
- });
- const custRes = await fetch(`/api/customers?${params.toString()}`, {
- credentials: "include",
- });
- if (custRes.ok) {
- const custJson = (await custRes.json()) as unknown;
- const byId = new Map(extractCustomersList(custJson).map((c) => [c.id, c]));
- detail.members = detail.members.map((m): GroupMemberRow => {
- const c = byId.get(m.customerId);
- if (!c) return m;
- return {
- ...m,
- customerName: `${c.first_name} ${c.last_name}`.trim() || m.customerName,
- customerNumber: m.customerNumber || c.customer_number,
- phone: m.phone || c.phone_primary,
- nationalId: m.nationalId || c.national_id,
- riskGrade: m.riskGrade || c.risk_grade,
- monthlyIncome: m.monthlyIncome ?? c.monthly_income,
- };
- });
- }
- } catch {
- /* keep partial member rows */
- }
- }
+ detail = await enrichGroupMembersOnClient(detail);
 
  setGroup(detail);
 
@@ -281,6 +248,10 @@ export default function GroupDetailPage() {
  group={group}
  memberOutstanding={memberOutstanding}
  readOnly={user?.role === "loan_officer"}
+ role={user?.role}
+ memberDetailHref={(id) =>
+ resolvePortalHref(user?.role, `/groups/${groupId}/members/${id}`)
+ }
  customerDetailHref={(id) => resolvePortalHref(user?.role, `/customers/${id}`)}
  onChanged={() => loadGroup({ silent: true })}
  />
@@ -294,6 +265,10 @@ export default function GroupDetailPage() {
  <p className="text-sm text-muted-foreground">{group.notes}</p>
  </CardContent>
  </Card>
+ ) : null}
+
+ {user?.role !== "loan_officer" ? (
+ <GroupDeleteDangerZone group={group} groupsListHref={groupsListHref} />
  ) : null}
  </div>
  </main>

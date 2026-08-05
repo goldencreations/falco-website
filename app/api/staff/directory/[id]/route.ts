@@ -89,3 +89,28 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
  const user = adaptApiUserToUser(row) as User;
  return NextResponse.json({ user });
 }
+
+/** Proxies `DELETE /users/{userId}` — requires `users.delete` (currently only the Admin role). */
+export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {
+ const auth = await requireApiUser(request);
+ if ("response" in auth) return auth.response;
+ const canDelete = auth.user.role === "super_admin" || auth.user.permissions.includes("users.delete");
+ if (!canDelete) {
+ return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+ }
+
+ const { id } = await context.params;
+
+ const res = await falcoServerFetch<unknown>(`/users/${encodeURIComponent(id)}`, {
+ method: "DELETE",
+ });
+
+ if (!res.ok) {
+ return NextResponse.json(
+ { error: res.error.message, code: res.error.code, details: res.error.details },
+ { status: res.error.status }
+ );
+ }
+
+ return new NextResponse(null, { status: 204 });
+}

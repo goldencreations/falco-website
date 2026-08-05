@@ -1,5 +1,5 @@
-import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
-import { AppSidebar } from "@/components/app-sidebar";
+import { DashboardNavigationShell } from "@/components/dashboard-navigation-shell";
+import { SidebarProvider } from "@/components/ui/sidebar";
 import { BranchAssignmentProvider } from "@/components/branch-assignment-context";
 
 export default function DashboardLayout({
@@ -10,10 +10,9 @@ export default function DashboardLayout({
  return (
  <BranchAssignmentProvider>
  <SidebarProvider>
- <AppSidebar />
- <SidebarInset className="flex min-h-0 flex-1 flex-col overflow-hidden">
+ <DashboardNavigationShell>
  {children}
- </SidebarInset>
+ </DashboardNavigationShell>
  </SidebarProvider>
  </BranchAssignmentProvider>
  );

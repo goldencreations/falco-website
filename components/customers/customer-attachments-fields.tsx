@@ -20,7 +20,7 @@ import {
 } from "@/lib/customer-attachments";
 import { cn } from "@/lib/utils";
 
-type ExistingPhoto = { name: string; url: string; previewUrl?: string | null };
+type ExistingPhoto = { id?: string; name: string; url: string; previewUrl?: string | null };
 
 type CustomerAttachmentsFieldsProps = {
   value: CustomerAttachmentFormState;
@@ -29,8 +29,13 @@ type CustomerAttachmentsFieldsProps = {
   existingPassportPreviewUrl?: string | null;
   existingHomePhotos?: ExistingPhoto[];
   existingBusinessPhotos?: ExistingPhoto[];
-  existingDocuments?: Array<{ name: string; url: string; previewUrl?: string | null }>;
+  existingDocuments?: Array<{ id?: string; name: string; url: string; previewUrl?: string | null }>;
   className?: string;
+  fieldErrors?: Record<string, string>;
+  /** Deletes a previously-uploaded document by id (`DELETE .../documents/{id}`). Omit to hide remove controls. */
+  onRemoveExistingDocument?: (documentId: string) => unknown;
+  /** Ids currently being deleted — used to show a busy state and prevent double-clicks. */
+  removingDocumentIds?: Set<string>;
 };
 
 function isImageDocument(doc: { name: string; url: string; previewUrl?: string | null }) {
@@ -153,9 +158,9 @@ function SingleImageUploadField({
       </div>
 
       {previewUrl ? (
-        <div className="relative inline-block w-fit max-w-full overflow-hidden rounded-md border bg-background">
+        <div className="relative overflow-hidden rounded-md border bg-background">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={previewUrl} alt={`${title} preview`} className={FORM_ATTACHMENT_PREVIEW_IMAGE_CLASS} />
+          <img src={previewUrl} alt={`${title} preview`} className="max-h-48 w-full object-cover" />
           <Button
             type="button"
             variant="secondary"
@@ -190,6 +195,8 @@ type MultiImageUploadFieldProps = {
   onAdd: (files: FileList | null) => void;
   onRemove: (index: number) => void;
   onClearAll: () => void;
+  onRemoveExisting?: (documentId: string) => unknown;
+  removingDocumentIds?: Set<string>;
 };
 
 function MultiImageUploadField({
@@ -204,6 +211,8 @@ function MultiImageUploadField({
   onAdd,
   onRemove,
   onClearAll,
+  onRemoveExisting,
+  removingDocumentIds,
 }: MultiImageUploadFieldProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [previewUrls, setPreviewUrls] = useState<string[]>([]);
@@ -276,24 +285,40 @@ function MultiImageUploadField({
           <p className="text-[11px] font-medium text-muted-foreground">
             {existingPhotos.length === 1 ? "Current photo on file" : "Current photos on file"}
           </p>
-          <div className="flex flex-wrap gap-3">
-            {existingPhotos.map((photo, index) => (
-              <div
-                key={`${photo.url}-${index}`}
-                className="inline-flex w-fit max-w-full flex-col overflow-hidden rounded-md border border-border bg-background"
-              >
-                <CachedMediaPreview
-                  previewUrl={photo.previewUrl}
-                  authUrl={photo.url}
-                  alt={photo.name}
-                  fit
-                  maxHeight={FORM_ATTACHMENT_PREVIEW_MAX_HEIGHT}
-                />
-                <p className="truncate border-t px-2 py-1 text-[11px] text-muted-foreground">
-                  {photo.name}
-                </p>
-              </div>
-            ))}
+          <div className="grid gap-3 sm:grid-cols-2">
+            {existingPhotos.map((photo, index) => {
+              const isRemoving = Boolean(photo.id && removingDocumentIds?.has(photo.id));
+              return (
+                <div
+                  key={`${photo.url}-${index}`}
+                  className="relative overflow-hidden rounded-md border border-border bg-background"
+                >
+                  <CachedMediaPreview
+                    previewUrl={photo.previewUrl}
+                    authUrl={photo.url}
+                    alt={photo.name}
+                    maxHeight="max-h-44"
+                    imageClassName="object-cover"
+                  />
+                  {photo.id && onRemoveExisting ? (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="icon"
+                      className="absolute right-2 top-2 h-7 w-7"
+                      disabled={isRemoving}
+                      onClick={() => void onRemoveExisting(photo.id!)}
+                      aria-label={`Remove ${photo.name}`}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  ) : null}
+                  <p className="truncate border-t px-2 py-1 text-[11px] text-muted-foreground">
+                    {photo.name}
+                  </p>
+                </div>
+              );
+            })}
           </div>
           {files.length === 0 ? (
             <p className="text-xs text-muted-foreground">
@@ -324,13 +349,23 @@ function MultiImageUploadField({
                 </Button>
               </div>
               {previewUrls[index] ? (
-                <div className="relative inline-block w-fit max-w-full">
+                <div className="relative">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={previewUrls[index]}
                     alt={`${title} preview ${index + 1}`}
-                    className={FORM_ATTACHMENT_PREVIEW_IMAGE_CLASS}
+                    className="max-h-48 w-full object-cover"
                   />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="icon"
+                    className="absolute right-2 top-2 h-7 w-7"
+                    onClick={() => onRemove(index)}
+                    aria-label={`Remove ${file.name}`}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
                 </div>
               ) : null}
             </li>
@@ -356,6 +391,9 @@ export function CustomerAttachmentsFields({
   existingBusinessPhotos = [],
   existingDocuments = [],
   className,
+  fieldErrors,
+  onRemoveExistingDocument,
+  removingDocumentIds,
 }: CustomerAttachmentsFieldsProps) {
   const docsInputRef = useRef<HTMLInputElement>(null);
   const docsId = useId();
@@ -439,6 +477,7 @@ export function CustomerAttachmentsFields({
 
   return (
     <div className={cn("space-y-4", className)}>
+      <div data-form-field="attachments.passport_photo">
       <SingleImageUploadField
         id="customer-passport-photo"
         title="Passport / profile photo"
@@ -448,10 +487,12 @@ export function CustomerAttachmentsFields({
         file={value.passport_photo}
         existingUrl={existingPassportUrl}
         existingPreviewUrl={existingPassportPreviewUrl}
-        error={passportError}
+        error={passportError ?? fieldErrors?.["attachments.passport_photo"] ?? null}
         onSelect={selectPassportPhoto}
       />
+      </div>
 
+      <div data-form-field="attachments.home_location_photos">
       <MultiImageUploadField
         id="customer-home-photos"
         title="Home location photos"
@@ -460,7 +501,7 @@ export function CustomerAttachmentsFields({
         accept={PHOTO_ACCEPT}
         files={value.home_location_photos}
         existingPhotos={existingHomePhotos}
-        error={homeError}
+        error={homeError ?? fieldErrors?.["attachments.home_location_photos"] ?? null}
         onAdd={addHomePhotos}
         onRemove={(index) =>
           onChange({
@@ -472,8 +513,12 @@ export function CustomerAttachmentsFields({
           setHomeError(null);
           onChange({ ...value, home_location_photos: [] });
         }}
+        onRemoveExisting={onRemoveExistingDocument}
+        removingDocumentIds={removingDocumentIds}
       />
+      </div>
 
+      <div data-form-field="attachments.business_location_photos">
       <MultiImageUploadField
         id="customer-business-photos"
         title="Business location photos"
@@ -482,7 +527,7 @@ export function CustomerAttachmentsFields({
         accept={PHOTO_ACCEPT}
         files={value.business_location_photos}
         existingPhotos={existingBusinessPhotos}
-        error={businessError}
+        error={businessError ?? fieldErrors?.["attachments.business_location_photos"] ?? null}
         onAdd={addBusinessPhotos}
         onRemove={(index) =>
           onChange({
@@ -494,9 +539,18 @@ export function CustomerAttachmentsFields({
           setBusinessError(null);
           onChange({ ...value, business_location_photos: [] });
         }}
+        onRemoveExisting={onRemoveExistingDocument}
+        removingDocumentIds={removingDocumentIds}
       />
+      </div>
 
-      <div className="space-y-2 rounded-lg border border-border p-3">
+      <div
+        className={cn(
+          "space-y-2 rounded-lg border border-border p-3",
+          fieldErrors?.["attachments.supporting_documents"] && "border-destructive/40"
+        )}
+        data-form-field="attachments.supporting_documents"
+      >
         <div className="flex flex-wrap items-center justify-between gap-2">
           <Label htmlFor={docsId} className="flex items-center gap-1.5 text-sm font-medium">
             <FileText className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
@@ -576,6 +630,7 @@ export function CustomerAttachmentsFields({
               {existingDocuments.map((doc) => {
                 const viewUrl = resolveMediaViewUrl(doc.previewUrl, doc.url);
                 const showPreview = isImageDocument(doc);
+                const isRemoving = Boolean(doc.id && removingDocumentIds?.has(doc.id));
 
                 return (
                   <li
@@ -590,14 +645,29 @@ export function CustomerAttachmentsFields({
                         <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
                         <span className="truncate">{doc.name}</span>
                       </span>
-                      {viewUrl ? (
-                        <Button type="button" variant="ghost" size="sm" asChild>
-                          <a href={viewUrl} target="_blank" rel="noopener noreferrer">
-                            <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
-                            View
-                          </a>
-                        </Button>
-                      ) : null}
+                      <span className="flex shrink-0 items-center gap-1">
+                        {viewUrl ? (
+                          <Button type="button" variant="ghost" size="sm" asChild>
+                            <a href={viewUrl} target="_blank" rel="noopener noreferrer">
+                              <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                              View
+                            </a>
+                          </Button>
+                        ) : null}
+                        {doc.id && onRemoveExistingDocument ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-destructive hover:text-destructive"
+                            disabled={isRemoving}
+                            onClick={() => void onRemoveExistingDocument(doc.id!)}
+                            aria-label={`Remove ${doc.name}`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        ) : null}
+                      </span>
                     </div>
                     {showPreview ? (
                       <div className="inline-block w-fit max-w-full border-t px-3 pb-3 pt-2">
@@ -617,9 +687,9 @@ export function CustomerAttachmentsFields({
           </div>
         ) : null}
 
-        {docsError ? (
+        {docsError || fieldErrors?.["attachments.supporting_documents"] ? (
           <p role="alert" className="text-xs text-destructive">
-            {docsError}
+            {docsError ?? fieldErrors?.["attachments.supporting_documents"]}
           </p>
         ) : null}
       </div>

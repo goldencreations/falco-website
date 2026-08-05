@@ -68,6 +68,8 @@ export interface Customer {
  // Contact Information
  phone_primary: string;
  phone_secondary?: string;
+ /** Combined phone list from API (`phone_numbers`). */
+ phone_numbers?: string[];
  email?: string;
  
  // Address
@@ -81,9 +83,9 @@ export interface Customer {
  /** Map pin for the customer's business premises. */
  business_latitude?: number | null;
  business_longitude?: number | null;
- /** Up to two guarantors registered at customer onboarding (stored in API metadata). */
+ /** Guarantors registered at customer onboarding. */
  guarantors?: CustomerGuarantorRecord[];
- /** Personal references registered at customer onboarding (stored in API metadata). */
+ /** Personal references registered at customer onboarding. */
  references?: CustomerReferenceRecord[];
  
  // Employment & Income
@@ -205,12 +207,14 @@ export interface LoanApplication {
  approved_amount?: number;
  term_days: number;
  purpose: string;
+ repayment_frequency?: RepaymentFrequency;
  
  // Calculated Fields
  interest_amount?: number;
  total_fees?: number;
  total_repayment?: number;
  installment_amount?: number;
+ repayment_count?: number;
  
  // Collateral
  collateral_type?: string;
@@ -255,6 +259,32 @@ export interface LoanDocument {
  verified_by?: string;
 }
 
+/** A customer-facing repayment channel surfaced on `loan.repayment_details.channels[]`. */
+export interface RepaymentChannel {
+ name?: string;
+ type?: string;
+ ussd_code?: string;
+ company_id?: string;
+ instructions?: string;
+}
+
+/**
+ * ClickPesa BillPay repayment info returned on `GET /loans/{id}` as `loan.repayment_details`.
+ * Data layer only for now — see lib/loan-adapters.ts `adaptApiLoanRow`.
+ */
+export interface RepaymentDetails {
+ gateway?: string;
+ bill_pay_number?: string;
+ amount_due?: number;
+ penalty_outstanding?: number;
+ accepts_partial_payments?: boolean;
+ reusable?: boolean;
+ bill_pay_active?: boolean;
+ can_accept_payment?: boolean;
+ allocation_order?: string[];
+ channels?: RepaymentChannel[];
+}
+
 export interface Loan {
  id: string;
  loan_number: string;
@@ -275,6 +305,10 @@ export interface Loan {
  principal_outstanding: number;
  interest_outstanding: number;
  fees_outstanding: number;
+ penalty_amount?: number;
+ penalty_outstanding?: number;
+ penalty?: number;
+ daily_penalty_rate?: number;
  total_outstanding: number;
  
  // Paid
@@ -308,12 +342,15 @@ export interface Loan {
  disbursed_by: string;
  created_at: string;
  updated_at: string;
+
+ // ClickPesa BillPay (data layer only — see RepaymentDetails)
+ repayment_details?: RepaymentDetails;
 }
 
 // -----------------------------------------------------------------------------
 // REPAYMENT TYPES
 // -----------------------------------------------------------------------------
-export type PaymentMethod = 'cash' | 'mobile_money' | 'bank_transfer' | 'cheque';
+export type PaymentMethod = 'cash' | 'mobile_money' | 'bank_transfer' | 'cheque' | 'gateway';
 export type PaymentStatus = 'pending' | 'completed' | 'failed' | 'reversed';
 
 export interface RepaymentSchedule {
@@ -325,14 +362,19 @@ export interface RepaymentSchedule {
  principal_due: number;
  interest_due: number;
  fees_due: number;
+ penalty_due: number;
  total_due: number;
  
  principal_paid: number;
  interest_paid: number;
  fees_paid: number;
+ penalty_paid: number;
  total_paid: number;
  
  balance: number;
+ balance_due: number;
+ penalty_outstanding: number;
+ penalty_accrued_through: string | null;
  is_paid: boolean;
  paid_date?: string;
  days_overdue: number;
@@ -520,6 +562,78 @@ export interface AuditLog {
  performed_by: string;
  performed_at: string;
  ip_address?: string;
+}
+
+// -----------------------------------------------------------------------------
+// ACCOUNTING / CASHBOOK TYPES
+// -----------------------------------------------------------------------------
+export type FinancialEntryDirection = "in" | "out";
+/** `system` = auto-posted from loans/payments; `clickpesa` = unmatched gateway receipt awaiting classification; `manual` = accountant-entered. */
+export type FinancialEntrySource = "system" | "clickpesa" | "manual";
+
+export interface FinancialEntry {
+  id: string;
+  entry_number: string;
+  direction: FinancialEntryDirection;
+  /** e.g. `loan_repayment`, `registration_fee`, `loan_disbursement`, `unclassified`, or a manual category. */
+  category: string;
+  amount: number;
+  transaction_date: string;
+  source: FinancialEntrySource;
+  running_balance: number;
+  branch_id?: string;
+  branch_name?: string;
+  customer_id?: string;
+  customer_name?: string;
+  income_type?: string;
+  notes?: string;
+  /** ClickPesa `paymentReference` / provider receipt id — the number staff verify against the gateway. */
+  reference?: string;
+  /** Ledger/account name the entry posted against, when the backend returns one. */
+  account_name?: string;
+  is_reversed?: boolean;
+  reversal_reason?: string;
+  created_by?: string;
+  created_by_name?: string;
+  created_at?: string;
+}
+
+export interface CashbookSummary {
+  opening_balance: number;
+  cash_in: number;
+  cash_out: number;
+  closing_balance: number;
+}
+
+// -----------------------------------------------------------------------------
+// CLICKPESA WEBHOOK EVENTS
+// -----------------------------------------------------------------------------
+/** `duplicate` = normal deduplicated gateway delivery, not a failure. */
+export type WebhookEventStatus = "pending" | "processed" | "failed" | "duplicate";
+
+/** `GET /webhook-events/health?gateway=clickpesa&hours=24|168` summary. */
+export interface WebhookHealthSummary {
+  received: number;
+  processed: number;
+  failed: number;
+  pending: number;
+  duplicate: number;
+  oldest_pending_at?: string;
+}
+
+/**
+ * A row from `GET /webhook-events`. The API deliberately never returns the raw gateway payload to
+ * the browser, so there is no `payload`/`body` field here.
+ */
+export interface WebhookEvent {
+  id: string;
+  gateway: string;
+  event_type: string;
+  event_reference: string;
+  status: WebhookEventStatus;
+  received_at: string;
+  processed_at?: string;
+  error_message?: string;
 }
 
 // -----------------------------------------------------------------------------

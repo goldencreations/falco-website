@@ -1,9 +1,12 @@
 import { adaptApiCustomerRowToCustomer, resolveCustomerLoanOfficerId } from "@/lib/customer-adapters";
+import { resolveFirstPaymentDate, nextDueDateFromSchedule } from "@/lib/loan-due-date";
 import type {
  Customer,
  Loan,
  LoanStatus,
  Payment,
+ RepaymentChannel,
+ RepaymentDetails,
  RepaymentFrequency,
  RepaymentSchedule,
  RiskClassification,
@@ -167,6 +170,8 @@ export type LoanListRow = Loan & {
  productName: string;
  branchName: string;
  loanOfficerDisplayName: string;
+ /** Next unpaid installment due date (from schedule when enriched). */
+ next_due_date?: string;
  /** Completed payments recorded in LMS for this loan (from payments API). */
  payment_count?: number;
  payments_recorded_total?: number;
@@ -180,6 +185,49 @@ function isEnrichedLoanListRow(row: Record<string, unknown>): boolean {
  );
 }
 
+function parseRepaymentChannel(raw: unknown): RepaymentChannel | null {
+ if (!raw || typeof raw !== "object") return null;
+ const o = raw as Record<string, unknown>;
+ return {
+ name: o.name != null ? str(o.name) : undefined,
+ type: o.type != null ? str(o.type) : undefined,
+ ussd_code: o.ussd_code != null ? str(o.ussd_code) : undefined,
+ company_id: o.company_id != null ? str(o.company_id) : undefined,
+ instructions: o.instructions != null ? str(o.instructions) : undefined,
+ };
+}
+
+/**
+ * Parse `loan.repayment_details` (ClickPesa BillPay info) into a typed object.
+ * Data layer only this round — see plan item E15; no dedicated UI card yet.
+ */
+export function parseRepaymentDetails(raw: unknown): RepaymentDetails | undefined {
+ if (!raw || typeof raw !== "object") return undefined;
+ const o = raw as Record<string, unknown>;
+ const channelsRaw = Array.isArray(o.channels) ? o.channels : [];
+ const channels = channelsRaw
+ .map(parseRepaymentChannel)
+ .filter((c): c is RepaymentChannel => c != null);
+ const allocationOrderRaw = Array.isArray(o.allocation_order) ? o.allocation_order : [];
+ const allocation_order = allocationOrderRaw
+ .filter((v): v is string => typeof v === "string")
+ .map((v) => v.trim());
+ return {
+ gateway: o.gateway != null ? str(o.gateway) : undefined,
+ bill_pay_number: o.bill_pay_number != null ? str(o.bill_pay_number) : undefined,
+ amount_due: o.amount_due != null ? num(o.amount_due) : undefined,
+ penalty_outstanding: o.penalty_outstanding != null ? num(o.penalty_outstanding) : undefined,
+ accepts_partial_payments:
+ typeof o.accepts_partial_payments === "boolean" ? o.accepts_partial_payments : undefined,
+ reusable: typeof o.reusable === "boolean" ? o.reusable : undefined,
+ bill_pay_active: typeof o.bill_pay_active === "boolean" ? o.bill_pay_active : undefined,
+ can_accept_payment:
+ typeof o.can_accept_payment === "boolean" ? o.can_accept_payment : undefined,
+ allocation_order: allocation_order.length > 0 ? allocation_order : undefined,
+ channels: channels.length > 0 ? channels : undefined,
+ };
+}
+
 export function adaptApiLoanRow(raw: Record<string, unknown>): LoanListRow {
  const row = unwrapLoanRecord(raw);
 
@@ -191,7 +239,12 @@ export function adaptApiLoanRow(raw: Record<string, unknown>): LoanListRow {
  const principalOut = num(row.principal_outstanding ?? row.principal_remaining, principal);
  const interestOut = num(row.interest_outstanding ?? row.interest_remaining, interest);
  const feesOut = num(row.fees_outstanding, fees);
- const totalOut = num(row.total_outstanding ?? row.outstanding_balance, principalOut + interestOut + feesOut);
+ const penaltyAmount = num(row.penalty_amount, 0);
+ const penaltyOutstanding = num(row.penalty_outstanding ?? row.penalty, 0);
+ const totalOut = num(
+ row.total_outstanding ?? row.outstanding_balance,
+ principalOut + interestOut + feesOut + penaltyOutstanding
+ );
 
  const principalPaid = num(row.principal_paid);
  const interestPaid = num(row.interest_paid);
@@ -214,6 +267,16 @@ export function adaptApiLoanRow(raw: Record<string, unknown>): LoanListRow {
 
  const applicationId = str(row.application_id ?? row.applicationId ?? "");
 
+ const repayment_frequency = asRepaymentFrequency(
+  row.repayment_frequency ? str(row.repayment_frequency) : undefined
+ );
+ const disbursement_date = str(row.disbursement_date ?? row.disbursed_at ?? row.created_at, "1970-01-01");
+ const disbursedAtForDueDate =
+ str(row.disbursement_date ?? row.disbursed_at ?? "", "").trim() || undefined;
+ const embeddedSchedule = extractScheduleList(row.schedule ?? row.repayment_schedule);
+ const scheduleNextDue =
+ embeddedSchedule.length > 0 ? nextDueDateFromSchedule(embeddedSchedule) : undefined;
+
  return {
  id: str(row.id),
  loan_number: str(row.loan_number ?? row.loan_no ?? row.id),
@@ -232,6 +295,10 @@ export function adaptApiLoanRow(raw: Record<string, unknown>): LoanListRow {
  principal_outstanding: principalOut,
  interest_outstanding: interestOut,
  fees_outstanding: feesOut,
+ penalty_amount: penaltyAmount,
+ penalty_outstanding: penaltyOutstanding,
+ penalty: penaltyOutstanding,
+ daily_penalty_rate: num(row.daily_penalty_rate, 0),
  total_outstanding: totalOut,
 
  principal_paid: principalPaid,
@@ -242,10 +309,16 @@ export function adaptApiLoanRow(raw: Record<string, unknown>): LoanListRow {
  term_days: num(row.term_days, 0),
  interest_rate: num(row.interest_rate ?? row.annual_interest_rate, 0),
  installment_amount: num(row.installment_amount ?? row.monthly_installment, 0),
- repayment_frequency: asRepaymentFrequency(row.repayment_frequency ? str(row.repayment_frequency) : undefined),
+ repayment_frequency,
 
- disbursement_date: str(row.disbursement_date ?? row.disbursed_at ?? row.created_at, "1970-01-01"),
- first_payment_date: str(row.first_payment_date ?? row.first_due_date ?? row.disbursement_date, "1970-01-01"),
+ disbursement_date,
+ first_payment_date: resolveFirstPaymentDate({
+  disbursement_date: disbursedAtForDueDate,
+  first_payment_date:
+   row.first_payment_date ?? row.first_due_date ?? row.first_repayment_date,
+  repayment_frequency,
+ }),
+ next_due_date: scheduleNextDue,
  maturity_date: str(row.maturity_date ?? row.maturity_at ?? row.due_date, "1970-01-01"),
  last_payment_date: row.last_payment_date ? str(row.last_payment_date) : undefined,
 
@@ -276,9 +349,9 @@ export function adaptApiLoanRow(raw: Record<string, unknown>): LoanListRow {
  row.payment_count != null ? num(row.payment_count) : undefined,
  payments_recorded_total:
  row.payments_recorded_total != null ? num(row.payments_recorded_total) : undefined,
- last_payment_date: row.last_payment_date ? str(row.last_payment_date) : undefined,
  branchName: branchNameFromRow(row) || "—",
  loanOfficerDisplayName: officerNameFromRow(row) || "—",
+ repayment_details: parseRepaymentDetails(row.repayment_details),
  };
 }
 
@@ -334,15 +407,20 @@ export function adaptApiScheduleRow(raw: Record<string, unknown>): RepaymentSche
  principal_due: num(raw.principal_due ?? raw.principal_amount, 0),
  interest_due: num(raw.interest_due ?? raw.interest_amount, 0),
  fees_due: num(raw.fees_due ?? raw.fees_amount, 0),
+ penalty_due: num(raw.penalty_due, 0),
  total_due: num(raw.total_due ?? raw.amount_due, 0),
 
  principal_paid: num(raw.principal_paid, 0),
  interest_paid: num(raw.interest_paid, 0),
  fees_paid: num(raw.fees_paid, 0),
+ penalty_paid: num(raw.penalty_paid, 0),
  total_paid: num(raw.total_paid, 0),
 
- balance: num(raw.balance ?? raw.remaining_balance, 0),
- is_paid: Boolean(raw.is_paid ?? raw.paid ?? num(raw.balance, 1) === 0),
+ balance: num(raw.balance ?? raw.remaining_balance ?? raw.balance_due, 0),
+ balance_due: num(raw.balance_due ?? raw.balance ?? raw.remaining_balance, 0),
+ penalty_outstanding: num(raw.penalty_outstanding, 0),
+ penalty_accrued_through: raw.penalty_accrued_through ? str(raw.penalty_accrued_through) : null,
+ is_paid: Boolean(raw.is_paid ?? raw.paid ?? num(raw.balance ?? raw.balance_due, 1) === 0),
  paid_date: raw.paid_date ? str(raw.paid_date) : undefined,
  days_overdue: num(raw.days_overdue ?? raw.days_late, 0),
  };
@@ -366,7 +444,9 @@ export function extractScheduleList(json: unknown): RepaymentSchedule[] {
 
 function asPaymentMethod(v: string | undefined): Payment["payment_method"] {
  const s = (v ?? "cash").toLowerCase();
- if (s === "mobile_money" || s === "bank_transfer" || s === "cheque" || s === "cash") return s as Payment["payment_method"];
+ if (s === "mobile_money" || s === "bank_transfer" || s === "cheque" || s === "cash" || s === "gateway") {
+ return s as Payment["payment_method"];
+ }
  return "cash";
 }
 

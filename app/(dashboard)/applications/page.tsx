@@ -77,6 +77,7 @@ import {
  DeleteApplicationDialog,
  type DeleteApplicationTarget,
 } from "@/components/applications/delete-application-dialog";
+import { RejectApplicationDialog } from "@/components/applications/reject-application-dialog";
 import {
  fetchApplicationDocumentStatus,
  formatRequiredDocumentLabel,
@@ -88,10 +89,15 @@ import {
   getApplicationWorkflowActions,
   approveApplicationApi,
   runAdminActivateApplicationWorkflow,
+  type ApplicationWorkflowAction,
 } from "@/lib/application-workflow";
 import { formatCurrency, formatDateTime } from "@/lib/formatters";
 import { exportApplicationToPdf } from "@/lib/application-pdf";
 import { resolvePortalPath } from "@/lib/portal-paths";
+import {
+  applicationAgingBucketLabel,
+  applicationOperationalStatusLabel,
+} from "@/lib/application-status";
 import { useSessionUser } from "@/lib/use-session-user";
 import type { LoanApplicationStatus } from "@/lib/types";
 
@@ -102,8 +108,8 @@ const statusConfig: Record<
  draft: { label: "Draft", variant: "outline", icon: FileText },
  submitted: { label: "Submitted", variant: "secondary", icon: Clock },
  under_review: { label: "Under Review", variant: "secondary", icon: Clock },
- approved: { label: "Approved", variant: "default", icon: CheckCircle },
- pending_disbursement: { label: "Pending disbursement", variant: "default", icon: CheckCircle },
+ approved: { label: "Awaiting Treasury", variant: "default", icon: CheckCircle },
+ pending_disbursement: { label: "Ready for Disbursement", variant: "default", icon: CheckCircle },
  rejected: { label: "Rejected", variant: "destructive", icon: XCircle },
  disbursed: { label: "Disbursed", variant: "default", icon: CheckCircle },
  cancelled: { label: "Cancelled", variant: "outline", icon: XCircle },
@@ -146,6 +152,10 @@ export default function ApplicationsPage() {
  const [successMessage, setSuccessMessage] = useState<string | null>(null);
  const [deleteTarget, setDeleteTarget] = useState<DeleteApplicationTarget | null>(null);
  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+ const [rejectTarget, setRejectTarget] = useState<{
+ app: ApplicationViewRow;
+ run: ApplicationWorkflowAction["run"];
+ } | null>(null);
  const [bulkDeleting, setBulkDeleting] = useState(false);
 
  const reloadApplications = useCallback(async () => {
@@ -314,7 +324,7 @@ export default function ApplicationsPage() {
     setActionError(summary + failures.join(" · "));
   } else {
     setSuccessMessage(
-      `Deleted ${deleted} application${deleted === 1 ? "" : "s"} from the database.`
+      `Deleted ${deleted} application${deleted === 1 ? "" : "s"}.`
     );
   }
 };
@@ -337,7 +347,7 @@ export default function ApplicationsPage() {
 
  const handleApplicationDeleted = () => {
  setDeleteTarget(null);
- setSuccessMessage("Application deleted from the database.");
+ setSuccessMessage("Application deleted.");
  void reloadApplications();
  };
 
@@ -466,15 +476,15 @@ export default function ApplicationsPage() {
  title="Loan Applications"
  description={
  isOfficerView
- ? "Branch loan applications from the Falco API — limited to your assigned branch."
+ ? "Review loan applications for your assigned branch."
  : isManagerView
- ? "Branch loan applications from the Falco API — limited to your assigned branch."
+ ? "Review loan applications for your assigned branch."
  : "Manage and review loan applications"
  }
  />
  <main className="flex min-h-0 flex-1 overflow-y-auto p-2 pb-6 sm:p-3">
  <div className="w-full space-y-4">
- <div className="rounded-xl border border-emerald-100 bg-gradient-to-r from-emerald-50 via-background to-background p-3 sm:p-4">
+ <div className="p-3 sm:p-4">
  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
  <div>
  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">
@@ -704,8 +714,8 @@ export default function ApplicationsPage() {
  <SelectItem value="draft">Draft</SelectItem>
  <SelectItem value="submitted">Submitted</SelectItem>
  <SelectItem value="under_review">Under Review</SelectItem>
- <SelectItem value="approved">Approved</SelectItem>
- <SelectItem value="pending_disbursement">Pending disbursement</SelectItem>
+ <SelectItem value="approved">Awaiting Treasury</SelectItem>
+ <SelectItem value="pending_disbursement">Ready for Disbursement</SelectItem>
  <SelectItem value="rejected">Rejected</SelectItem>
  <SelectItem value="disbursed">Disbursed</SelectItem>
  </SelectContent>
@@ -759,6 +769,11 @@ export default function ApplicationsPage() {
  filteredApplications.map((app) => {
  const status = statusConfig[app.status];
  const StatusIcon = status.icon;
+ const statusLabel = applicationOperationalStatusLabel(
+ app.status,
+ app.operational_state,
+ status.label
+ );
  const rowDeletable = canDeleteApplication(effectiveRole, app, user?.id);
  return (
  <div key={app.id} className="rounded-xl border border-emerald-100 bg-emerald-50/30 p-3">
@@ -774,12 +789,12 @@ export default function ApplicationsPage() {
  ) : null}
             <p className="font-mono text-xs font-medium">{app.application_number}</p>
             </div>
-            {actionBusyId === app.id || app.status === "pending_disbursement" ? (
+            {actionBusyId === app.id ? (
               <StatusLoader />
             ) : (
               <Badge variant={status.variant} className="gap-1">
                 <StatusIcon className="h-3 w-3" />
-                {status.label}
+                {statusLabel}
               </Badge>
             )}
             </div>
@@ -856,6 +871,12 @@ export default function ApplicationsPage() {
  filteredApplications.map((app) => {
  const status = statusConfig[app.status];
  const StatusIcon = status.icon;
+ const statusLabel = applicationOperationalStatusLabel(
+ app.status,
+ app.operational_state,
+ status.label
+ );
+ const agingLabel = applicationAgingBucketLabel(app.aging_bucket);
  const rowDeletable = canDeleteApplication(effectiveRole, app, user?.id);
 
  return (
@@ -891,13 +912,18 @@ export default function ApplicationsPage() {
  {app.purpose}
  </TableCell>
             <TableCell>
-              {actionBusyId === app.id || app.status === "pending_disbursement" ? (
+              {actionBusyId === app.id ? (
                 <StatusLoader />
               ) : (
-                <Badge variant={status.variant} className="gap-1">
-                  <StatusIcon className="h-3 w-3" />
-                  {status.label}
-                </Badge>
+                <div className="flex flex-col gap-1">
+                  <Badge variant={status.variant} className="w-fit gap-1">
+                    <StatusIcon className="h-3 w-3" />
+                    {statusLabel}
+                  </Badge>
+                  {agingLabel ? (
+                    <span className="text-[10px] text-muted-foreground">{agingLabel}</span>
+                  ) : null}
+                </div>
               )}
             </TableCell>
             <TableCell className="hidden text-sm text-muted-foreground lg:table-cell">
@@ -959,7 +985,9 @@ export default function ApplicationsPage() {
       onClick={() =>
         void (wf.id === "admin_activate"
           ? handleAdminActivate(app)
-          : runWorkflowAction(app.id, wf.run))
+          : wf.requiresRejectionReason
+            ? setRejectTarget({ app, run: wf.run })
+            : runWorkflowAction(app.id, wf.run))
       }
     >
       {actionBusyId === app.id ? (
@@ -1062,6 +1090,29 @@ Cancel
 </DialogFooter>
 </DialogContent>
 </Dialog>
+
+<RejectApplicationDialog
+ open={Boolean(rejectTarget)}
+ onOpenChange={(next) => {
+ if (!next) setRejectTarget(null);
+ }}
+ subjectLabel={
+ rejectTarget
+ ? `${rejectTarget.app.customerDisplayName} · ${rejectTarget.app.application_number}`
+ : undefined
+ }
+ onConfirm={async ({ rejection_code, rejection_reason }) => {
+ const target = rejectTarget;
+ if (!target) return { ok: false, error: "No application selected." };
+ let result: { ok: boolean; error?: string } = { ok: false };
+ await runWorkflowAction(target.app.id, async () => {
+ const r = await target.run({ rejection_code, rejection_reason });
+ result = r;
+ return r;
+ });
+ return result;
+ }}
+/>
 </>
 );
 }

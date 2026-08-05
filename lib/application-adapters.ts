@@ -6,11 +6,14 @@ import {
 } from "@/lib/application-status";
 import { resolveCustomerLoanOfficerId } from "@/lib/customer-adapters";
 import { DEFAULT_FALCO_API_BASE_URL } from "@/lib/falco-api";
+import { calculateLoanFormula, monthsFromTermDays } from "@/lib/loan-formula";
 import type {
+ InterestType,
  LoanApplication,
  LoanApplicationStatus,
  LoanDocument,
  LoanMode,
+ RepaymentFrequency,
  RiskGrade,
 } from "@/lib/types";
 
@@ -28,6 +31,76 @@ function readRawUrl(o: Record<string, unknown>, ...keys: string[]): string | und
     if (typeof v === "string" && v.trim().length > 0) return v.trim();
   }
   return undefined;
+}
+
+function readNestedUrl(o: Record<string, unknown>, key: string): string | undefined {
+  const value = o[key];
+  if (!value || typeof value !== "object") return undefined;
+  return readRawUrl(value as Record<string, unknown>, "url", "download_url", "preview_url", "signed_url");
+}
+
+function readPhotoValue(value: unknown, previewOnly = false): string | undefined {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (!value || typeof value !== "object") return undefined;
+  const o = value as Record<string, unknown>;
+  return previewOnly
+    ? readRawUrl(o, "preview_url", "signed_url", "url", "download_url")
+    : readRawUrl(o, "url", "download_url", "preview_url", "signed_url");
+}
+
+function readCustomerPhotoFromDocuments(source: Record<string, unknown>, previewOnly = false): string | undefined {
+  const docs = Array.isArray(source.documents) ? source.documents : [];
+  for (const item of docs) {
+    if (!item || typeof item !== "object") continue;
+    const doc = item as Record<string, unknown>;
+    const type = String(doc.type ?? doc.document_type ?? "").trim().toLowerCase();
+    if (!/passport|profile_photo|customer_photo/.test(type)) continue;
+    const direct = previewOnly
+      ? readRawUrl(doc, "preview_url", "signed_url", "url", "download_url")
+      : readRawUrl(doc, "url", "download_url", "preview_url", "signed_url");
+    if (direct) return direct;
+    const nested = readNestedUrl(doc, "document");
+    if (nested) return nested;
+  }
+  return undefined;
+}
+
+function customerPhotoFromApp(app: Record<string, unknown>): {
+  customerPassportPhotoUrl?: string;
+  customerPassportPhotoPreviewUrl?: string;
+} {
+  const md = readAppMetadata(app);
+  const customer =
+    app.customer && typeof app.customer === "object"
+      ? (app.customer as Record<string, unknown>)
+      : {};
+  const customerMd =
+    customer.metadata && typeof customer.metadata === "object" && customer.metadata !== null
+      ? (customer.metadata as Record<string, unknown>)
+      : {};
+  const sources = [customer, customerMd, md, app];
+
+  const readUrlFromSource = (source: Record<string, unknown>) =>
+    readRawUrl(source, "passport_photo_url", "profile_photo_url", "customer_photo_url") ??
+    readPhotoValue(source.passport_photo) ??
+    readNestedUrl(source, "passport_photo_document") ??
+    readNestedUrl(source, "passport_document") ??
+    readCustomerPhotoFromDocuments(source);
+
+  const readPreviewFromSource = (source: Record<string, unknown>) =>
+    readRawUrl(
+      source,
+      "passport_photo_preview_url",
+      "profile_photo_preview_url",
+      "customer_photo_preview_url"
+    ) ??
+    readPhotoValue(source.passport_photo, true) ??
+    readCustomerPhotoFromDocuments(source, true);
+
+  return {
+    customerPassportPhotoUrl: sources.map(readUrlFromSource).find(Boolean),
+    customerPassportPhotoPreviewUrl: sources.map(readPreviewFromSource).find(Boolean),
+  };
 }
 
 function extractDocumentField(
@@ -134,9 +207,51 @@ export function normalizeGuarantors(raw: unknown[]): GuarantorRow[] {
       const attachmentDocs = Array.isArray(o.attachments)
         ? o.attachments
             .filter((item) => item && typeof item === "object")
-            .map((item) => extractDocumentField(item as Record<string, unknown>, "document"))
+            .map((item) => {
+              const att = item as Record<string, unknown>;
+              const nested = extractDocumentField(att, "document");
+              return {
+                url:
+                  nested.url ??
+                  (typeof att.url === "string" ? att.url.trim() : undefined) ??
+                  (typeof att.download_url === "string" ? att.download_url.trim() : undefined),
+                preview_url:
+                  nested.preview_url ??
+                  (typeof att.preview_url === "string" ? att.preview_url.trim() : undefined),
+              };
+            })
             .filter((doc) => doc.url || doc.preview_url)
         : [];
+      const photoAttachments = Array.isArray(o.photos)
+        ? o.photos
+            .map((item) => {
+              if (typeof item === "string") return { url: item.trim(), preview_url: undefined };
+              if (!item || typeof item !== "object") return null;
+              const p = item as Record<string, unknown>;
+              const nested = extractDocumentField(p, "document");
+              return {
+                url:
+                  nested.url ??
+                  (typeof p.url === "string" ? p.url.trim() : undefined) ??
+                  (typeof p.download_url === "string" ? p.download_url.trim() : undefined),
+                preview_url:
+                  nested.preview_url ??
+                  (typeof p.preview_url === "string" ? p.preview_url.trim() : undefined),
+              };
+            })
+            .filter((doc) => Boolean(doc?.url || doc?.preview_url))
+        : [];
+      const id_front_url =
+        frontDoc.url ??
+        readRawUrl(o, "id_front_url") ??
+        documentUrlFromDocumentId(o.id_front_document_id);
+      const id_back_url =
+        backDoc.url ??
+        readRawUrl(o, "id_back_url") ??
+        documentUrlFromDocumentId(o.id_back_document_id);
+      const flatFrontPreview = readRawUrl(o, "id_front_preview_url");
+      const flatBackPreview = readRawUrl(o, "id_back_preview_url");
+
       return {
         id: o.id != null ? String(o.id) : undefined,
         full_name: String(o.full_name ?? o.name ?? "").trim(),
@@ -150,14 +265,23 @@ export function normalizeGuarantors(raw: unknown[]): GuarantorRow[] {
           o.collateral_description != null ? String(o.collateral_description).trim() : undefined,
         collateral_estimated_value:
           o.collateral_estimated_value != null ? Number(o.collateral_estimated_value) : undefined,
-        // ID front — preview usable in <img> directly; url requires auth
-        id_front_preview_url: frontDoc.preview_url,
-        id_front_url: frontDoc.url,
-        // ID back — same pattern
-        id_back_preview_url: backDoc.preview_url,
-        id_back_url: backDoc.url,
-        photo_preview_url: photoDoc.preview_url,
-        photo_url: photoDoc.url,
+        id_front_preview_url:
+          frontDoc.preview_url ??
+          flatFrontPreview ??
+          (id_front_url && !id_front_url.includes("/documents/") ? id_front_url : undefined),
+        id_front_url,
+        id_front_document_id:
+          o.id_front_document_id != null ? String(o.id_front_document_id).trim() || undefined : undefined,
+        id_back_preview_url:
+          backDoc.preview_url ??
+          flatBackPreview ??
+          (id_back_url && !id_back_url.includes("/documents/") ? id_back_url : undefined),
+        id_back_url,
+        id_back_document_id:
+          o.id_back_document_id != null ? String(o.id_back_document_id).trim() || undefined : undefined,
+        photo_preview_url:
+          photoDoc.preview_url ?? photoAttachments[0]?.preview_url ?? undefined,
+        photo_url: photoDoc.url ?? photoAttachments[0]?.url ?? undefined,
         photo_with_customer_preview_url: photoWithCustomerDoc.preview_url,
         photo_with_customer_url: photoWithCustomerDoc.url,
         ward_letter_preview_url: wardLetterDoc.preview_url,
@@ -165,16 +289,6 @@ export function normalizeGuarantors(raw: unknown[]): GuarantorRow[] {
         attachment_urls: attachmentDocs
           .map((doc) => doc.url ?? doc.preview_url)
           .filter((url): url is string => Boolean(url)),
-        // Legacy fallback for older API responses
-        document_url: readRawUrl(o, "document_url", "id_document_url", "national_id_url"),
-        id_front_preview_url:
-          frontDoc.preview_url ??
-          (id_front_url && !id_front_url.includes("/documents/") ? id_front_url : undefined),
-        id_front_url,
-        id_back_preview_url:
-          backDoc.preview_url ??
-          (id_back_url && !id_back_url.includes("/documents/") ? id_back_url : undefined),
-        id_back_url,
         document_url:
           readRawUrl(o, "document_url", "id_document_url", "national_id_url") ??
           documentUrlFromDocumentId(o.photo_document_id) ??
@@ -268,10 +382,14 @@ export type GuarantorRow = {
   id_front_preview_url?: string;
   /** Authenticated download URL for ID front. */
   id_front_url?: string;
+  /** Backend document id — `DELETE /customers/{id}/documents/{id_front_document_id}`. */
+  id_front_document_id?: string;
   /** Direct <img> src for ID back — no auth required, expires ~15 min. */
   id_back_preview_url?: string;
   /** Authenticated download URL for ID back. */
   id_back_url?: string;
+  /** Backend document id — `DELETE /customers/{id}/documents/{id_back_document_id}`. */
+  id_back_document_id?: string;
   photo_preview_url?: string;
   photo_url?: string;
   photo_with_customer_preview_url?: string;
@@ -299,6 +417,8 @@ export type ApplicationViewRow = LoanApplication & {
   creatorName: string;
   officerName: string;
   assigned_officer_id?: string;
+  customerPassportPhotoUrl?: string;
+  customerPassportPhotoPreviewUrl?: string;
   /** RM from nested customer on list rows when customer_id map is incomplete. */
   customer_loan_officer_id?: string;
   required_documents?: string[];
@@ -306,7 +426,16 @@ export type ApplicationViewRow = LoanApplication & {
   loan_number?: string;
   /** API status string before normalization (for workflow transitions). */
   raw_status?: string;
+  /** Server-computed lifecycle label (e.g. "awaiting_treasury", "ready_for_disbursement"). */
+  operational_state?: string;
+  /** Server-computed queue aging bucket (e.g. "0-24h", "over_48h"). */
+  aging_bucket?: string;
   workflow_stage?: ApplicationWorkflowStage;
+  productInterestRatePerMonth?: number;
+  productInterestType?: InterestType;
+  productProcessingFeePercent?: number;
+  productInsuranceFeePercent?: number;
+  productRepaymentFrequency?: RepaymentFrequency;
   businessName?: string;
   monthlyIncome?: number;
   riskGrade?: RiskGrade | string;
@@ -321,6 +450,56 @@ export type ApplicationViewRow = LoanApplication & {
 
 function asStatus(v: string | undefined): LoanApplicationStatus {
  return normalizeApplicationStatus(v);
+}
+
+function asProductInterestType(v: unknown): InterestType {
+ return String(v ?? "") === "reducing_balance" ? "reducing_balance" : "flat";
+}
+
+function asProductRepaymentFrequency(v: unknown): RepaymentFrequency {
+ const value = String(v ?? "");
+ if (value === "daily" || value === "weekly" || value === "bi_weekly" || value === "monthly") {
+  return value;
+ }
+ return "monthly";
+}
+
+function finiteNumber(value: unknown): number | undefined {
+ const n = Number(value);
+ return Number.isFinite(n) ? n : undefined;
+}
+
+export function applyCalculatedApplicationTerms(row: ApplicationViewRow): ApplicationViewRow {
+ const interestRatePerMonth = row.productInterestRatePerMonth;
+ const processingFeePercent = row.productProcessingFeePercent;
+ const insuranceFeePercent = row.productInsuranceFeePercent;
+ if (
+  interestRatePerMonth == null ||
+  processingFeePercent == null ||
+  insuranceFeePercent == null ||
+  row.requested_amount <= 0 ||
+  row.term_days <= 0
+ ) {
+  return row;
+ }
+
+ const formula = calculateLoanFormula({
+  principal: row.approved_amount && row.approved_amount > 0 ? row.approved_amount : row.requested_amount,
+  months: monthsFromTermDays(row.term_days),
+  interestRatePerMonth,
+  processingFeePercent,
+  insuranceFeePercent,
+  repaymentFrequency: row.repayment_frequency ?? row.productRepaymentFrequency ?? "monthly",
+  interestType: row.productInterestType ?? "flat",
+ });
+
+ return {
+  ...row,
+  interest_amount: formula.interestAmount,
+  total_fees: formula.totalFees,
+  total_repayment: formula.totalRepayment,
+  installment_amount: formula.installmentAmount,
+ };
 }
 
 function unwrapApplication(row: Record<string, unknown>): Record<string, unknown> {
@@ -448,17 +627,37 @@ export function adaptApiApplicationListRow(row: Record<string, unknown>): Applic
 
  const cust = customerSearchTextFromRow(app);
  const profile = customerProfileFromApp(app);
+ const customerPhoto = customerPhotoFromApp(app);
  const product = app.product;
+ const productRow =
+ product && typeof product === "object" ? (product as Record<string, unknown>) : null;
  let productName =
- product && typeof product === "object"
- ? String((product as Record<string, unknown>).name ?? "")
+ productRow
+ ? String(productRow.name ?? "")
  : String(app.product_name ?? "");
  let required_documents: string[] | undefined;
- if (product && typeof product === "object") {
- const rd = (product as Record<string, unknown>).required_documents;
+ let productInterestRatePerMonth: number | undefined;
+ let productInterestType: InterestType | undefined;
+ let productProcessingFeePercent: number | undefined;
+ let productInsuranceFeePercent: number | undefined;
+ let productRepaymentFrequency: RepaymentFrequency | undefined;
+ if (productRow) {
+ const rd = productRow.required_documents;
  if (Array.isArray(rd)) {
  required_documents = rd.map((x) => String(x));
  }
+ const monthlyRate = finiteNumber(productRow.interest_rate_per_month);
+ const annualRate = finiteNumber(productRow.interest_rate);
+ productInterestRatePerMonth =
+  monthlyRate != null && monthlyRate > 0
+   ? monthlyRate
+   : annualRate != null && annualRate > 0
+   ? annualRate / 12
+   : undefined;
+ productInterestType = asProductInterestType(productRow.interest_type);
+ productProcessingFeePercent = finiteNumber(productRow.processing_fee_percent);
+ productInsuranceFeePercent = finiteNumber(productRow.insurance_fee_percent);
+ productRepaymentFrequency = asProductRepaymentFrequency(productRow.repayment_frequency);
  }
 
  const branch = app.branch;
@@ -498,7 +697,7 @@ export function adaptApiApplicationListRow(row: Record<string, unknown>): Applic
  ? String(app.loan_number)
  : undefined;
 
- return {
+ const adapted: ApplicationViewRow = {
  id,
  application_number: String(app.application_number ?? id),
  customer_id: customerId,
@@ -510,16 +709,33 @@ export function adaptApiApplicationListRow(row: Record<string, unknown>): Applic
  approved_amount: app.approved_amount != null ? Number(app.approved_amount) : undefined,
  term_days: Number(app.term_days ?? 0),
  purpose: String(app.purpose ?? ""),
+ repayment_frequency: asProductRepaymentFrequency(
+  app.repayment_frequency ?? productRepaymentFrequency
+ ),
  interest_amount: app.interest_amount != null ? Number(app.interest_amount) : undefined,
  total_fees: app.total_fees != null ? Number(app.total_fees) : undefined,
  total_repayment: app.total_repayment != null ? Number(app.total_repayment) : undefined,
  installment_amount: app.installment_amount != null ? Number(app.installment_amount) : undefined,
+ repayment_count: app.repayment_count != null ? Number(app.repayment_count) : undefined,
  documents,
  status: asStatus(app.status ? String(app.status) : undefined),
  raw_status: rawApplicationStatus(app.status ? String(app.status) : undefined),
+ operational_state:
+ typeof app.operational_state === "string" && app.operational_state.trim()
+ ? app.operational_state.trim()
+ : undefined,
+ aging_bucket:
+ typeof app.aging_bucket === "string" && app.aging_bucket.trim()
+ ? app.aging_bucket.trim()
+ : undefined,
  workflow_stage: normalizeWorkflowStage(
  app.workflow_stage != null ? String(app.workflow_stage) : undefined
  ),
+ productInterestRatePerMonth,
+ productInterestType,
+ productProcessingFeePercent,
+ productInsuranceFeePercent,
+ productRepaymentFrequency,
  submitted_at: app.submitted_at ? String(app.submitted_at) : undefined,
  created_by: String(app.created_by ?? assignedOfficerId ?? ""),
  created_at: String(app.created_at ?? new Date().toISOString()),
@@ -532,6 +748,8 @@ export function adaptApiApplicationListRow(row: Record<string, unknown>): Applic
  creatorName,
  officerName,
  assigned_officer_id: assignedOfficerId,
+ customerPassportPhotoUrl: customerPhoto.customerPassportPhotoUrl,
+ customerPassportPhotoPreviewUrl: customerPhoto.customerPassportPhotoPreviewUrl,
  customer_loan_officer_id: customerLoanOfficerId || undefined,
  required_documents,
  loan_id: loan_id || undefined,
@@ -544,6 +762,7 @@ export function adaptApiApplicationListRow(row: Record<string, unknown>): Applic
     guarantors: guarantors.length > 0 ? guarantors : undefined,
     references: references.length > 0 ? references : undefined,
   };
+ return applyCalculatedApplicationTerms(adapted);
 }
 
 export function extractApplicationsList(json: unknown): ApplicationViewRow[] {

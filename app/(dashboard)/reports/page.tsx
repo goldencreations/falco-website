@@ -13,19 +13,20 @@ import {
  TrendingUp,
 } from "lucide-react";
 import {
- Area,
- AreaChart,
- Bar,
- BarChart,
- CartesianGrid,
- Cell,
- Legend,
- Pie,
- PieChart as RechartsPieChart,
- ResponsiveContainer,
- Tooltip,
- XAxis,
- YAxis,
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  Pie,
+  PieChart as RechartsPieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+  type TooltipProps,
 } from "recharts";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { useOptionalBranchAssignment } from "@/components/branch-assignment-context";
@@ -55,18 +56,63 @@ import { formatCurrency, formatDateTime } from "@/lib/formatters";
 import { normalizePortfolioSummary, type PortfolioSummaryView } from "@/lib/portfolio-summary";
 import { agingColor, normalizeAgingReport, type AgingReportView } from "@/lib/reports-aging";
 import {
- buildMonthlyActivityView,
- getPeriodRange,
- mergeMonthlyActivity,
- normalizeTimeseries,
+  buildMonthlyActivityView,
+  getPeriodRange,
+  mergeMonthlyActivity,
+  normalizeTimeseries,
+  type MonthlyActivityRow,
 } from "@/lib/reports-timeseries";
 import { isBranchScopedStaffRole } from "@/lib/role-portal";
 import { useSessionUser } from "@/lib/use-session-user";
 
 function formatYAxis(value: number) {
- if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(0)}M`;
- if (value >= 1_000) return `${(value / 1_000).toFixed(0)}K`;
- return value.toString();
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(0)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(0)}K`;
+  return value.toString();
+}
+
+const REPORT_CHART_DISBURSEMENTS = "#0d9488";
+const REPORT_CHART_COLLECTIONS = "#16a34a";
+const REPORT_CHART_PORTFOLIO = "#0891b2";
+
+function monthKeyToLongLabel(monthKey: string): string {
+  const d = new Date(`${monthKey}-01T00:00:00`);
+  if (Number.isNaN(d.getTime())) return monthKey;
+  return d.toLocaleString("en-US", { month: "long", year: "numeric" });
+}
+
+const REPORT_SERIES_COLORS: Record<string, string> = {
+  disbursements: REPORT_CHART_DISBURSEMENTS,
+  collections: REPORT_CHART_COLLECTIONS,
+  portfolio: REPORT_CHART_PORTFOLIO,
+};
+
+function ReportChartTooltip({
+  active,
+  payload,
+  label,
+}: TooltipProps<number, string>) {
+  if (!active || !payload?.length) return null;
+
+  const row = payload[0]?.payload as MonthlyActivityRow | undefined;
+  const title = row?.monthKey ? monthKeyToLongLabel(row.monthKey) : String(label ?? "");
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 shadow-md">
+      <p className="mb-1.5 text-sm font-semibold text-gray-900">{title}</p>
+      <div className="space-y-1">
+        {payload.map((entry) => {
+          const key = String(entry.dataKey ?? entry.name ?? "");
+          const color = REPORT_SERIES_COLORS[key] ?? String(entry.color ?? "#374151");
+          return (
+            <p key={key} className="text-sm font-medium" style={{ color }}>
+              {entry.name}: {formatCurrency(Number(entry.value ?? 0))}
+            </p>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 function todayInputDate(): string {
@@ -509,21 +555,22 @@ export default function ReportsPage() {
  </div>
 
  <Tabs defaultValue="portfolio" className="space-y-4">
- <TabsList>
- <TabsTrigger value="portfolio" className="gap-2">
- <TrendingUp className="h-4 w-4" />
+ <TabsList className="grid h-auto w-full grid-cols-2 gap-1 p-1 sm:inline-flex sm:h-9 sm:w-fit">
+ <TabsTrigger value="portfolio" className="gap-1.5 text-xs sm:text-sm">
+ <TrendingUp className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
  Portfolio
  </TabsTrigger>
- <TabsTrigger value="aging" className="gap-2">
- <AlertTriangle className="h-4 w-4" />
- Aging Analysis
+ <TabsTrigger value="aging" className="gap-1.5 text-xs sm:text-sm">
+ <AlertTriangle className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+ <span className="sm:hidden">Aging</span>
+ <span className="hidden sm:inline">Aging Analysis</span>
  </TabsTrigger>
- <TabsTrigger value="products" className="gap-2">
- <PieChart className="h-4 w-4" />
+ <TabsTrigger value="products" className="gap-1.5 text-xs sm:text-sm">
+ <PieChart className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
  Products
  </TabsTrigger>
- <TabsTrigger value="branches" className="gap-2">
- <BarChart3 className="h-4 w-4" />
+ <TabsTrigger value="branches" className="gap-1.5 text-xs sm:text-sm">
+ <BarChart3 className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
  Branches
  </TabsTrigger>
  </TabsList>
@@ -537,35 +584,32 @@ export default function ReportsPage() {
  </CardHeader>
  <CardContent>
  <div className="h-[300px]">
- {monthlyActivity.displayRows.length ? (
- <ResponsiveContainer width="100%" height="100%">
- <BarChart data={monthlyActivity.displayRows}>
- <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
- <XAxis dataKey="month" />
- <YAxis tickFormatter={formatYAxis} />
- <Tooltip
- formatter={(value: number) => formatCurrency(value)}
- contentStyle={{
- backgroundColor: "hsl(var(--card))",
- border: "1px solid hsl(var(--border))",
- }}
- />
- <Legend />
- <Bar
- dataKey="disbursements"
- name="Disbursements"
- fill="hsl(var(--primary))"
- radius={[4, 4, 0, 0]}
- />
- <Bar
- dataKey="collections"
- name="Collections"
- fill="hsl(var(--accent))"
- radius={[4, 4, 0, 0]}
- />
- </BarChart>
- </ResponsiveContainer>
- ) : (
+                {monthlyActivity.displayRows.length ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={monthlyActivity.displayRows}
+                      margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                      <XAxis dataKey="month" tick={{ fontSize: 12 }} />
+                      <YAxis tickFormatter={formatYAxis} domain={[0, "auto"]} width={48} />
+                      <Tooltip content={<ReportChartTooltip />} cursor={{ fill: "rgba(0,0,0,0.04)" }} />
+                      <Legend />
+                      <Bar
+                        dataKey="disbursements"
+                        name="Disbursements"
+                        fill={REPORT_CHART_DISBURSEMENTS}
+                        radius={[4, 4, 0, 0]}
+                      />
+                      <Bar
+                        dataKey="collections"
+                        name="Collections"
+                        fill={REPORT_CHART_COLLECTIONS}
+                        radius={[4, 4, 0, 0]}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
  <p className="flex h-full items-center justify-center text-sm text-muted-foreground">
  No timeseries data for this period.
  </p>
@@ -584,30 +628,24 @@ export default function ReportsPage() {
  {growthChartData.length ? (
  <ResponsiveContainer width="100%" height="100%">
  <AreaChart data={growthChartData}>
- <defs>
- <linearGradient id="portfolioGrad" x1="0" y1="0" x2="0" y2="1">
- <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
- <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
- </linearGradient>
- </defs>
- <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
- <XAxis dataKey="month" />
- <YAxis tickFormatter={formatYAxis} />
- <Tooltip
- formatter={(value: number) => formatCurrency(value)}
- contentStyle={{
- backgroundColor: "hsl(var(--card))",
- border: "1px solid hsl(var(--border))",
- }}
- />
- <Area
- type="monotone"
- dataKey="portfolio"
- name="Portfolio"
- stroke="hsl(var(--primary))"
- fill="url(#portfolioGrad)"
- strokeWidth={2}
- />
+                      <defs>
+                        <linearGradient id="portfolioGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor={REPORT_CHART_PORTFOLIO} stopOpacity={0.3} />
+                          <stop offset="95%" stopColor={REPORT_CHART_PORTFOLIO} stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                      <XAxis dataKey="month" />
+                      <YAxis tickFormatter={formatYAxis} domain={[0, "auto"]} />
+                      <Tooltip content={<ReportChartTooltip />} cursor={{ fill: "rgba(0,0,0,0.04)" }} />
+                      <Area
+                        type="monotone"
+                        dataKey="portfolio"
+                        name="Portfolio"
+                        stroke={REPORT_CHART_PORTFOLIO}
+                        fill="url(#portfolioGrad)"
+                        strokeWidth={2}
+                      />
  </AreaChart>
  </ResponsiveContainer>
  ) : (
@@ -750,24 +788,26 @@ export default function ReportsPage() {
  </Card>
  </TabsContent>
 
- <TabsContent value="aging" className="space-y-6">
- <div className="grid gap-6 lg:grid-cols-2">
- <Card>
- <CardHeader>
- <CardTitle>Portfolio Aging (BOT Classification)</CardTitle>
- <CardDescription>Live aging buckets from the reports API</CardDescription>
+ <TabsContent value="aging" className="space-y-4 sm:space-y-6">
+ <div className="grid gap-4 sm:gap-6 lg:grid-cols-2">
+ <Card className="overflow-hidden">
+ <CardHeader className="pb-2 sm:pb-3">
+ <CardTitle className="text-base sm:text-lg">Portfolio Aging (BOT Classification)</CardTitle>
+ <CardDescription className="text-xs sm:text-sm">
+ Live aging buckets from the reports API
+ </CardDescription>
  </CardHeader>
- <CardContent>
- <div className="h-[300px]">
+ <CardContent className="px-3 sm:px-6">
+ <div className="h-[260px] min-w-0 sm:h-[300px]">
  {agingRows.some((a) => a.outstandingAmount > 0) ? (
  <ResponsiveContainer width="100%" height="100%">
  <RechartsPieChart>
  <Pie
  data={agingRows.filter((a) => a.outstandingAmount > 0)}
  cx="50%"
- cy="50%"
- innerRadius={60}
- outerRadius={100}
+ cy="45%"
+ innerRadius="32%"
+ outerRadius="58%"
  paddingAngle={2}
  dataKey="outstandingAmount"
  nameKey="classification"
@@ -783,9 +823,15 @@ export default function ReportsPage() {
  contentStyle={{
  backgroundColor: "hsl(var(--card))",
  border: "1px solid hsl(var(--border))",
+ fontSize: "12px",
  }}
  />
- <Legend formatter={(value) => agingRows.find((r) => r.classification === value)?.label ?? value} />
+ <Legend
+ layout="horizontal"
+ verticalAlign="bottom"
+ wrapperStyle={{ fontSize: "11px", lineHeight: "1.25rem", paddingTop: "8px" }}
+ formatter={(value) => agingRows.find((r) => r.classification === value)?.label ?? value}
+ />
  </RechartsPieChart>
  </ResponsiveContainer>
  ) : (
@@ -797,12 +843,63 @@ export default function ReportsPage() {
  </CardContent>
  </Card>
 
- <Card>
- <CardHeader>
- <CardTitle>Provision Requirements</CardTitle>
- <CardDescription>Based on classification and BOT rates</CardDescription>
+ <Card className="overflow-hidden">
+ <CardHeader className="pb-2 sm:pb-3">
+ <CardTitle className="text-base sm:text-lg">Provision Requirements</CardTitle>
+ <CardDescription className="text-xs sm:text-sm">
+ Based on classification and BOT rates
+ </CardDescription>
  </CardHeader>
- <CardContent>
+ <CardContent className="space-y-4 p-0 sm:p-6 sm:pt-0">
+ <div className="grid gap-3 p-4 pt-0 sm:hidden">
+ {agingRows.map((item) => (
+ <div
+ key={item.classification}
+ className="rounded-xl border border-emerald-100 bg-emerald-50/30 p-3"
+ >
+ <div className="flex items-center gap-2">
+ <div
+ className="h-3 w-3 shrink-0 rounded-full"
+ style={{ backgroundColor: agingColor(item.classification) }}
+ />
+ <p className="font-medium leading-snug">{item.label}</p>
+ </div>
+ <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
+ <div className="min-w-0">
+ <p className="text-xs text-muted-foreground">Outstanding</p>
+ <p className="font-semibold tabular-nums">{formatCurrency(item.outstandingAmount)}</p>
+ </div>
+ <div>
+ <p className="text-xs text-muted-foreground">Rate</p>
+ <p className="font-semibold tabular-nums">{safeRate(item.provisionRate).toFixed(0)}%</p>
+ </div>
+ <div className="min-w-0">
+ <p className="text-xs text-muted-foreground">Provision</p>
+ <p className="font-semibold tabular-nums">{formatCurrency(item.provisionAmount)}</p>
+ </div>
+ </div>
+ </div>
+ ))}
+ <div className="rounded-xl border bg-muted/30 p-3">
+ <p className="font-semibold">Total</p>
+ <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+ <div>
+ <p className="text-xs text-muted-foreground">Outstanding</p>
+ <p className="font-semibold tabular-nums">
+ {formatCurrency(aging?.totalOutstanding ?? 0)}
+ </p>
+ </div>
+ <div>
+ <p className="text-xs text-muted-foreground">Provision</p>
+ <p className="font-semibold tabular-nums text-warning">
+ {formatCurrency(aging?.totalProvision ?? 0)}
+ </p>
+ </div>
+ </div>
+ </div>
+ </div>
+
+ <div className="hidden overflow-x-auto sm:block">
  <Table>
  <TableHeader>
  <TableRow>
@@ -843,6 +940,7 @@ export default function ReportsPage() {
  </TableRow>
  </TableBody>
  </Table>
+ </div>
  </CardContent>
  </Card>
  </div>

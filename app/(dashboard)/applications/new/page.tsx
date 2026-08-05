@@ -7,8 +7,6 @@ import {
  Search,
  Upload,
  Send,
- Plus,
- Trash2,
 } from "lucide-react";
 import Link from "next/link";
 import { DashboardHeader } from "@/components/dashboard-header";
@@ -37,6 +35,7 @@ import {
 } from "@/lib/customer-adapters";
 import { extractGroupsList } from "@/lib/group-adapters";
 import { formatCurrency } from "@/lib/formatters";
+import { calculateLoanFormula, monthsFromTermDays } from "@/lib/loan-formula";
 import { extractProductsList } from "@/lib/product-adapters";
 import {
   customerGuarantorsToApplicationPayload,
@@ -48,14 +47,17 @@ import {
   parseCustomerReferencesFromRow,
   type CustomerReferenceRecord,
 } from "@/lib/customer-references";
+import { parseCustomerCollateralFromRow, type CustomerCollateralApiRecord } from "@/lib/customer-collateral";
 import {
   clearCustomerGuarantorPendingFiles,
   getCustomerGuarantorPendingFiles,
 } from "@/lib/customer-guarantor-pending-files";
-import type { Customer, LoanGroup, LoanMode, LoanProduct } from "@/lib/types";
+import type { Customer, LoanGroup, LoanMode, LoanProduct, RepaymentFrequency } from "@/lib/types";
 import { extractApplicationDetail } from "@/lib/application-adapters";
 import {
+ APPLICATION_REPAYMENT_FREQUENCIES,
  mapApplicationFormToFalcoBody,
+ normalizeApplicationRepaymentFrequency,
  validateApplicationAgainstProduct,
 } from "@/lib/application-payload";
 import { RequiredDocumentsFields } from "@/components/applications/required-documents-fields";
@@ -131,8 +133,18 @@ function NewApplicationPageContent() {
  : effectiveRole === "loan_officer"
  ? "/officer/applications"
  : "/applications";
+ const groupsBasePath =
+ effectiveRole === "branch_manager"
+ ? "/manager/groups"
+ : effectiveRole === "loan_officer"
+ ? "/officer/groups"
+ : "/groups";
  const loanCalculatorPath =
- effectiveRole === "loan_officer" ? "/officer/loan-calculator" : "/loan-calculator";
+ effectiveRole === "loan_officer"
+ ? "/officer/loan-calculator"
+ : effectiveRole === "branch_manager"
+ ? "/manager/loan-calculator"
+ : "/loan-calculator";
  const creditAnalysisPath =
  effectiveRole === "loan_officer" ? "/officer/credit-analysis" : "/credit-analysis";
  const [customers, setCustomers] = useState<Customer[]>([]);
@@ -224,14 +236,13 @@ function NewApplicationPageContent() {
  const [editLoading, setEditLoading] = useState(Boolean(editId));
  const [editingApplicationId, setEditingApplicationId] = useState<string | null>(editId);
 
- const [collaterals, setCollaterals] = useState([
- { type: "", description: "", value: "", image: null as File | null },
- ]);
-
  const [customerGuarantorRecords, setCustomerGuarantorRecords] = useState<CustomerGuarantorRecord[]>(
   []
  );
  const [customerReferenceRecords, setCustomerReferenceRecords] = useState<CustomerReferenceRecord[]>(
+  []
+ );
+ const [customerCollateralRecords, setCustomerCollateralRecords] = useState<CustomerCollateralApiRecord[]>(
   []
  );
  const [guarantorFileRows, setGuarantorFileRows] = useState<GuarantorFileRow[]>([]);
@@ -243,6 +254,7 @@ function NewApplicationPageContent() {
  amount: "",
  term: "",
  purpose: "",
+ repaymentFrequency: "weekly" as RepaymentFrequency,
  latitude: "",
  longitude: "",
  locationLabel: "",
@@ -260,6 +272,7 @@ function NewApplicationPageContent() {
    const row = extractCustomerDetail(json);
    const records = parseCustomerGuarantorsFromRow(row);
    const referenceRecords = parseCustomerReferencesFromRow(row);
+   const collateralRecords = parseCustomerCollateralFromRow(row);
    const pending = getCustomerGuarantorPendingFiles(customerId);
    const fileRows = records.map((record, index) => ({
     name: record.full_name,
@@ -273,10 +286,12 @@ function NewApplicationPageContent() {
    }));
    setCustomerGuarantorRecords(records);
    setCustomerReferenceRecords(referenceRecords);
+   setCustomerCollateralRecords(collateralRecords);
    setGuarantorFileRows(fileRows);
   } catch {
    setCustomerGuarantorRecords([]);
    setCustomerReferenceRecords([]);
+   setCustomerCollateralRecords([]);
    setGuarantorFileRows([]);
   }
  }, []);
@@ -286,6 +301,7 @@ function NewApplicationPageContent() {
    if (!selectedCustomer) {
     setCustomerGuarantorRecords([]);
     setCustomerReferenceRecords([]);
+    setCustomerCollateralRecords([]);
     setGuarantorFileRows([]);
    }
    return;
@@ -356,6 +372,10 @@ function NewApplicationPageContent() {
  : "",
  term: String(app.term_days ?? ""),
  purpose: String(app.purpose ?? ""),
+ repaymentFrequency: normalizeApplicationRepaymentFrequency(
+  app.repayment_frequency,
+  "weekly"
+ ),
  latitude: editLatitude,
  longitude: editLongitude,
  locationLabel:
@@ -401,6 +421,22 @@ function NewApplicationPageContent() {
  }
  setSelectedGroup(group);
  setSelectedCustomer(chairperson);
+ setFormData((prev) => ({
+ ...prev,
+ latitude:
+ group.meeting_latitude != null && Number.isFinite(group.meeting_latitude)
+ ? group.meeting_latitude.toFixed(6)
+ : "",
+ longitude:
+ group.meeting_longitude != null && Number.isFinite(group.meeting_longitude)
+ ? group.meeting_longitude.toFixed(6)
+ : "",
+ locationLabel: group.meeting_location
+ ? `Group meeting location: ${group.meeting_location}`
+ : group.village_or_street
+ ? `Group meeting location: ${group.village_or_street}`
+ : "",
+ }));
  setCustomerSearch("");
  } finally {
  setGroupSelectLoading(false);
@@ -502,32 +538,28 @@ function NewApplicationPageContent() {
  const calculateLoanDetails = () => {
  if (!selectedProduct || !amount || !termDays) return null;
 
- const processingFee = amount * (selectedProduct.processing_fee_percent / 100);
- const insuranceFee = amount * (selectedProduct.insurance_fee_percent / 100);
- const totalFees = processingFee + insuranceFee;
-
- let interest = 0;
- if (selectedProduct.interest_type === "flat") {
- interest = amount * (selectedProduct.interest_rate / 100) * (termDays / 365);
- } else {
- // Simplified reducing balance calculation
- const monthlyRate = selectedProduct.interest_rate / 100 / 12;
- const months = termDays / 30;
- interest = amount * monthlyRate * months * 0.6; // Approximation
- }
-
- const totalRepayment = amount + interest + totalFees;
- const installmentCount = Math.ceil(termDays / 30);
- const installmentAmount = totalRepayment / installmentCount;
+ const formula = calculateLoanFormula({
+ principal: amount,
+ months: monthsFromTermDays(termDays),
+ interestRatePerMonth:
+ selectedProduct.interest_rate_per_month ?? selectedProduct.interest_rate / 12,
+ processingFeePercent: selectedProduct.processing_fee_percent,
+ insuranceFeePercent: selectedProduct.insurance_fee_percent,
+ repaymentFrequency: normalizeApplicationRepaymentFrequency(
+  formData.repaymentFrequency,
+  selectedProduct.repayment_frequency
+ ),
+ interestType: selectedProduct.interest_type,
+ });
 
  return {
- processingFee,
- insuranceFee,
- totalFees,
- interest,
- totalRepayment,
- installmentCount,
- installmentAmount,
+ processingFee: formula.processingFee,
+ insuranceFee: formula.insuranceFee,
+ totalFees: formula.totalFees,
+ interest: formula.interestAmount,
+ totalRepayment: formula.totalRepayment,
+ installmentCount: formula.repaymentCount,
+ installmentAmount: formula.installmentAmount,
  };
  };
 
@@ -625,18 +657,6 @@ function NewApplicationPageContent() {
  };
  }, [selectedCustomer, selectedProduct, amount, termDays, loanDetails, combinedIncome]);
 
- const updateCollateral = (
- index: number,
- key: "type" | "description" | "value" | "image",
- value: string | File | null
- ) => {
- setCollaterals((prev) =>
- prev.map((collateral, i) =>
- i === index ? { ...collateral, [key]: value } : collateral
- )
- );
- };
-
  const handleSubmit = async (isDraft: boolean) => {
  debugApplicationCreate("handleSubmit — start", {
   isDraft,
@@ -669,17 +689,17 @@ function NewApplicationPageContent() {
  return;
  }
 
- const collateralsPayload = collaterals
- .filter((c) => c.type.trim())
- .map((c) => ({
- type: c.type.trim(),
- description: c.description.trim() || c.type.trim(),
- estimated_value: c.value ? parseMoneyInput(c.value) : 0,
- }));
-
  const guarantorsPayload = customerGuarantorsToApplicationPayload(customerGuarantorRecords);
 
  const referencesPayload = customerReferencesToApplicationPayload(customerReferenceRecords);
+
+ const collateralsPayload = customerCollateralRecords
+  .filter((c) => c.collateral_type?.trim())
+  .map((c) => ({
+   type: c.collateral_type,
+   description: c.description ?? "",
+   estimated_value: c.estimated_value ?? 0,
+  }));
 
  const location =
  formData.latitude && formData.longitude
@@ -704,6 +724,10 @@ function NewApplicationPageContent() {
  requested_amount: amount,
  term_days: termDays,
  purpose: formData.purpose.trim() || "Working capital",
+ repayment_frequency: normalizeApplicationRepaymentFrequency(
+  formData.repaymentFrequency,
+  selectedProduct.repayment_frequency
+ ),
  collaterals: collateralsPayload,
  guarantors: guarantorsPayload,
  references: referencesPayload,
@@ -762,7 +786,6 @@ function NewApplicationPageContent() {
  (effectiveRole === "loan_officer" && user?.id ? user.id : undefined);
 
  const hasLinkedFiles =
-  collaterals.some((c) => c.image) ||
   guarantorFileRows.some(
    (g) =>
     g.idFront ||
@@ -771,10 +794,10 @@ function NewApplicationPageContent() {
     g.photoWithCustomer ||
     g.wardLetter ||
     g.attachments.length > 0
-  );
+ );
 
  let linkedIds = extractLinkedApplicationIds(data);
- if (!linkedIds || (hasLinkedFiles && linkedIdsNeedRefresh(linkedIds, collaterals, guarantorFileRows))) {
+ if (!linkedIds || (hasLinkedFiles && linkedIdsNeedRefresh(linkedIds, [], guarantorFileRows))) {
   linkedIds = (await fetchLinkedApplicationIds(applicationId)) ?? linkedIds;
  }
  debugApplicationCreate("handleSubmit — linked IDs", linkedIds);
@@ -792,7 +815,7 @@ function NewApplicationPageContent() {
 
  const linkedUploadPromise =
   linkedIds && hasLinkedFiles
-   ? uploadCollateralAndGuarantorFiles(applicationId, linkedIds, collaterals, guarantorFileRows)
+   ? uploadCollateralAndGuarantorFiles(applicationId, linkedIds, [], guarantorFileRows)
    : Promise.resolve({ ok: true as const });
 
  const [assign, linkedUpload] = await Promise.all([assignPromise, linkedUploadPromise]);
@@ -924,27 +947,25 @@ function NewApplicationPageContent() {
  </CardDescription>
  </CardHeader>
  <CardContent className="space-y-4">
+{!editId || loanMode === "individual" ? (
+<>
+<p className="rounded-md border border-emerald-100 bg-emerald-50/50 px-3 py-2 text-sm text-muted-foreground">
+Vikundi member loans are started from each member row under{" "}
+<Link href={groupsBasePath} className="font-medium text-foreground underline-offset-2 hover:underline">
+Vikundi / Groups
+</Link>
+{" "}
+(separate application and amount per member). This form is for individual customers.
+</p>
+</>
+) : (
 <Field>
 <FieldLabel>Application Type</FieldLabel>
-<Select
-value={loanMode}
-onValueChange={(value) => {
- setLoanMode(value as LoanMode);
- setSelectedCustomer(null);
- setSelectedGroup(null);
- setCustomerSearch("");
- setGroupSelectError("");
-}}
->
-<SelectTrigger>
-<SelectValue placeholder="Select application type" />
-</SelectTrigger>
-<SelectContent>
-<SelectItem value="individual">Individual</SelectItem>
-<SelectItem value="group_based">Group</SelectItem>
-</SelectContent>
-</Select>
+<p className="text-sm text-muted-foreground">
+Legacy group-level draft. Prefer creating new member loans from Vikundi member rows.
+</p>
 </Field>
+)}
  {groupSelectError ? (
  <p className="text-sm text-destructive">{groupSelectError}</p>
  ) : null}
@@ -1148,11 +1169,19 @@ onValueChange={(value) => {
  )}
  <Select
  value={selectedProduct?.id || ""}
- onValueChange={(value) =>
- setSelectedProduct(
- activeLoanProducts.find((p) => String(p.id) === String(value)) || null
- )
+ onValueChange={(value) => {
+ const next = activeLoanProducts.find((p) => String(p.id) === String(value)) || null;
+ setSelectedProduct(next);
+ if (next) {
+ setFormData((prev) => ({
+ ...prev,
+ repaymentFrequency: normalizeApplicationRepaymentFrequency(
+  next.repayment_frequency,
+  prev.repaymentFrequency
+ ),
+ }));
  }
+ }}
  disabled={!hasBorrower || productsLoading}
  onOpenChange={(open) => {
  if (open) void loadLoanProducts();
@@ -1226,6 +1255,38 @@ onValueChange={(value) => {
  </div>
 
  <Field>
+ <FieldLabel>Repayment frequency</FieldLabel>
+ <Select
+ value={formData.repaymentFrequency}
+ onValueChange={(value) =>
+ setFormData({
+ ...formData,
+ repaymentFrequency: normalizeApplicationRepaymentFrequency(value),
+ })
+ }
+ disabled={!selectedProduct}
+ >
+ <SelectTrigger>
+ <SelectValue placeholder="Select frequency" />
+ </SelectTrigger>
+ <SelectContent>
+ {APPLICATION_REPAYMENT_FREQUENCIES.map((frequency) => (
+ <SelectItem key={frequency} value={frequency}>
+ {frequency === "daily"
+ ? "Daily"
+ : frequency === "weekly"
+ ? "Weekly"
+ : "Monthly"}
+ </SelectItem>
+ ))}
+ </SelectContent>
+ </Select>
+ <p className="mt-1 text-xs text-muted-foreground">
+ Defaults from the product; change if this loan should repay on a different schedule.
+ </p>
+ </Field>
+
+ <Field>
  <FieldLabel>Purpose of Loan</FieldLabel>
  <Textarea
  placeholder="Describe the purpose of this loan..."
@@ -1240,102 +1301,9 @@ onValueChange={(value) => {
  </CardContent>
  </Card>
 
- {/* Collateral */}
- <Card>
- <CardHeader>
- <CardTitle>Collateral Information</CardTitle>
- <CardDescription>Add one or more collaterals and images</CardDescription>
- </CardHeader>
- <CardContent className="space-y-4">
- {collaterals.map((collateral, index) => (
- <div key={index} className="rounded-lg border border-border p-4">
- <div className="mb-3 flex items-center justify-between">
- <p className="text-sm font-semibold">Collateral {index + 1}</p>
- {collaterals.length > 1 && (
- <Button
- variant="ghost"
- size="icon"
- onClick={() =>
- setCollaterals((prev) => prev.filter((_, i) => i !== index))
- }
- >
- <Trash2 className="h-4 w-4" />
- </Button>
- )}
- </div>
- <FieldGroup>
- <div className="grid gap-4 sm:grid-cols-2">
- <Field>
- <FieldLabel>Collateral Type</FieldLabel>
- <Input
- placeholder="e.g., Motorcycle, TV, Land title"
- value={collateral.type}
- onChange={(e) => updateCollateral(index, "type", e.target.value)}
- />
- </Field>
- <Field>
- <FieldLabel>Estimated Value (TZS)</FieldLabel>
- <MoneyInput
- placeholder="e.g., 5,000,000"
- value={collateral.value}
- onValueChange={(value) => updateCollateral(index, "value", value)}
- />
- </Field>
- </div>
- <Field>
- <FieldLabel>Description</FieldLabel>
- <Textarea
- placeholder="Describe the collateral..."
- value={collateral.description}
- onChange={(e) =>
- updateCollateral(index, "description", e.target.value)
- }
- rows={2}
- />
- </Field>
-              <Field>
-                <FieldLabel>Collateral Image Attachment</FieldLabel>
-                <Input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) =>
-                    updateCollateral(index, "image", e.target.files?.[0] ?? null)
-                  }
-                />
-                {collateral.image && (
-                  <div className="mt-2 overflow-hidden rounded-md border border-border">
-                    <img
-                      src={URL.createObjectURL(collateral.image)}
-                      alt="Collateral preview"
-                      className="max-h-48 w-full object-contain"
-                    />
-                    <p className="border-t border-border bg-muted px-2 py-1 text-xs text-muted-foreground truncate">
-                      {collateral.image.name}
-                    </p>
-                  </div>
-                )}
-              </Field>
- </FieldGroup>
- </div>
- ))}
- <Button
- type="button"
- variant="outline"
- onClick={() =>
- setCollaterals((prev) => [
- ...prev,
- { type: "", description: "", value: "", image: null },
- ])
- }
- >
- <Plus className="mr-2 h-4 w-4" />
- Add Collateral
- </Button>
- </CardContent>
- </Card>
-
  <ApplicationCustomerLocationSection
  customer={selectedCustomer}
+ group={isGroupMode ? selectedGroup : null}
  value={{
  latitude: formData.latitude,
  longitude: formData.longitude,

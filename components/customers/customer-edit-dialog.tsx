@@ -3,9 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import dynamic from "next/dynamic";
 import { Loader2 } from "lucide-react";
+import { toast } from "sonner";
+import { CustomerAdditionalPhonesFields } from "@/components/customers/customer-additional-phones-fields";
 import { CustomerAttachmentsFields } from "@/components/customers/customer-attachments-fields";
 import { CustomerCollateralFields } from "@/components/customers/customer-collateral-fields";
 import { CustomerGuarantorsFields } from "@/components/customers/customer-guarantors-fields";
+import { CustomerReferencesFields } from "@/components/customers/customer-references-fields";
 import { Button } from "@/components/ui/button";
 import {
  Dialog,
@@ -16,6 +19,7 @@ import {
  DialogTitle,
 } from "@/components/ui/dialog";
 import { MoneyInput } from "@/components/forms/money-input";
+import { TzValidatedInput } from "@/components/forms/tz-validated-input";
 import { Input } from "@/components/ui/input";
 import { formatMoneyFromNumber, parseMoneyInput } from "@/lib/money-input";
 
@@ -60,9 +64,12 @@ import { uploadCustomerCollateralImages } from "@/lib/customer-collateral-upload
 import { uploadCustomerGuarantorIdDocuments } from "@/lib/customer-guarantor-uploads";
 import {
   customerAttachmentFormHasLocationPhotos,
+  customerAttachmentFormHasSupportingDocuments,
   uploadCustomerLocationPhotos,
+  uploadCustomerSupportingDocuments,
 } from "@/lib/customer-location-photo-uploads";
 import {
+  applyApplicationGuarantorDocuments,
   customerGuarantorApiRecordsToForm,
   customerGuarantorFormToApiRecords,
   customerGuarantorRowsWithIdFiles,
@@ -71,6 +78,18 @@ import {
   validateCustomerGuarantors,
   type CustomerGuarantorFormRow,
 } from "@/lib/customer-guarantors";
+import { enrichCustomerApplicationsForMedia } from "@/lib/enrich-customer-applications";
+import { getCachedCustomerPortfolio } from "@/lib/customer-portfolio-cache";
+import type { ApplicationViewRow } from "@/lib/application-adapters";
+import type { CustomerPortfolioData } from "@/lib/customer-portfolio-detail";
+import {
+  customerReferenceFormToRecords,
+  customerReferenceRecordsToForm,
+  defaultCustomerReferenceForm,
+  parseCustomerReferencesFromRow,
+  validateCustomerReferences,
+  type CustomerReferenceFormRow,
+} from "@/lib/customer-references";
 import {
   extractPassportPhotoPreviewUrl,
   extractPassportPhotoUrl,
@@ -79,6 +98,7 @@ import {
  activeBranchesForAssignment,
  loanOfficersForBranch,
 } from "@/lib/customer-assignment-options";
+import { CUSTOMER_ID_TYPE_OPTIONS, normalizeCustomerIdType } from "@/lib/customer-id-types";
 import type { Branch, Customer, User } from "@/lib/types";
 import { useSessionUser } from "@/lib/use-session-user";
 
@@ -111,7 +131,7 @@ type EditForm = {
  middle_name: string;
  last_name: string;
  phone: string;
- alt_phone: string;
+ additional_phones: string[];
  email: string;
  physical_address: string;
  street: string;
@@ -170,15 +190,17 @@ const RISK_LEVEL_OPTIONS: Array<{ value: RiskLevel; label: string }> = [
  { value: "critical", label: "Critical" },
 ];
 
-const ID_TYPE_OPTIONS = ["NIDA", "Passport", "Driving License", "Voter ID"];
-
 function toEditForm(p: Record<string, unknown>): EditForm {
  return {
  first_name: String(p.first_name ?? ""),
  middle_name: String(p.middle_name ?? ""),
  last_name: String(p.last_name ?? ""),
  phone: String(p.phone ?? ""),
- alt_phone: String(p.alt_phone ?? ""),
+ additional_phones: Array.isArray(p.additional_phones)
+  ? (p.additional_phones as unknown[]).map((v) => String(v ?? "")).filter(Boolean)
+  : p.alt_phone
+    ? [String(p.alt_phone)]
+    : [],
  email: String(p.email ?? ""),
  physical_address: String(p.physical_address ?? ""),
  street: String(p.street ?? ""),
@@ -192,7 +214,7 @@ function toEditForm(p: Record<string, unknown>): EditForm {
    ? Number(p.home_longitude)
    : null,
  national_id: String(p.national_id ?? ""),
- id_type: String(p.id_type ?? "NIDA"),
+ id_type: normalizeCustomerIdType(p.id_type),
  occupation: String(p.occupation ?? ""),
  employer_name: String(p.employer_name ?? ""),
  employer_address: String(p.employer_address ?? ""),
@@ -233,6 +255,11 @@ function toEditForm(p: Record<string, unknown>): EditForm {
  };
 }
 
+/**
+ * Excludes home/business lat-lng — direct location edits on an existing customer are
+ * restricted by the backend and must go through `POST .../location-change-requests` instead
+ * (see `submitChangedLocationRequests`).
+ */
 function formToPatchBody(form: EditForm): Record<string, unknown> {
  return {
  first_name: form.first_name,
@@ -240,15 +267,13 @@ function formToPatchBody(form: EditForm): Record<string, unknown> {
  last_name: form.last_name,
  full_name: [form.first_name, form.middle_name, form.last_name].filter(Boolean).join(" "),
  phone: form.phone,
- alt_phone: form.alt_phone,
+ additional_phones: form.additional_phones.map((p) => p.trim()).filter(Boolean),
  email: form.email,
  physical_address: form.physical_address,
  street: form.street,
  ward: form.ward,
  district: form.district,
  region: form.region,
- home_latitude: form.home_latitude,
- home_longitude: form.home_longitude,
  national_id: form.national_id,
  id_type: form.id_type,
  occupation: form.occupation,
@@ -260,17 +285,12 @@ function formToPatchBody(form: EditForm): Record<string, unknown> {
  business_name: form.business_name,
  business_type: form.business_type,
  business_address: form.business_address,
- business_latitude: form.business_latitude,
- business_longitude: form.business_longitude,
  business_registration_no: form.business_registration_no,
  years_in_business: form.years_in_business,
  cheque_number: form.cheque_number,
- payment_reference: form.payment_reference,
- registration_fee_paid: form.registration_fee_paid,
  registration_fee_amount: form.registration_fee_amount
  ? parseMoneyInput(form.registration_fee_amount)
  : null,
- registration_fee_paid_at: form.registration_fee_paid_at,
  status: form.status,
  risk_level: form.risk_level,
  risk_score: form.risk_score,
@@ -285,6 +305,73 @@ function formToPatchBody(form: EditForm): Record<string, unknown> {
  next_of_kin_phone: form.next_of_kin_phone,
  next_of_kin_address: form.next_of_kin_address,
  };
+}
+
+type LocationPin = { latitude: number; longitude: number };
+
+function locationPinsFromForm(form: EditForm): { home: LocationPin | null; business: LocationPin | null } {
+ return {
+ home:
+  form.home_latitude != null && form.home_longitude != null
+   ? { latitude: form.home_latitude, longitude: form.home_longitude }
+   : null,
+ business:
+  form.business_latitude != null && form.business_longitude != null
+   ? { latitude: form.business_latitude, longitude: form.business_longitude }
+   : null,
+ };
+}
+
+function pinsEqual(a: LocationPin | null, b: LocationPin | null): boolean {
+ if (a === b) return true;
+ if (!a || !b) return false;
+ return a.latitude === b.latitude && a.longitude === b.longitude;
+}
+
+/**
+ * Submits a `location-change-request` per pin that changed since load. Direct PATCH of
+ * home/business coordinates is no longer sent for existing customers (see `formToPatchBody`).
+ * Failures are surfaced via toast but do not block the rest of the save.
+ */
+async function submitChangedLocationRequests(
+ customerId: string,
+ initial: { home: LocationPin | null; business: LocationPin | null },
+ next: { home: LocationPin | null; business: LocationPin | null },
+ notify: (message: string, ok: boolean) => void
+): Promise<void> {
+ const targets: Array<{ label: string; pin: LocationPin | null; changed: boolean }> = [
+  { label: "Home location", pin: next.home, changed: !pinsEqual(initial.home, next.home) },
+  {
+   label: "Business location",
+   pin: next.business,
+   changed: !pinsEqual(initial.business, next.business),
+  },
+ ];
+
+ for (const target of targets) {
+  if (!target.changed || !target.pin) continue;
+  try {
+   const res = await fetch(`/api/customers/${encodeURIComponent(customerId)}/location-change-requests`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+     latitude: target.pin.latitude,
+     longitude: target.pin.longitude,
+     location_name: target.label,
+     location_captured_at: new Date().toISOString(),
+    }),
+   });
+   const json = (await res.json().catch(() => ({}))) as { message?: string };
+   if (!res.ok) {
+    notify(`${target.label} change could not be submitted: ${json.message ?? `Error ${res.status}`}`, false);
+    continue;
+   }
+   notify(`${target.label} change submitted for approval.`, true);
+  } catch {
+   notify(`${target.label} change could not be submitted: network error.`, false);
+  }
+ }
 }
 
 type CustomerEditDialogProps = {
@@ -324,6 +411,14 @@ export function CustomerEditDialog({
  const [attachments, setAttachments] = useState<CustomerAttachmentFormState>(emptyCustomerAttachments);
  const [guarantors, setGuarantors] = useState<CustomerGuarantorFormRow[]>(defaultCustomerGuarantorForm);
  const [collateral, setCollateral] = useState<CustomerCollateralFormRow[]>(defaultCustomerCollateralForm);
+ const [references, setReferences] = useState<CustomerReferenceFormRow[]>(defaultCustomerReferenceForm);
+ const initialReferencesRef = useRef(
+  customerReferenceFormToRecords(defaultCustomerReferenceForm())
+ );
+ const initialLocationRef = useRef<{ home: LocationPin | null; business: LocationPin | null }>({
+  home: null,
+  business: null,
+ });
  const initialCollateralMetadataRef = useRef(
   customerCollateralFormToMetadataRecords(defaultCustomerCollateralForm())
  );
@@ -332,14 +427,88 @@ export function CustomerEditDialog({
   customerGuarantorFormToApiRecords(defaultCustomerGuarantorForm())
  );
 
+ // Mirrors `sourceRow` but can be refreshed in-place after a document delete without waiting
+ // for the parent to re-fetch and re-open the dialog.
+ const [liveSourceRow, setLiveSourceRow] = useState<Record<string, unknown> | null>(sourceRow);
+ const [removingDocumentIds, setRemovingDocumentIds] = useState<Set<string>>(new Set());
+
+ useEffect(() => {
+ setLiveSourceRow(sourceRow);
+ }, [sourceRow, open]);
+
  const existingAttachments = useMemo(
- () => extractCustomerAttachmentsFromRow(sourceRow),
- [sourceRow]
+ () => extractCustomerAttachmentsFromRow(liveSourceRow),
+ [liveSourceRow]
  );
- const existingPassportUrl = useMemo(() => extractPassportPhotoUrl(sourceRow), [sourceRow]);
+ const existingPassportUrl = useMemo(() => extractPassportPhotoUrl(liveSourceRow), [liveSourceRow]);
  const existingPassportPreviewUrl = useMemo(
-  () => extractPassportPhotoPreviewUrl(sourceRow),
-  [sourceRow]
+  () => extractPassportPhotoPreviewUrl(liveSourceRow),
+  [liveSourceRow]
+ );
+
+ const deleteCustomerDocument = useCallback(
+  async (documentId: string): Promise<boolean> => {
+   setRemovingDocumentIds((prev) => new Set(prev).add(documentId));
+   try {
+    const res = await fetch(
+     `/api/customers/${encodeURIComponent(customerId)}/documents/${encodeURIComponent(documentId)}`,
+     { method: "DELETE", credentials: "include" }
+    );
+    if (!res.ok) {
+     const json = (await res.json().catch(() => ({}))) as { message?: string };
+     toast.error(json.message ?? `Could not remove document (${res.status})`);
+     return false;
+    }
+    const detailRes = await fetch(`/api/customers/${encodeURIComponent(customerId)}`, {
+     credentials: "include",
+    });
+    const detailBody = (await detailRes.json().catch(() => ({}))) as unknown;
+    const refreshed = extractCustomerDetail(detailBody);
+    if (refreshed) setLiveSourceRow(refreshed);
+    toast.success("Document removed.");
+    return true;
+   } catch {
+    toast.error("Network error while removing document.");
+    return false;
+   } finally {
+    setRemovingDocumentIds((prev) => {
+     const next = new Set(prev);
+     next.delete(documentId);
+     return next;
+    });
+   }
+  },
+  [customerId]
+ );
+
+ const deleteCustomerGuarantor = useCallback(
+  async (guarantorId: string): Promise<boolean> => {
+   try {
+    const res = await fetch(
+     `/api/customers/${encodeURIComponent(customerId)}/guarantors/${encodeURIComponent(guarantorId)}`,
+     { method: "DELETE", credentials: "include" }
+    );
+    if (!res.ok) {
+      const json = (await res.json().catch(() => ({}))) as { message?: string };
+      toast.error(json.message ?? `Could not remove guarantor (${res.status})`);
+      return false;
+    }
+    const detailRes = await fetch(`/api/customers/${encodeURIComponent(customerId)}`, {
+      credentials: "include",
+    });
+    const detailBody = (await detailRes.json().catch(() => ({}))) as unknown;
+    const refreshed = extractCustomerDetail(detailBody);
+    if (refreshed) {
+      setLiveSourceRow(refreshed);
+    }
+    toast.success("Guarantor removed.");
+    return true;
+   } catch {
+    toast.error("Network error while removing guarantor.");
+    return false;
+   }
+  },
+  [customerId]
  );
 
  const loadBranches = useCallback(async () => {
@@ -430,6 +599,7 @@ export function CustomerEditDialog({
  setAttachments(emptyCustomerAttachments());
  setGuarantors(defaultCustomerGuarantorForm());
  setCollateral(defaultCustomerCollateralForm());
+ setReferences(defaultCustomerReferenceForm());
  return;
  }
  const base = customerToFormPayload(customer, sourceRow);
@@ -439,11 +609,48 @@ export function CustomerEditDialog({
  const loadedCollateral = customerCollateralApiRecordsToForm(parseCustomerCollateralFromRow(sourceRow));
  setCollateral(loadedCollateral);
  initialCollateralMetadataRef.current = customerCollateralFormToMetadataRecords(loadedCollateral);
+ const loadedReferences = customerReferenceRecordsToForm(parseCustomerReferencesFromRow(sourceRow));
+ setReferences(loadedReferences);
+ initialReferencesRef.current = customerReferenceFormToRecords(loadedReferences);
  const editForm = toEditForm(base);
  setForm(editForm);
  initialFormPatchRef.current = formToPatchBody(editForm);
- initialGuarantorsRef.current = customerGuarantorFormToApiRecords(loadedGuarantors);
+  initialGuarantorsRef.current = customerGuarantorFormToApiRecords(loadedGuarantors);
+ initialLocationRef.current = locationPinsFromForm(editForm);
  }, [open, customer, sourceRow]);
+
+ // The customer record's own `guarantors[]` only carries a bare id_front/id_back document id —
+ // the backend has no route that resolves that id back to a url. The same guarantor recorded on
+ // a loan application often has the document fully embedded, so fetch applications and backfill
+ // any missing ID-scan preview urls from there (same source the profile page already uses).
+ useEffect(() => {
+  if (!open || !customerId) return;
+  let cancelled = false;
+
+  const applyFromApplications = (applications: ApplicationViewRow[]) => {
+   if (cancelled || applications.length === 0) return;
+   void enrichCustomerApplicationsForMedia(applications).then((enriched) => {
+    if (cancelled) return;
+    setGuarantors((prev) => applyApplicationGuarantorDocuments(prev, enriched));
+   });
+  };
+
+  const cached = getCachedCustomerPortfolio(customerId);
+  if (cached?.applications?.length) {
+   applyFromApplications(cached.applications);
+  } else {
+   void fetch(`/api/customers/${encodeURIComponent(customerId)}/portfolio`, { credentials: "include" })
+    .then((res) => (res.ok ? res.json() : null))
+    .then((body: CustomerPortfolioData | null) => {
+     if (!cancelled && body?.applications) applyFromApplications(body.applications);
+    })
+    .catch(() => undefined);
+  }
+
+  return () => {
+   cancelled = true;
+  };
+ }, [open, customerId]);
 
  const updateField = <K extends keyof EditForm>(key: K, value: EditForm[K]) => {
  setForm((prev) => {
@@ -470,7 +677,6 @@ export function CustomerEditDialog({
  if (!form.phone.trim()) return "Primary phone is required.";
  if (!form.physical_address.trim()) return "Physical address is required.";
  if (!form.national_id.trim()) return "National ID is required.";
- if (!form.payment_reference.trim()) return "Payment reference is required.";
  if (!form.branch_id) return "Please select a branch.";
  if (!form.loan_officer_id) return "Please assign a loan officer.";
  if (!form.date_of_birth.trim()) return "Date of birth is required.";
@@ -501,6 +707,11 @@ export function CustomerEditDialog({
  setError(collateralValidation.error);
  return;
  }
+ const referencesValidation = validateCustomerReferences(references);
+ if (!referencesValidation.ok) {
+ setError(referencesValidation.error);
+ return;
+ }
  setSaving(true);
  try {
  const nextCollateralMetadata = customerCollateralFormToMetadataRecords(collateral);
@@ -511,6 +722,9 @@ export function CustomerEditDialog({
  const nextGuarantors = customerGuarantorFormToApiRecords(guarantors);
  const guarantorsChanged =
   JSON.stringify(nextGuarantors) !== JSON.stringify(initialGuarantorsRef.current);
+ const nextReferences = customerReferenceFormToRecords(references);
+ const referencesChanged =
+  JSON.stringify(nextReferences) !== JSON.stringify(initialReferencesRef.current);
  const formPatchChanged =
   JSON.stringify(formToPatchBody(form)) !== JSON.stringify(initialFormPatchRef.current);
  const hasNewCollateralImages = customerCollateralRowsWithImages(collateral).length > 0;
@@ -518,6 +732,7 @@ export function CustomerEditDialog({
   hasNewCollateralImages &&
   !collateralMetadataChanged &&
   !guarantorsChanged &&
+  !referencesChanged &&
   !formPatchChanged &&
   !attachments.passport_photo;
 
@@ -526,8 +741,9 @@ export function CustomerEditDialog({
  const patchBody: Record<string, unknown> = {
   ...formToPatchBody(form),
   is_blacklisted: customer.is_blacklisted,
-  guarantors: nextGuarantors,
  };
+ if (guarantorsChanged) patchBody.guarantors = nextGuarantors;
+ if (referencesChanged) patchBody.references = nextReferences;
  if (collateralMetadataChanged) {
   patchBody.collateral = nextCollateralMetadata;
  }
@@ -561,7 +777,7 @@ export function CustomerEditDialog({
  }
  const row = extractCustomerDetail(body);
  if (!row) {
- setError("Unexpected response from server.");
+ setError("Customer details could not be updated. Please try again.");
  return;
  }
  savedRow = row;
@@ -603,6 +819,20 @@ export function CustomerEditDialog({
   if (refreshed) savedRow = refreshed;
  }
 
+ if (customerAttachmentFormHasSupportingDocuments(attachments)) {
+  const supportingUpload = await uploadCustomerSupportingDocuments(customerId, attachments);
+  if (!supportingUpload.ok) {
+   setError(`Customer saved but supporting document upload failed: ${supportingUpload.error}`);
+   return;
+  }
+  const detailRes = await fetch(`/api/customers/${encodeURIComponent(customerId)}`, {
+   credentials: "include",
+  });
+  const detailBody = (await detailRes.json().catch(() => ({}))) as unknown;
+  const refreshed = extractCustomerDetail(detailBody);
+  if (refreshed) savedRow = refreshed;
+ }
+
  if (customerCollateralRowsWithImages(collateral).length > 0) {
   const collateralUpload = await uploadCustomerCollateralImages(customerId, savedRow, collateral);
   if (!collateralUpload.ok) {
@@ -618,15 +848,9 @@ export function CustomerEditDialog({
  }
 
  if (customerGuarantorRowsWithIdFiles(guarantors).length > 0) {
-  const preGuarantorUploadRes = await fetch(`/api/customers/${encodeURIComponent(customerId)}`, {
-   credentials: "include",
-  });
-  const preGuarantorUploadBody = (await preGuarantorUploadRes.json().catch(() => ({}))) as unknown;
-  const refreshedBeforeUpload = extractCustomerDetail(preGuarantorUploadBody);
-  if (refreshedBeforeUpload) savedRow = refreshedBeforeUpload;
   const guarantorUpload = await uploadCustomerGuarantorIdDocuments(customerId, savedRow, guarantors);
   if (!guarantorUpload.ok) {
-   setError(`Customer saved but guarantor ID upload failed: ${guarantorUpload.error}`);
+   setError(`Customer saved but guarantor document upload failed: ${guarantorUpload.error}`);
    return;
   }
   const postGuarantorUploadRes = await fetch(`/api/customers/${encodeURIComponent(customerId)}`, {
@@ -636,6 +860,18 @@ export function CustomerEditDialog({
   const refreshedAfterGuarantorUpload = extractCustomerDetail(postGuarantorUploadBody);
   if (refreshedAfterGuarantorUpload) savedRow = refreshedAfterGuarantorUpload;
  }
+
+ if (!savedRow) {
+ setError("Customer saved but details could not be refreshed.");
+ return;
+ }
+
+ await submitChangedLocationRequests(
+ customerId,
+ initialLocationRef.current,
+ locationPinsFromForm(form),
+ (message, ok) => (ok ? toast.success(message) : toast.error(message))
+ );
 
  onSaved(adaptApiCustomerRowToCustomer(savedRow), savedRow);
  onOpenChange(false);
@@ -651,16 +887,14 @@ export function CustomerEditDialog({
  <div className="space-y-2">
  <h2 className="text-xl font-semibold tracking-tight">Edit customer</h2>
  <p className="text-sm text-muted-foreground">
- Update KYC, assignment, guarantors, collateral, and attachment details. Changes are saved to the LMS via{" "}
- <span className="font-mono text-xs">PATCH /customers/{"{id}"}</span>.
+ Update KYC, assignment, guarantors, collateral, and attachment details.
  </p>
  </div>
  ) : (
  <DialogHeader>
  <DialogTitle>Edit customer</DialogTitle>
  <DialogDescription>
- Update KYC, assignment, guarantors, collateral, and attachment details. Changes are saved to the LMS via{" "}
- <span className="font-mono text-xs">PATCH /customers/{"{id}"}</span>.
+ Update KYC, assignment, guarantors, collateral, and attachment details.
  </DialogDescription>
  </DialogHeader>
  );
@@ -771,10 +1005,10 @@ export function CustomerEditDialog({
  <Label htmlFor="edit-phone">Primary phone</Label>
  <Input id="edit-phone" value={form.phone} onChange={(e) => updateField("phone", e.target.value)} />
  </div>
- <div className="space-y-2">
- <Label htmlFor="edit-alt">Alternate phone</Label>
- <Input id="edit-alt" value={form.alt_phone} onChange={(e) => updateField("alt_phone", e.target.value)} />
- </div>
+ <CustomerAdditionalPhonesFields
+ value={form.additional_phones}
+ onChange={(additional_phones) => updateField("additional_phones", additional_phones)}
+ />
  <div className="space-y-2 md:col-span-2">
  <Label htmlFor="edit-email">Email</Label>
  <Input id="edit-email" type="email" value={form.email} onChange={(e) => updateField("email", e.target.value)} />
@@ -786,17 +1020,30 @@ export function CustomerEditDialog({
  <SelectValue />
  </SelectTrigger>
  <SelectContent>
- {ID_TYPE_OPTIONS.map((t) => (
- <SelectItem key={t} value={t}>
- {t}
+ {CUSTOMER_ID_TYPE_OPTIONS.map((option) => (
+ <SelectItem key={option.value} value={option.value}>
+ {option.label}
  </SelectItem>
  ))}
  </SelectContent>
  </Select>
  </div>
  <div className="space-y-2">
- <Label htmlFor="edit-nid">National ID</Label>
- <Input id="edit-nid" value={form.national_id} onChange={(e) => updateField("national_id", e.target.value)} />
+ <Label htmlFor="edit-nid">ID number</Label>
+ {form.id_type === "NIDA" ? (
+  <TzValidatedInput
+   id="edit-nid"
+   kind="nida"
+   value={form.national_id}
+   onValueChange={(value) => updateField("national_id", value)}
+  />
+ ) : (
+  <Input
+   id="edit-nid"
+   value={form.national_id}
+   onChange={(e) => updateField("national_id", e.target.value)}
+  />
+ )}
  </div>
  </div>
 
@@ -999,7 +1246,8 @@ export function CustomerEditDialog({
  <Input
  id="edit-pay-ref"
  value={form.payment_reference}
- onChange={(e) => updateField("payment_reference", e.target.value)}
+readOnly
+disabled
  />
  </div>
  <div className="space-y-2">
@@ -1036,10 +1284,10 @@ export function CustomerEditDialog({
  <Checkbox
  id="edit-reg-paid"
  checked={form.registration_fee_paid}
- onCheckedChange={(c) => updateField("registration_fee_paid", c === true)}
+ disabled
  />
- <Label htmlFor="edit-reg-paid" className="font-normal">
- Registration fee paid
+ <Label htmlFor="edit-reg-paid" className="font-normal text-muted-foreground">
+ Registration fee paid (updated automatically by ClickPesa)
  </Label>
  </div>
  <div className="space-y-2">
@@ -1056,8 +1304,9 @@ export function CustomerEditDialog({
  id="edit-reg-at"
  type="datetime-local"
  value={form.registration_fee_paid_at}
- onChange={(e) => updateField("registration_fee_paid_at", e.target.value)}
+ disabled
  />
+ <p className="text-xs text-muted-foreground">Set by the backend when ClickPesa confirms payment.</p>
  </div>
  <div className="space-y-2">
  <Label htmlFor="edit-cheque">Cheque number</Label>
@@ -1069,24 +1318,45 @@ export function CustomerEditDialog({
 
  <div className="space-y-1">
  <p className="text-sm font-semibold">Guarantors</p>
- <p className="text-xs text-muted-foreground">
-  Up to two guarantors on this customer profile. ID front and back scans upload to{" "}
-  <span className="font-mono text-[11px]">id_front_document_id</span> /{" "}
-  <span className="font-mono text-[11px]">id_back_document_id</span> on the customer record.
- </p>
- </div>
- <CustomerGuarantorsFields value={guarantors} onChange={setGuarantors} />
+          <p className="text-xs text-muted-foreground">
+            Add guarantors with ID type, sex, and a circular passport photo upload
+            (<span className="font-mono text-[11px]">guarantor_passport_photo</span>).
+            ID front and back scans link directly to the guarantor record.
+          </p>
+        </div>
+        <CustomerGuarantorsFields
+          value={guarantors}
+          onChange={setGuarantors}
+          customerId={customerId}
+          onDeleteExistingDocument={deleteCustomerDocument}
+          removingDocumentIds={removingDocumentIds}
+          onDeleteGuarantor={deleteCustomerGuarantor}
+        />
 
  <Separator />
 
  <div className="space-y-1">
  <p className="text-sm font-semibold">Collateral</p>
  <p className="text-xs text-muted-foreground">
-  Optional collateral on this customer profile. Type, value, and description are saved via{" "}
-  <span className="font-mono text-[11px]">PATCH /customers/{"{id}"}</span> collateral.
+  Optional collateral on this customer profile. Add the type, value, and description.
  </p>
  </div>
- <CustomerCollateralFields value={collateral} onChange={setCollateral} />
+ <CustomerCollateralFields
+ value={collateral}
+ onChange={setCollateral}
+ onDeleteExistingImage={deleteCustomerDocument}
+ removingDocumentIds={removingDocumentIds}
+ />
+
+ <Separator />
+
+ <div className="space-y-1">
+ <p className="text-sm font-semibold">References</p>
+ <p className="text-xs text-muted-foreground">
+  Friends or family contacts who can be reached if the customer is unavailable.
+ </p>
+ </div>
+ <CustomerReferencesFields value={references} onChange={setReferences} />
 
  <Separator />
 
@@ -1104,6 +1374,8 @@ export function CustomerEditDialog({
  existingHomePhotos={existingAttachments.homeLocationPhotos}
  existingBusinessPhotos={existingAttachments.businessLocationPhotos}
  existingDocuments={existingAttachments.supportingDocuments}
+ onRemoveExistingDocument={deleteCustomerDocument}
+ removingDocumentIds={removingDocumentIds}
  />
 
  <DialogFooter className="gap-2 sm:gap-0">

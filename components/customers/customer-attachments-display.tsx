@@ -233,7 +233,7 @@ export function CustomerAttachmentsDisplay({ attachments }: Props) {
             if (g.photo_with_customer_url || g.photo_with_customer_preview_url) {
               items.push({
                 key: `${g.id ?? g.full_name}-with-customer`,
-                title: `${g.full_name} — Photo with customer`,
+                title: `${g.full_name} — Passport photo`,
                 authUrl: g.photo_with_customer_url ?? g.photo_with_customer_preview_url ?? "",
                 previewUrl: g.photo_with_customer_preview_url ?? g.photo_with_customer_url,
               });

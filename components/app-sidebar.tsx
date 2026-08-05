@@ -1,7 +1,5 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import {
  LayoutDashboard,
@@ -20,6 +18,7 @@ import {
  Calculator,
  MapPin,
  DatabaseBackup,
+ BookOpen,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { FalcoLogo } from "@/components/falco-logo";
@@ -47,7 +46,9 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useLanguage } from "@/components/language-provider";
 import { tLabel } from "@/lib/i18n/labels";
+import { invalidateFetchCache } from "@/lib/client-fetch-cache";
 import { useSessionUser } from "@/lib/use-session-user";
+import { NavigationLink, useNavigationTransition } from "@/components/navigation-transition-context";
 
 type SidebarNavItem =
  | {
@@ -167,6 +168,11 @@ const navigation: { title: string; items: SidebarNavItem[] }[] = [
  icon: BarChart3,
  },
  {
+ title: "Cashbook",
+ href: "/cashbook",
+ icon: BookOpen,
+ },
+ {
  title: "Loan Products",
  href: "/products",
  icon: Building2,
@@ -191,12 +197,12 @@ const navigation: { title: string; items: SidebarNavItem[] }[] = [
 ];
 
 export function AppSidebar() {
- const pathname = usePathname();
- const router = useRouter();
+ const { activePath } = useNavigationTransition();
  const { user } = useSessionUser();
  const { language } = useLanguage();
  const L = (text: string) => tLabel(text, language);
  const [isLoggingOut, setIsLoggingOut] = useState(false);
+ const isActiveHref = (href: string) => activePath === href || activePath.startsWith(`${href}/`);
 
  const visibleNavigation = useMemo(() => {
  const role = user?.role ?? "loan_officer";
@@ -204,8 +210,9 @@ export function AppSidebar() {
  .map((group) => ({
  ...group,
  items: group.items.filter((item) => {
- if (item.href === "/users") return role === "super_admin";
- return true;
+        if (item.href === "/users") return role === "super_admin";
+        if (item.href === "/cashbook") return role === "super_admin" || role === "accountant";
+        return true;
  }),
  }))
  .filter((group) => group.items.length > 0);
@@ -216,9 +223,9 @@ export function AppSidebar() {
  try {
  await fetch("/api/logout", { method: "POST" });
  } finally {
- router.push("/");
- router.refresh();
- setIsLoggingOut(false);
+ invalidateFetchCache();
+ // Full navigation clears any leftover client session state from the previous account.
+ window.location.assign("/");
  }
  };
 
@@ -254,7 +261,7 @@ export function AppSidebar() {
  <SidebarMenuButton
  className={cn(
  "w-full transition-colors",
- pathname.startsWith(item.href) &&
+ isActiveHref(item.href) &&
  "bg-sidebar-primary/15 text-sidebar-primary font-medium"
  )}
  >
@@ -269,14 +276,14 @@ export function AppSidebar() {
  <SidebarMenuSubItem key={subItem.href}>
  <SidebarMenuSubButton
  asChild
- isActive={pathname === subItem.href || pathname.startsWith(`${subItem.href}/`)}
+ isActive={isActiveHref(subItem.href)}
  className={cn(
- (pathname === subItem.href || pathname.startsWith(`${subItem.href}/`)) && "text-sidebar-primary font-medium"
+ isActiveHref(subItem.href) && "text-sidebar-primary font-medium"
  )}
  >
- <Link href={subItem.href}>
+ <NavigationLink href={subItem.href}>
  {L(subItem.title)}
- </Link>
+ </NavigationLink>
  </SidebarMenuSubButton>
  </SidebarMenuSubItem>
  ))}
@@ -288,16 +295,16 @@ export function AppSidebar() {
  <SidebarMenuItem key={item.title}>
  <SidebarMenuButton
  asChild
- isActive={pathname === item.href}
+ isActive={isActiveHref(item.href)}
  className={cn(
  "transition-colors",
- pathname === item.href && "bg-sidebar-primary/15 text-sidebar-primary font-medium"
+ isActiveHref(item.href) && "bg-sidebar-primary/15 text-sidebar-primary font-medium"
  )}
  >
- <Link href={item.href}>
+ <NavigationLink href={item.href}>
  <item.icon className="h-4 w-4" />
  <span>{L(item.title)}</span>
- </Link>
+ </NavigationLink>
  </SidebarMenuButton>
  </SidebarMenuItem>
  )

@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import {
   ExternalLink,
+  FileSpreadsheet,
   Loader2,
   LocateFixed,
   MapPin,
@@ -14,12 +16,17 @@ import {
   Plus,
   RefreshCcw,
   UserPlus,
+  X,
 } from "lucide-react";
 import { TzValidatedInput } from "@/components/forms/tz-validated-input";
+import {
+  formControlErrorClass,
+  formControlErrorProps,
+} from "@/components/forms/form-field-message";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -31,6 +38,15 @@ import {
  TableHeader,
  TableRow,
 } from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import {
  Select,
  SelectContent,
@@ -53,8 +69,10 @@ import { forceCachedReload } from "@/lib/client-fetch-cache";
 import {
   extractLeadDetail,
   extractLeadsList,
+  leadGenderLabel,
   mapUiLeadCreateToApi,
   stripLocationTagFromNotes,
+  type LeadGender,
   type LeadLocationType,
   type LeadStatus,
   type LeadView,
@@ -76,6 +94,7 @@ import {
   leadViewFromEditForm,
 } from "@/lib/lead-to-customer-prefill";
 import { useSessionUser } from "@/lib/use-session-user";
+import { cn } from "@/lib/utils";
 
 const statusLabel: Record<LeadStatus, string> = {
  new: "New",
@@ -90,14 +109,197 @@ const locationTypeLabel: Record<LeadLocationType, string> = {
  sponsor: "Sponsor",
 };
 
+const GENDER_NONE = "none";
+
+function genderDisplay(gender?: LeadGender): string {
+  return gender ? leadGenderLabel[gender] : "—";
+}
+
+function roleDisplayLabel(role: string): string {
+  return role
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function leadCreatorLabel(lead: LeadView): string {
+  return lead.createdByName || lead.createdBy || "-";
+}
+
+function leadCreatorRoleLabel(lead: LeadView): string | null {
+  return lead.createdByRole ? roleDisplayLabel(lead.createdByRole) : null;
+}
+
 /** Local calendar date for `<input type="date">` (YYYY-MM-DD). */
 function todayInputDate(): string {
- const d = new Date();
- const y = d.getFullYear();
- const m = String(d.getMonth() + 1).padStart(2, "0");
- const day = String(d.getDate()).padStart(2, "0");
- return `${y}-${m}-${day}`;
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
+
+/** Same-format date `daysAgo` days before today, for the report's default start date. */
+function daysAgoInputDate(daysAgo: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - daysAgo);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+type LeadFormErrors = Record<string, string>;
+
+function leadFieldLabel(field: string): string {
+  const labels: Record<string, string> = {
+    branchId: "Branch",
+    fullName: "Full name",
+    phoneNumber: "Phone number",
+    alternatePhone: "Alternate number",
+    locationName: "Street / location",
+    latitude: "Latitude",
+    longitude: "Longitude",
+    followUpDate: "Date added",
+  };
+  return labels[field] ?? field;
+}
+
+function summarizeLeadErrors(errors: LeadFormErrors): string {
+  const count = Object.keys(errors).length;
+  if (count === 0) return "";
+  if (count === 1) return Object.values(errors)[0];
+  return `Please fix ${count} fields highlighted below.`;
+}
+
+const PROHIBITED_FIELD_LABELS: Record<string, string> = {
+  latitude: "GPS latitude",
+  longitude: "GPS longitude",
+  follow_up_date: "date added",
+};
+
+function humanizeProhibitedField(field: string): string {
+  return PROHIBITED_FIELD_LABELS[field] ?? field.replace(/_/g, " ");
+}
+
+/** Backend validation `details` entries whose message says the field is "prohibited" for this account/role. */
+function extractProhibitedFields(data: unknown): string[] {
+  const details =
+    data && typeof data === "object" ? (data as { details?: unknown }).details : undefined;
+  if (!Array.isArray(details)) return [];
+  const fields: string[] = [];
+  for (const entry of details) {
+    if (!entry || typeof entry !== "object") continue;
+    const field = (entry as { field?: unknown }).field;
+    const message = (entry as { message?: unknown }).message;
+    if (typeof field === "string" && typeof message === "string" && /prohibited/i.test(message)) {
+      fields.push(field);
+    }
+  }
+  return fields;
+}
+
+/**
+ * POSTs/PATCHes a lead payload. Some accounts are blocked by the backend from setting fields
+ * like `latitude`/`longitude`/`follow_up_date` (422 "field is prohibited"). When that happens,
+ * this drops just those fields and retries once so the rest of the lead still saves.
+ */
+async function submitLeadPayload(
+  url: string,
+  method: "POST" | "PATCH",
+  payload: Record<string, unknown>
+): Promise<{ res: Response; data: unknown; droppedFields: string[] }> {
+  const send = (body: Record<string, unknown>) =>
+    apiFetch(url, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  const res = await send(payload);
+  const { data } = await parseJsonResponse<unknown>(res);
+  if (res.ok || res.status !== 422) return { res, data, droppedFields: [] };
+
+  const prohibited = extractProhibitedFields(data).filter((field) => field in payload);
+  if (prohibited.length === 0) return { res, data, droppedFields: [] };
+
+  const retryPayload = { ...payload };
+  for (const field of prohibited) delete retryPayload[field];
+
+  const retryRes = await send(retryPayload);
+  const retryParsed = await parseJsonResponse<unknown>(retryRes);
+  return {
+    res: retryRes,
+    data: retryParsed.data,
+    droppedFields: retryRes.ok ? prohibited : [],
+  };
+}
+
+function validateLeadForm(
+  form: typeof initialLeadFormData,
+  options: { needsBranchPicker: boolean; fallbackBranchId?: string | null }
+): LeadFormErrors {
+  const errors: LeadFormErrors = {};
+  const phoneDigits = digitsOnly(form.phoneNumber);
+  const altDigits = digitsOnly(form.alternatePhone);
+  const branchId = form.branchId.trim() || options.fallbackBranchId?.trim() || "";
+
+  if (options.needsBranchPicker && !branchId) errors.branchId = "Select the branch for this lead.";
+  if (!form.fullName.trim()) errors.fullName = "Enter the customer's full name.";
+  if (!form.phoneNumber.trim()) {
+    errors.phoneNumber = "Enter the customer's phone number.";
+  } else if (phoneDigits.length !== TZ_PHONE_MAX_DIGITS) {
+    errors.phoneNumber = "Enter a 10 digit phone number, for example 0712345678.";
+  }
+  if (form.alternatePhone.trim() && altDigits.length !== TZ_PHONE_MAX_DIGITS) {
+    errors.alternatePhone = "Enter a 10 digit phone number, or leave this field empty.";
+  }
+  if (!form.locationName.trim()) errors.locationName = "Enter the street, area, or landmark.";
+
+  const latitude = form.latitude.trim();
+  const longitude = form.longitude.trim();
+  if (latitude) {
+    const value = Number(latitude);
+    if (!Number.isFinite(value) || value < -90 || value > 90) {
+      errors.latitude = "Latitude must be a number between -90 and 90.";
+    }
+  }
+  if (longitude) {
+    const value = Number(longitude);
+    if (!Number.isFinite(value) || value < -180 || value > 180) {
+      errors.longitude = "Longitude must be a number between -180 and 180.";
+    }
+  }
+  if ((latitude && !longitude) || (!latitude && longitude)) {
+    if (!latitude) errors.latitude = "Enter latitude too, or clear longitude.";
+    if (!longitude) errors.longitude = "Enter longitude too, or clear latitude.";
+  }
+  if (!form.followUpDate.trim()) errors.followUpDate = "Choose the date this lead was added.";
+
+  return errors;
+}
+
+const initialLeadFormData = {
+  branchId: "",
+  fullName: "",
+  phoneNumber: "",
+  alternatePhone: "",
+  gender: GENDER_NONE as LeadGender | typeof GENDER_NONE,
+  locationType: "home" as LeadLocationType,
+  locationName: "",
+  region: "",
+  district: "",
+  ward: "",
+  latitude: "",
+  longitude: "",
+  notes: "",
+  followUpDate: todayInputDate(),
+  status: "new" as LeadStatus,
+};
+
+const leadFormGridClass =
+  "grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2 [&_[data-slot=field]]:min-w-0 [&_[data-slot=select-trigger]]:w-full [&_[data-slot=select-trigger]]:max-w-full [&_[data-slot=select-value]]:truncate [&_input]:max-w-full [&_textarea]:max-w-full";
+
+const leadSelectTriggerClass = "w-full max-w-full min-w-0 [&_[data-slot=select-value]]:truncate";
 
 
 export default function LeadsPage() {
@@ -114,14 +316,21 @@ export default function LeadsPage() {
   const [selectedLeadId, setSelectedLeadId] = useState<string>("");
   const mapSectionRef = useRef<HTMLDivElement | null>(null);
   const editFormRef = useRef<HTMLDivElement | null>(null);
+  const addLeadFormRef = useRef<HTMLDivElement | null>(null);
   const [showAddLeadForm, setShowAddLeadForm] = useState(false);
   const [editingLead, setEditingLead] = useState<LeadView | null>(null);
   const [isLocating, setIsLocating] = useState(false);
+  const [leadFieldErrors, setLeadFieldErrors] = useState<LeadFormErrors>({});
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportFrom, setReportFrom] = useState(() => daysAgoInputDate(30));
+  const [reportTo, setReportTo] = useState(() => todayInputDate());
+  const [reportError, setReportError] = useState<string | null>(null);
   const needsBranchPicker = user?.role === "super_admin";
   const [editFormData, setEditFormData] = useState({
     fullName: "",
     phoneNumber: "",
     alternatePhone: "",
+    gender: GENDER_NONE as LeadGender | typeof GENDER_NONE,
     locationType: "home" as LeadLocationType,
     locationName: "",
     region: "",
@@ -133,30 +342,55 @@ export default function LeadsPage() {
     followUpDate: "",
     status: "new" as LeadStatus,
   });
-  const [formData, setFormData] = useState({
-    branchId: "",
- fullName: "",
- phoneNumber: "",
- alternatePhone: "",
- locationType: "home" as LeadLocationType,
- locationName: "",
- region: "",
- district: "",
- ward: "",
- latitude: "",
- longitude: "",
- notes: "",
- followUpDate: todayInputDate(),
- status: "new" as LeadStatus,
- });
+  const [formData, setFormData] = useState(initialLeadFormData);
 
   const visibleLeads = leads;
+
+  const updateLeadField = <K extends keyof typeof initialLeadFormData>(
+    key: K,
+    value: (typeof initialLeadFormData)[K]
+  ) => {
+    setLeadFieldErrors((prev) => {
+      if (!prev[String(key)]) return prev;
+      const next = { ...prev };
+      delete next[String(key)];
+      return next;
+    });
+    setFormData((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const applyLeadFieldErrors = (errors: LeadFormErrors) => {
+    setLeadFieldErrors(errors);
+    setError(summarizeLeadErrors(errors));
+    const firstField = Object.keys(errors)[0];
+    if (firstField) {
+      requestAnimationFrame(() => {
+        const target = document.querySelector(`[data-lead-field="${CSS.escape(firstField)}"]`);
+        target?.scrollIntoView({ behavior: "smooth", block: "center" });
+        const focusable = target?.querySelector<HTMLElement>(
+          "input:not([type=hidden]), textarea, button[role=combobox]"
+        );
+        focusable?.focus({ preventScroll: true });
+      });
+    }
+  };
 
  useEffect(() => {
  if (user?.branch_id && !formData.branchId) {
  setFormData((prev) => ({ ...prev, branchId: user.branch_id }));
  }
  }, [user?.branch_id, formData.branchId]);
+
+ useEffect(() => {
+  if (!showAddLeadForm) return;
+  requestAnimationFrame(() => {
+   addLeadFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+   const focusable = addLeadFormRef.current?.querySelector<HTMLElement>(
+    "input:not([type=hidden]), textarea, button[role=combobox]"
+   );
+   focusable?.focus({ preventScroll: true });
+  });
+ }, [showAddLeadForm]);
 
   const load = useCallback(async () => {
     if (!sessionLoaded) return;
@@ -229,6 +463,13 @@ export default function LeadsPage() {
  void (async () => {
  try {
  const place = await reverseGeocodeNominatim(lat, lng);
+ setLeadFieldErrors((prev) => {
+ const next = { ...prev };
+ delete next.latitude;
+ delete next.longitude;
+ delete next.locationName;
+ return next;
+ });
  setFormData((prev) => ({
  ...prev,
  latitude: latStr,
@@ -239,6 +480,12 @@ export default function LeadsPage() {
  ward: place.ward || prev.ward,
  }));
  } catch {
+ setLeadFieldErrors((prev) => {
+ const next = { ...prev };
+ delete next.latitude;
+ delete next.longitude;
+ return next;
+ });
  setFormData((prev) => ({
  ...prev,
  latitude: latStr,
@@ -265,21 +512,18 @@ export default function LeadsPage() {
  setError("Your session is still loading. Please wait a moment and try again.");
  return;
  }
- if (!formData.fullName || !formData.phoneNumber || !formData.locationName) return;
-
- const phoneDigits = digitsOnly(formData.phoneNumber);
- if (phoneDigits.length !== TZ_PHONE_MAX_DIGITS) {
- setError(`Phone number must be exactly ${TZ_PHONE_MAX_DIGITS} digits (e.g. 0712345678).`);
- return;
- }
- const altDigits = digitsOnly(formData.alternatePhone);
- if (formData.alternatePhone.trim() && altDigits.length !== TZ_PHONE_MAX_DIGITS) {
- setError(`Alternate number must be exactly ${TZ_PHONE_MAX_DIGITS} digits.`);
+ setLeadFieldErrors({});
+ const validationErrors = validateLeadForm(formData, {
+ needsBranchPicker,
+ fallbackBranchId: user?.branch_id,
+ });
+ if (Object.keys(validationErrors).length > 0) {
+ applyLeadFieldErrors(validationErrors);
  return;
  }
  const branchId = formData.branchId.trim() || user?.branch_id?.trim() || "";
  if (needsBranchPicker && !branchId) {
- setError("Select a branch for this lead.");
+ applyLeadFieldErrors({ branchId: "Select the branch for this lead." });
  return;
  }
 
@@ -290,6 +534,7 @@ export default function LeadsPage() {
  fullName: formData.fullName,
  phoneNumber: formData.phoneNumber,
  alternatePhone: formData.alternatePhone || undefined,
+ gender: formData.gender === GENDER_NONE ? undefined : formData.gender,
  locationType: formData.locationType,
  locationName: formData.locationName,
  region: formData.region || undefined,
@@ -302,46 +547,37 @@ export default function LeadsPage() {
  status: formData.status,
  });
 
- const res = await apiFetch("/api/leads", {
- method: "POST",
- headers: { "Content-Type": "application/json" },
- body: JSON.stringify({
- ...body,
- ...(branchId ? { branch_id: branchId } : {}),
- }),
- });
- const { data } = await parseJsonResponse<unknown>(res);
- if (!res.ok) {
- const msg = apiErrorMessage(data, formatApiResponseError(data, "Failed to save lead"));
- if (isSessionExpiredResponse(res.status, msg)) {
- throw new Error("Your session expired. Please sign in again.");
- }
- if (res.status === 403) {
- throw new Error(
- "You do not have permission to add leads. Ask your branch manager to enable leads access for loan officers."
- );
- }
- throw new Error(msg);
- }
+      const { res, data, droppedFields } = await submitLeadPayload("/api/leads", "POST", {
+        ...body,
+        ...(branchId ? { branch_id: branchId } : {}),
+      });
+      if (!res.ok) {
+        const msg = apiErrorMessage(data, formatApiResponseError(data, "Failed to save lead"));
+        if (isSessionExpiredResponse(res.status, msg)) {
+          throw new Error("Your session expired. Please sign in again.");
+        }
+        if (res.status === 403) {
+          throw new Error(
+            "You do not have permission to add leads. Ask your branch manager to enable leads access for loan officers."
+          );
+        }
+        throw new Error(msg);
+      }
+      if (droppedFields.length > 0) {
+        const labels = droppedFields.map(humanizeProhibitedField).join(", ");
+        toast.info(
+          `Lead saved, but ${labels} ${droppedFields.length > 1 ? "aren't" : "isn't"} allowed for your account and were left blank.`
+        );
+      }
 
- await load();
- setShowAddLeadForm(false);
+      await load();
+      setShowAddLeadForm(false);
     setFormData({
+      ...initialLeadFormData,
       branchId: formData.branchId || user?.branch_id || branches[0]?.id || "",
- fullName: "",
- phoneNumber: "",
- alternatePhone: "",
- locationType: "home",
- locationName: "",
- region: "",
- district: "",
- ward: "",
- latitude: "",
- longitude: "",
- notes: "",
- followUpDate: todayInputDate(),
- status: "new",
- });
+      followUpDate: todayInputDate(),
+    });
+ setLeadFieldErrors({});
  } catch (e) {
  setError(e instanceof Error ? e.message : "Failed to save lead");
  } finally {
@@ -412,6 +648,7 @@ export default function LeadsPage() {
       fullName: lead.fullName,
       phoneNumber: lead.phoneNumber,
       alternatePhone: lead.alternatePhone ?? "",
+      gender: lead.gender ?? GENDER_NONE,
       locationType: lead.locationType,
       locationName: lead.locationName,
       region: lead.region ?? "",
@@ -450,6 +687,7 @@ export default function LeadsPage() {
         fullName: editFormData.fullName,
         phoneNumber: editFormData.phoneNumber,
         alternatePhone: editFormData.alternatePhone || undefined,
+        gender: editFormData.gender === GENDER_NONE ? undefined : editFormData.gender,
         locationType: editFormData.locationType,
         locationName: editFormData.locationName,
         region: editFormData.region || undefined,
@@ -462,18 +700,23 @@ export default function LeadsPage() {
         status: editFormData.status,
       });
 
-      const res = await apiFetch(`/api/leads/${encodeURIComponent(editingLead.id)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const { data } = await parseJsonResponse<unknown>(res);
+      const { res, data, droppedFields } = await submitLeadPayload(
+        `/api/leads/${encodeURIComponent(editingLead.id)}`,
+        "PATCH",
+        body
+      );
       if (!res.ok) {
         const msg = apiErrorMessage(data, formatApiResponseError(data, "Failed to update lead"));
         if (isSessionExpiredResponse(res.status, msg)) {
           throw new Error("Your session expired. Please sign in again.");
         }
         throw new Error(msg);
+      }
+      if (droppedFields.length > 0) {
+        const labels = droppedFields.map(humanizeProhibitedField).join(", ");
+        toast.info(
+          `Lead updated, but ${labels} ${droppedFields.length > 1 ? "aren't" : "isn't"} allowed for your account and were left unchanged.`
+        );
       }
 
       await load();
@@ -485,6 +728,35 @@ export default function LeadsPage() {
     }
   };
 
+  const handleGenerateReport = () => {
+    if (!reportFrom || !reportTo) {
+      setReportError("Choose a start and end date.");
+      return;
+    }
+    if (reportFrom > reportTo) {
+      setReportError("The start date must be on or before the end date.");
+      return;
+    }
+
+    setReportError(null);
+    const params = new URLSearchParams({ from: reportFrom, to: reportTo });
+    const downloadUrl = `/api/leads/report?${params.toString()}`;
+
+    // Navigate directly to the download URL instead of using `fetch`/blob: this app's global
+    // fetch-cache patch (lib/client-fetch-cache.ts) reads every response body as text to cache
+    // it, which corrupts binary files like .xlsx. A plain browser navigation (same mechanism an
+    // <img> tag uses) is handled by the browser's native network stack and never touches that
+    // patch, so the bytes reach disk untouched.
+    const link = document.createElement("a");
+    link.href = downloadUrl;
+    link.rel = "noopener";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    setReportOpen(false);
+  };
+
   return (
  <>
  <DashboardHeader
@@ -493,7 +765,7 @@ export default function LeadsPage() {
  />
   <main className="flex min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-4 pb-10 lg:p-6">
       <div className="mx-auto w-full max-w-7xl space-y-6">
- <div className="rounded-2xl border border-emerald-100 bg-gradient-to-r from-emerald-50 via-background to-background p-4 sm:p-5">
+ <div className="p-4 sm:p-5">
  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
  <div>
  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">
@@ -515,9 +787,11 @@ export default function LeadsPage() {
  type="button"
  className="w-full bg-emerald-600 hover:bg-emerald-700 sm:w-auto"
  onClick={() => {
+ setLeadFieldErrors({});
  setShowAddLeadForm((prev) => {
  const opening = !prev;
  if (opening) {
+ setEditingLead(null);
  setFormData((f) => ({ ...f, followUpDate: todayInputDate() }));
  }
  return opening;
@@ -533,28 +807,53 @@ export default function LeadsPage() {
 
  {error && (
  <Card className="border-destructive/50 bg-destructive/5">
- <CardContent className="py-3 text-sm text-destructive">{error}</CardContent>
+ <CardContent className="flex items-center justify-between gap-3 py-3 text-sm text-destructive">
+ <span>{error}</span>
+ <Button
+ type="button"
+ variant="ghost"
+ size="icon"
+ className="h-7 w-7 shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+ aria-label="Dismiss message"
+ onClick={() => setError(null)}
+ >
+ <X className="h-4 w-4" aria-hidden />
+ </Button>
+ </CardContent>
  </Card>
  )}
 
  {loading ? (
  <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
  <Loader2 className="h-5 w-5 animate-spin" />
- Loading leads from server…
+ Loading leads…
  </div>
  ) : (
  <>
  <Card className="overflow-hidden border-emerald-100">
- <CardHeader>
- <div className="flex flex-wrap items-center justify-between gap-3">
- <div>
- <CardTitle>Leads for Follow-up</CardTitle>
- <CardDescription>
- Track and update potential customers captured during field work
- </CardDescription>
- </div>
- </div>
- </CardHeader>
+              <CardHeader>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <CardTitle>Leads for Follow-up</CardTitle>
+                    <CardDescription>
+                      Track and update potential customers captured during field work
+                    </CardDescription>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="border-emerald-200 text-emerald-800 hover:bg-emerald-50"
+                    onClick={() => {
+                      setReportError(null);
+                      setReportOpen(true);
+                    }}
+                  >
+                    <FileSpreadsheet className="mr-2 h-4 w-4" />
+                    Generate Report
+                  </Button>
+                </div>
+              </CardHeader>
  <CardContent className="space-y-4 p-0">
  <div className="grid gap-3 p-4 sm:hidden">
  {visibleLeads.map((lead) => (
@@ -574,6 +873,12 @@ export default function LeadsPage() {
  <Phone className="h-3 w-3" />
  {lead.phoneNumber}
  </p>
+ <p className="text-xs text-muted-foreground">Gender: {genderDisplay(lead.gender)}</p>
+ <div className="text-xs text-muted-foreground">
+ Created by{" "}
+ <span className="font-medium text-foreground">{leadCreatorLabel(lead)}</span>
+ {leadCreatorRoleLabel(lead) ? ` (${leadCreatorRoleLabel(lead)})` : ""}
+ </div>
               <div className="flex flex-wrap gap-2">
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -634,10 +939,12 @@ export default function LeadsPage() {
  <TableRow>
  <TableHead>Name</TableHead>
  <TableHead>Phone</TableHead>
+ <TableHead>Gender</TableHead>
  <TableHead>Type</TableHead>
  <TableHead>Location</TableHead>
  <TableHead>Coordinates</TableHead>
  <TableHead>Date Added</TableHead>
+ <TableHead>Created By</TableHead>
  <TableHead>Status</TableHead>
  <TableHead className="text-right">Actions</TableHead>
  </TableRow>
@@ -645,7 +952,7 @@ export default function LeadsPage() {
  <TableBody>
  {visibleLeads.length === 0 ? (
  <TableRow>
- <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
+ <TableCell colSpan={10} className="py-8 text-center text-muted-foreground">
  No leads yet. Add a field lead to get started.
  </TableCell>
  </TableRow>
@@ -672,6 +979,7 @@ export default function LeadsPage() {
  )}
  </div>
  </TableCell>
+ <TableCell>{genderDisplay(lead.gender)}</TableCell>
  <TableCell>
  <Badge variant="secondary">{locationTypeLabel[lead.locationType]}</Badge>
  </TableCell>
@@ -689,6 +997,14 @@ export default function LeadsPage() {
  )}
  </TableCell>
  <TableCell>{lead.followUpDate || "-"}</TableCell>
+ <TableCell>
+ <div className="flex max-w-56 flex-col">
+ <span className="truncate font-medium">{leadCreatorLabel(lead)}</span>
+ {leadCreatorRoleLabel(lead) && (
+ <span className="text-xs text-muted-foreground">{leadCreatorRoleLabel(lead)}</span>
+ )}
+ </div>
+ </TableCell>
  <TableCell>
  <Badge variant="outline">{statusLabel[lead.status]}</Badge>
  </TableCell>
@@ -753,12 +1069,14 @@ export default function LeadsPage() {
  </Card>
 
           {editingLead && (
-            <Card ref={editFormRef} className="border-amber-200">
-              <CardHeader className="rounded-t-xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-white">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <CardTitle>Edit Lead — {editingLead.fullName}</CardTitle>
-                    <CardDescription className="text-amber-100">
+            <Card ref={editFormRef} className="gap-0 overflow-hidden border-amber-200 py-0 shadow-sm">
+              <CardHeader className="block space-y-0 border-b border-amber-400/40 bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 px-4 py-4 text-white sm:px-6 sm:py-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 space-y-1.5">
+                    <CardTitle className="text-base leading-snug text-white sm:text-lg">
+                      Edit Lead — {editingLead.fullName}
+                    </CardTitle>
+                    <CardDescription className="text-sm leading-relaxed text-amber-50/90">
                       Update the lead details then save
                     </CardDescription>
                   </div>
@@ -766,16 +1084,16 @@ export default function LeadsPage() {
                     type="button"
                     size="sm"
                     variant="ghost"
-                    className="text-white hover:bg-amber-600"
+                    className="-mt-0.5 shrink-0 text-white hover:bg-amber-600/80 hover:text-white"
                     onClick={() => setEditingLead(null)}
                   >
                     Cancel
                   </Button>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-4 pt-4">
-                <FieldGroup>
-                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <CardContent className="space-y-4 px-4 py-4 sm:px-6 sm:py-5">
+                <FieldGroup className="min-w-0">
+                  <div className={leadFormGridClass}>
                     <Field>
                       <FieldLabel>Location Type</FieldLabel>
                       <Select
@@ -784,7 +1102,7 @@ export default function LeadsPage() {
                           setEditFormData((prev) => ({ ...prev, locationType: value }))
                         }
                       >
-                        <SelectTrigger>
+                        <SelectTrigger className={leadSelectTriggerClass}>
                           <SelectValue placeholder="Select location type" />
                         </SelectTrigger>
                         <SelectContent>
@@ -803,6 +1121,25 @@ export default function LeadsPage() {
                           setEditFormData((prev) => ({ ...prev, fullName: e.target.value }))
                         }
                       />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Gender (optional)</FieldLabel>
+                      <Select
+                        value={editFormData.gender}
+                        onValueChange={(value: LeadGender | typeof GENDER_NONE) =>
+                          setEditFormData((prev) => ({ ...prev, gender: value }))
+                        }
+                      >
+                        <SelectTrigger className={leadSelectTriggerClass}>
+                          <SelectValue placeholder="Select gender" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={GENDER_NONE}>Not specified</SelectItem>
+                          <SelectItem value="male">Male</SelectItem>
+                          <SelectItem value="female">Female</SelectItem>
+                          <SelectItem value="other">Other</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </Field>
                     <Field>
                       <FieldLabel>Phone Number</FieldLabel>
@@ -828,7 +1165,7 @@ export default function LeadsPage() {
                         maxLength={10}
                       />
                     </Field>
-                    <Field>
+                    <Field className="md:col-span-2">
                       <FieldLabel>Street / Location</FieldLabel>
                       <Input
                         placeholder="Street, area, or landmark"
@@ -907,7 +1244,7 @@ export default function LeadsPage() {
                           setEditFormData((prev) => ({ ...prev, status: value }))
                         }
                       >
-                        <SelectTrigger>
+                        <SelectTrigger className={leadSelectTriggerClass}>
                           <SelectValue placeholder="Status" />
                         </SelectTrigger>
                         <SelectContent>
@@ -933,13 +1270,13 @@ export default function LeadsPage() {
                   </div>
                 </FieldGroup>
 
-                <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" onClick={() => setEditingLead(null)}>
+                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                  <Button variant="outline" className="w-full sm:w-auto" onClick={() => setEditingLead(null)}>
                     Cancel
                   </Button>
                   <Button
                     type="button"
-                    className="bg-amber-500 hover:bg-amber-600"
+                    className="w-full bg-amber-500 hover:bg-amber-600 sm:w-auto"
                     disabled={editSaving}
                     onClick={() => void handleUpdateLead()}
                   >
@@ -961,26 +1298,55 @@ export default function LeadsPage() {
           )}
 
           {showAddLeadForm && (
-            <Card className="border-emerald-100">
- <CardHeader className="rounded-t-xl bg-gradient-to-r from-emerald-600 via-emerald-500 to-emerald-600 text-white">
- <CardTitle>Add New Lead</CardTitle>
- <CardDescription>
-              Enter potential customer details, set a location, and save a navigation-ready lead record
+            <Card ref={addLeadFormRef} className="gap-0 overflow-hidden border-emerald-100 py-0 shadow-sm scroll-mt-4">
+ <CardHeader className="block space-y-0 border-b border-emerald-100 bg-emerald-50/70 px-4 py-4 sm:px-6 sm:py-5">
+ <div className="flex items-start gap-3">
+ <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-emerald-600 text-white shadow-sm">
+ <Plus className="h-4 w-4" aria-hidden />
+ </div>
+ <div className="min-w-0 space-y-1">
+ <CardTitle className="text-base text-foreground sm:text-lg">Add New Lead</CardTitle>
+ <CardDescription className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
+ Capture the customer details and location needed for follow-up.
  </CardDescription>
+ </div>
+ </div>
  </CardHeader>
- <CardContent className="space-y-4">
-          <FieldGroup>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+ <CardContent className="space-y-4 px-4 py-4 sm:px-6 sm:py-5">
+          {Object.keys(leadFieldErrors).length > 0 ? (
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              <p className="font-medium">Please fix the highlighted fields.</p>
+              <ul className="mt-1 space-y-1 text-xs">
+                {Object.entries(leadFieldErrors).map(([field, message]) => (
+                  <li key={field}>
+                    <button
+                      type="button"
+                      className="text-left underline-offset-2 hover:underline"
+                      onClick={() => {
+                        const target = document.querySelector(`[data-lead-field="${CSS.escape(field)}"]`);
+                        target?.scrollIntoView({ behavior: "smooth", block: "center" });
+                      }}
+                    >
+                      <span className="font-medium">{leadFieldLabel(field)}:</span> {message}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          <FieldGroup className="min-w-0">
+            <div className={leadFormGridClass}>
  {needsBranchPicker && (
- <Field>
+ <Field data-invalid={Boolean(leadFieldErrors.branchId)} data-lead-field="branchId">
  <FieldLabel>Branch</FieldLabel>
  <Select
  value={formData.branchId}
- onValueChange={(value) =>
- setFormData((prev) => ({ ...prev, branchId: value }))
- }
+ onValueChange={(value) => updateLeadField("branchId", value)}
  >
- <SelectTrigger>
+ <SelectTrigger
+ className={cn(leadSelectTriggerClass, formControlErrorClass(Boolean(leadFieldErrors.branchId)))}
+ {...formControlErrorProps(leadFieldErrors.branchId)}
+ >
  <SelectValue placeholder="Select branch" />
  </SelectTrigger>
  <SelectContent>
@@ -992,6 +1358,7 @@ export default function LeadsPage() {
  ))}
  </SelectContent>
  </Select>
+ <FieldError>{leadFieldErrors.branchId}</FieldError>
  </Field>
  )}
  <Field>
@@ -999,10 +1366,15 @@ export default function LeadsPage() {
  <Select
  value={formData.locationType}
  onValueChange={(value: LeadLocationType) => {
+ setLeadFieldErrors((prev) => {
+ const next = { ...prev };
+ delete next.locationType;
+ return next;
+ });
  applyLocationFromType(value);
  }}
  >
- <SelectTrigger>
+ <SelectTrigger className={leadSelectTriggerClass}>
  <SelectValue placeholder="Select location type" />
  </SelectTrigger>
  <SelectContent>
@@ -1012,58 +1384,77 @@ export default function LeadsPage() {
  </SelectContent>
  </Select>
  </Field>
- <Field>
+ <Field data-invalid={Boolean(leadFieldErrors.fullName)} data-lead-field="fullName">
  <FieldLabel>Full Name</FieldLabel>
  <Input
  placeholder="Potential customer name"
  value={formData.fullName}
- onChange={(e) =>
- setFormData((prev) => ({ ...prev, fullName: e.target.value }))
- }
+ className={formControlErrorClass(Boolean(leadFieldErrors.fullName))}
+ {...formControlErrorProps(leadFieldErrors.fullName)}
+ onChange={(e) => updateLeadField("fullName", e.target.value)}
  />
+ <FieldError>{leadFieldErrors.fullName}</FieldError>
  </Field>
  <Field>
+ <FieldLabel>Gender (optional)</FieldLabel>
+ <Select
+ value={formData.gender}
+ onValueChange={(value: LeadGender | typeof GENDER_NONE) => updateLeadField("gender", value)}
+ >
+ <SelectTrigger className={leadSelectTriggerClass}>
+ <SelectValue placeholder="Select gender" />
+ </SelectTrigger>
+ <SelectContent>
+ <SelectItem value={GENDER_NONE}>Not specified</SelectItem>
+ <SelectItem value="male">Male</SelectItem>
+ <SelectItem value="female">Female</SelectItem>
+ <SelectItem value="other">Other</SelectItem>
+ </SelectContent>
+ </Select>
+ </Field>
+ <Field data-invalid={Boolean(leadFieldErrors.phoneNumber)} data-lead-field="phoneNumber">
  <FieldLabel>Phone Number</FieldLabel>
  <TzValidatedInput
  kind="phone"
  placeholder="0712345678"
  value={formData.phoneNumber}
- onValueChange={(phoneNumber) =>
- setFormData((prev) => ({ ...prev, phoneNumber }))
- }
+ className={formControlErrorClass(Boolean(leadFieldErrors.phoneNumber))}
+ {...formControlErrorProps(leadFieldErrors.phoneNumber)}
+ onValueChange={(phoneNumber) => updateLeadField("phoneNumber", phoneNumber)}
  maxLength={10}
  />
+ <FieldError>{leadFieldErrors.phoneNumber}</FieldError>
  </Field>
- <Field>
+ <Field data-invalid={Boolean(leadFieldErrors.alternatePhone)} data-lead-field="alternatePhone">
  <FieldLabel>Alternate Number (optional)</FieldLabel>
  <TzValidatedInput
  kind="phone"
  placeholder="0712345678"
  value={formData.alternatePhone}
- onValueChange={(alternatePhone) =>
- setFormData((prev) => ({ ...prev, alternatePhone }))
- }
+ className={formControlErrorClass(Boolean(leadFieldErrors.alternatePhone))}
+ {...formControlErrorProps(leadFieldErrors.alternatePhone)}
+ onValueChange={(alternatePhone) => updateLeadField("alternatePhone", alternatePhone)}
  maxLength={10}
  />
+ <FieldError>{leadFieldErrors.alternatePhone}</FieldError>
  </Field>
- <Field>
+ <Field data-invalid={Boolean(leadFieldErrors.locationName)} data-lead-field="locationName" className="md:col-span-2">
  <FieldLabel>Street / Location</FieldLabel>
  <Input
  placeholder="Street, area, or landmark"
  value={formData.locationName}
- onChange={(e) =>
- setFormData((prev) => ({ ...prev, locationName: e.target.value }))
- }
+ className={formControlErrorClass(Boolean(leadFieldErrors.locationName))}
+ {...formControlErrorProps(leadFieldErrors.locationName)}
+ onChange={(e) => updateLeadField("locationName", e.target.value)}
  />
+ <FieldError>{leadFieldErrors.locationName}</FieldError>
  </Field>
  <Field>
  <FieldLabel>Region</FieldLabel>
  <Input
  placeholder="Region"
  value={formData.region}
- onChange={(e) =>
- setFormData((prev) => ({ ...prev, region: e.target.value }))
- }
+ onChange={(e) => updateLeadField("region", e.target.value)}
  />
  </Field>
  <Field>
@@ -1071,9 +1462,7 @@ export default function LeadsPage() {
  <Input
  placeholder="District"
  value={formData.district}
- onChange={(e) =>
- setFormData((prev) => ({ ...prev, district: e.target.value }))
- }
+ onChange={(e) => updateLeadField("district", e.target.value)}
  />
  </Field>
  <Field>
@@ -1081,45 +1470,46 @@ export default function LeadsPage() {
  <Input
  placeholder="Ward"
  value={formData.ward}
- onChange={(e) =>
- setFormData((prev) => ({ ...prev, ward: e.target.value }))
- }
+ onChange={(e) => updateLeadField("ward", e.target.value)}
  />
  </Field>
- <Field>
+ <Field data-invalid={Boolean(leadFieldErrors.latitude)} data-lead-field="latitude">
  <FieldLabel>Latitude</FieldLabel>
  <Input
  type="number"
  step="any"
  placeholder="-6.7924"
  value={formData.latitude}
- onChange={(e) =>
- setFormData((prev) => ({ ...prev, latitude: e.target.value }))
- }
+ className={formControlErrorClass(Boolean(leadFieldErrors.latitude))}
+ {...formControlErrorProps(leadFieldErrors.latitude)}
+ onChange={(e) => updateLeadField("latitude", e.target.value)}
  />
+ <FieldError>{leadFieldErrors.latitude}</FieldError>
  </Field>
- <Field>
+ <Field data-invalid={Boolean(leadFieldErrors.longitude)} data-lead-field="longitude">
  <FieldLabel>Longitude</FieldLabel>
  <Input
  type="number"
  step="any"
  placeholder="39.2083"
  value={formData.longitude}
- onChange={(e) =>
- setFormData((prev) => ({ ...prev, longitude: e.target.value }))
- }
+ className={formControlErrorClass(Boolean(leadFieldErrors.longitude))}
+ {...formControlErrorProps(leadFieldErrors.longitude)}
+ onChange={(e) => updateLeadField("longitude", e.target.value)}
  />
+ <FieldError>{leadFieldErrors.longitude}</FieldError>
  </Field>
- <Field>
+ <Field data-invalid={Boolean(leadFieldErrors.followUpDate)} data-lead-field="followUpDate">
  <FieldLabel>Date Added</FieldLabel>
  <FieldDescription>When this lead was captured. Defaults to today; change if needed.</FieldDescription>
  <Input
  type="date"
  value={formData.followUpDate}
- onChange={(e) =>
- setFormData((prev) => ({ ...prev, followUpDate: e.target.value }))
- }
+ className={formControlErrorClass(Boolean(leadFieldErrors.followUpDate))}
+ {...formControlErrorProps(leadFieldErrors.followUpDate)}
+ onChange={(e) => updateLeadField("followUpDate", e.target.value)}
  />
+ <FieldError>{leadFieldErrors.followUpDate}</FieldError>
  </Field>
  <Field>
  <FieldLabel>Status</FieldLabel>
@@ -1129,7 +1519,7 @@ export default function LeadsPage() {
  setFormData((prev) => ({ ...prev, status: value }))
  }
  >
- <SelectTrigger>
+ <SelectTrigger className={leadSelectTriggerClass}>
  <SelectValue />
  </SelectTrigger>
  <SelectContent>
@@ -1145,22 +1535,23 @@ export default function LeadsPage() {
  <FieldLabel>Notes</FieldLabel>
  <Textarea
  rows={3}
+ className="min-w-0"
  placeholder="Important follow-up details from the field visit"
  value={formData.notes}
- onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
+ onChange={(e) => updateLeadField("notes", e.target.value)}
  />
  </Field>
  </FieldGroup>
 
 
- <div className="flex flex-wrap gap-2">
- <Button variant="outline" onClick={handleCaptureLocation} disabled={isLocating}>
+ <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+ <Button variant="outline" className="w-full sm:w-auto" onClick={handleCaptureLocation} disabled={isLocating}>
  <LocateFixed className="mr-2 h-4 w-4" />
  {isLocating ? "Getting location…" : "Use browser location"}
  </Button>
  <Button
  type="button"
- className="bg-emerald-600 hover:bg-emerald-700"
+ className="w-full bg-emerald-600 hover:bg-emerald-700 sm:w-auto"
  disabled={saving}
  onClick={() => void handleAddLead()}
  >
@@ -1229,6 +1620,9 @@ export default function LeadsPage() {
  <span className="text-muted-foreground">
  {mapLead.locationName} ({locationTypeLabel[mapLead.locationType]})
  </span>
+ {mapLead.gender ? (
+ <span className="ml-2 text-muted-foreground">· {leadGenderLabel[mapLead.gender]}</span>
+ ) : null}
  {!parseLeadCoordinates(mapLead) && (
  <span className="ml-2 text-xs text-amber-700">(approximate — from address)</span>
  )}
@@ -1249,12 +1643,60 @@ export default function LeadsPage() {
  Select a lead from the list or use View to show their location here.
  </p>
  )}
- </CardContent>
- </Card>
- </>
- )}
- </div>
- </main>
- </>
- );
+          </CardContent>
+        </Card>
+        </>
+        )}
+      </div>
+
+      <Dialog open={reportOpen} onOpenChange={setReportOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Generate Leads Report</DialogTitle>
+            <DialogDescription>
+              Choose the time frame for the field leads report. It will be generated as an Excel
+              file with your name and role, ready to download.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="report-from">Start date</Label>
+              <Input
+                id="report-from"
+                type="date"
+                value={reportFrom}
+                max={reportTo || undefined}
+                onChange={(e) => setReportFrom(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="report-to">End date</Label>
+              <Input
+                id="report-to"
+                type="date"
+                value={reportTo}
+                min={reportFrom || undefined}
+                onChange={(e) => setReportTo(e.target.value)}
+              />
+            </div>
+          </div>
+          {reportError ? <p className="text-sm text-destructive">{reportError}</p> : null}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setReportOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="bg-emerald-600 hover:bg-emerald-700"
+              onClick={handleGenerateReport}
+            >
+              <FileSpreadsheet className="mr-2 h-4 w-4" />
+              Generate Report
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </main>
+    </>
+  );
 }

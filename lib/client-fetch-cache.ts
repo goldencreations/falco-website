@@ -198,7 +198,21 @@ async function cachedFetchImpl(
 
  if (method !== "GET") {
  const response = await fetchFn(input, cleanInit);
- if (response.ok) invalidateForMutation(url);
+ if (response.ok) {
+ // Auth changes must wipe the whole client cache — especially `/api/session` —
+ // otherwise the next login can show the previous user's name/role in the sidebar
+ // while cookies already belong to the new account.
+ try {
+ const pathname = new URL(url, "http://local").pathname;
+ if (pathname === "/api/login" || pathname === "/api/logout") {
+ invalidateFetchCache();
+ } else {
+ invalidateForMutation(url);
+ }
+ } catch {
+ invalidateForMutation(url);
+ }
+ }
  return response;
  }
 
@@ -232,6 +246,16 @@ export async function cachedFetch(
 ): Promise<Response> {
  const fetchFn = nativeFetch ?? fetch;
  return cachedFetchImpl(input, init, fetchFn);
+}
+
+/**
+ * Bypasses the cache patch entirely — use for binary downloads (xlsx, pdf, images).
+ * The patched `window.fetch` reads every response body via `.text()` to cache/replay it,
+ * which corrupts non-text bytes. This calls the original `fetch` the patch captured.
+ */
+export function rawFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+ const fetchFn = nativeFetch ?? fetch;
+ return fetchFn(input, init);
 }
 
 /** Install a global fetch wrapper so existing pages benefit without edits. */

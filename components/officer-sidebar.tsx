@@ -1,7 +1,5 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
 import {
  Calculator,
  ClipboardList,
@@ -28,7 +26,9 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { useLanguage } from "@/components/language-provider";
 import { tLabel } from "@/lib/i18n/labels";
+import { invalidateFetchCache } from "@/lib/client-fetch-cache";
 import { cn } from "@/lib/utils";
+import { NavigationLink, useNavigationTransition } from "@/components/navigation-transition-context";
 import type { SessionUser } from "@/lib/auth";
 
 const officerNav = [
@@ -44,15 +44,14 @@ const officerNav = [
 ];
 
 export function OfficerSidebar({ user, branchLabel }: { user: SessionUser; branchLabel: string }) {
- const pathname = usePathname();
- const router = useRouter();
+ const { activePath } = useNavigationTransition();
  const { language } = useLanguage();
  const L = (text: string) => tLabel(text, language);
 
  const handleLogout = async () => {
  await fetch("/api/logout", { method: "POST" });
- router.push("/");
- router.refresh();
+ invalidateFetchCache();
+ window.location.assign("/");
  };
 
  return (
@@ -70,8 +69,8 @@ export function OfficerSidebar({ user, branchLabel }: { user: SessionUser; branc
  <SidebarMenu>
  {officerNav.map((item) => {
  const active =
- pathname === item.href ||
- (item.href !== "/officer/dashboard" && pathname.startsWith(`${item.href}/`));
+ activePath === item.href ||
+ (item.href !== "/officer/dashboard" && activePath.startsWith(`${item.href}/`));
  return (
  <SidebarMenuItem key={item.href}>
  <SidebarMenuButton
@@ -79,10 +78,10 @@ export function OfficerSidebar({ user, branchLabel }: { user: SessionUser; branc
  isActive={active}
  className={cn(active && "bg-sidebar-primary/15 font-medium text-sidebar-primary")}
  >
- <Link href={item.href}>
+ <NavigationLink href={item.href}>
  <item.icon className="h-4 w-4" />
  <span>{L(item.title)}</span>
- </Link>
+ </NavigationLink>
  </SidebarMenuButton>
  </SidebarMenuItem>
  );

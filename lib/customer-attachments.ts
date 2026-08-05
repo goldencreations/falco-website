@@ -6,6 +6,8 @@ export type CustomerAttachmentFormState = {
 };
 
 export type CustomerAttachmentDocument = {
+  /** Backend document id, when known — required to call `DELETE .../documents/{id}`. */
+  id?: string;
   name: string;
   url: string;
   previewUrl?: string | null;
@@ -64,22 +66,42 @@ export function validateSupportingDocument(file: File): { ok: true } | { ok: fal
 
 export function validateCustomerAttachments(
   attachments: CustomerAttachmentFormState
-): { ok: true } | { ok: false; error: string } {
+): { ok: true } | { ok: false; error: string; field: string } {
   if (attachments.passport_photo) {
     const v = validateLocationPhoto(attachments.passport_photo);
-    if (!v.ok) return { ok: false, error: `Passport photo: ${v.error}` };
+    if (!v.ok) {
+      return { ok: false, error: `Passport photo: ${v.error}`, field: "attachments.passport_photo" };
+    }
   }
   for (const file of attachments.home_location_photos) {
     const v = validateLocationPhoto(file);
-    if (!v.ok) return { ok: false, error: `Home location photo (${file.name}): ${v.error}` };
+    if (!v.ok) {
+      return {
+        ok: false,
+        error: `Home location photo (${file.name}): ${v.error}`,
+        field: "attachments.home_location_photos",
+      };
+    }
   }
   for (const file of attachments.business_location_photos) {
     const v = validateLocationPhoto(file);
-    if (!v.ok) return { ok: false, error: `Business location photo (${file.name}): ${v.error}` };
+    if (!v.ok) {
+      return {
+        ok: false,
+        error: `Business location photo (${file.name}): ${v.error}`,
+        field: "attachments.business_location_photos",
+      };
+    }
   }
   for (const doc of attachments.supporting_documents) {
     const v = validateSupportingDocument(doc);
-    if (!v.ok) return { ok: false, error: `Supporting document (${doc.name}): ${v.error}` };
+    if (!v.ok) {
+      return {
+        ok: false,
+        error: `Supporting document (${doc.name}): ${v.error}`,
+        field: "attachments.supporting_documents",
+      };
+    }
   }
   return { ok: true };
 }
@@ -169,6 +191,8 @@ function readAttachmentArray(
     if (!item || typeof item !== "object") continue;
     const o = item as Record<string, unknown>;
     const nested = readNestedDocument(o, "document");
+    const nestedDoc =
+      o.document && typeof o.document === "object" ? (o.document as Record<string, unknown>) : null;
     const url = readUrl(o.url ?? o.download_url ?? o.href) ?? nested.url;
     if (!url) continue;
     const previewUrl =
@@ -180,7 +204,11 @@ function readAttachmentArray(
       (type ? type.replace(/_/g, " ") : null) ||
       url.split("/").pop() ||
       defaultName;
-    out.push({ name, url, previewUrl });
+    const id =
+      (o.id != null ? String(o.id).trim() : "") ||
+      (o.document_id != null ? String(o.document_id).trim() : "") ||
+      (nestedDoc?.id != null ? String(nestedDoc.id).trim() : "");
+    out.push({ ...(id ? { id } : {}), name, url, previewUrl });
   }
 
   return out;
@@ -189,11 +217,26 @@ function readAttachmentArray(
 function dedupeAttachmentDocuments(
   docs: CustomerAttachmentDocument[]
 ): CustomerAttachmentDocument[] {
-  const byUrl = new Map<string, CustomerAttachmentDocument>();
+  const byKey = new Map<string, CustomerAttachmentDocument>();
+
+  const normalizeUrlKey = (url: string): string => {
+    const trimmed = url.trim();
+    if (!trimmed) return "";
+    try {
+      const parsed = new URL(trimmed);
+      return `${parsed.origin}${parsed.pathname}`.toLowerCase();
+    } catch {
+      return trimmed.split("?")[0].split("#")[0].toLowerCase();
+    }
+  };
+
   for (const doc of docs) {
-    if (!byUrl.has(doc.url)) byUrl.set(doc.url, doc);
+    const normalized = normalizeUrlKey(doc.url);
+    const fallbackName = doc.name.trim().toLowerCase();
+    const key = normalized || `${fallbackName}|${doc.url.trim().toLowerCase()}`;
+    if (!byKey.has(key)) byKey.set(key, doc);
   }
-  return Array.from(byUrl.values());
+  return Array.from(byKey.values());
 }
 
 function readDocuments(value: unknown): CustomerAttachmentDocument[] {

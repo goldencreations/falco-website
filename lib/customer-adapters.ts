@@ -1,11 +1,13 @@
 import { parseMoneyInput } from "@/lib/money-input";
 import { parseCustomerMetadata, readCustomerLocationPins } from "@/lib/customer-location";
 import { parseCustomerGuarantorsFromRow } from "@/lib/customer-guarantors";
+import { parseCustomerPhoneNumbersFromRow } from "@/lib/customer-phones";
 import { parseCustomerReferencesFromRow } from "@/lib/customer-references";
 import {
   extractPassportPhotoPreviewUrl,
   extractPassportPhotoUrl,
 } from "@/lib/customer-profile-extras";
+import { filterHiddenCustomers } from "@/lib/customer-hidden-client";
 import type { Customer, CustomerType, EmploymentType, RiskGrade } from "@/lib/types";
 
 function isPlaceholderCustomerNamePart(value: string | undefined): boolean {
@@ -177,6 +179,10 @@ export function adaptApiCustomerRowToCustomer(row: Record<string, unknown>): Cus
  passport_number: row.passport_number ? String(row.passport_number) : undefined,
  phone_primary: String(row.phone_number ?? row.phone_primary ?? ""),
  phone_secondary: row.alternate_phone ? String(row.alternate_phone) : undefined,
+ phone_numbers: (() => {
+  const phones = parseCustomerPhoneNumbersFromRow(row);
+  return phones.length > 0 ? phones : undefined;
+ })(),
  email: row.email ? String(row.email) : undefined,
  physical_address: String(row.physical_address ?? ""),
  region: String(row.region ?? ""),
@@ -243,7 +249,9 @@ export function extractCustomersList(json: unknown): Customer[] {
  const o = json as Record<string, unknown>;
  const rows = Array.isArray(o.data) ? o.data : Array.isArray(o.customers) ? o.customers : [];
  if (!Array.isArray(rows)) return [];
- return (rows as Record<string, unknown>[]).map(adaptApiCustomerRowToCustomer);
+ const customers = (rows as Record<string, unknown>[]).map(adaptApiCustomerRowToCustomer);
+ // UI-level soft-delete fallback: hide locally marked customer ids across all customer lists.
+ return filterHiddenCustomers(customers);
 }
 
 /** `GET /customers/{id}` may return `{ customer: {...} }` or a bare customer object. */

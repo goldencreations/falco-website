@@ -7,8 +7,10 @@ import { extractCustomerDetail } from "@/lib/customer-adapters";
 import {
  extractLoanDetail,
  extractLoansList,
+ extractScheduleList,
  type LoanListRow,
 } from "@/lib/loan-adapters";
+import { nextDueDateFromSchedule } from "@/lib/loan-due-date";
 import { extractPaymentsPayload, type PaymentViewRow } from "@/lib/payment-adapters";
 import { extractProductsList } from "@/lib/product-adapters";
 import { falcoServerFetch } from "@/lib/server-falco";
@@ -280,16 +282,15 @@ export async function enrichLoansWithCustomerContext(
 
 type PaymentAgg = { total: number; count: number; lastDate?: string };
 
+/**
+ * Per the payments contract, the backend already maps internal `verified` ledger rows to
+ * `status: "completed"` before the payment reaches the frontend — `status` is the canonical
+ * settlement state. `ledger_status`/`reconciliation_status` are informational only; treating
+ * them as an independent "is this settled" signal risks counting money that hasn't actually
+ * posted yet (e.g. a pending gateway payment) toward paid totals.
+ */
 function isSettledPayment(p: PaymentViewRow): boolean {
- const status = String(p.status ?? "").toLowerCase();
- if (status === "reversed" || status === "failed") return false;
- if (status === "completed") return true;
- const ledger = String(p.ledger_status ?? "").toLowerCase();
- if (ledger === "verified" || ledger === "posted" || ledger === "confirmed") return true;
- if (p.reconciliation_status === "matched") return true;
- const rawStatus = String((p.metadata as Record<string, unknown> | undefined)?.status ?? "").toLowerCase();
- if (rawStatus === "verified" || rawStatus === "completed") return true;
- return false;
+ return String(p.status ?? "").toLowerCase() === "completed";
 }
 
 async function loadBranchPayments(
@@ -372,14 +373,53 @@ export async function enrichLoansWithPaymentTotals(
  });
 }
 
+/** Load repayment schedules and attach the next unpaid installment due date. */
+export async function enrichLoansWithNextDueDates(
+ loans: LoanListRow[],
+ options?: { request?: Request }
+): Promise<LoanListRow[]> {
+ const targets = loans.filter((loan) => loan.status === "active" || loan.status === "in_arrears");
+ if (!targets.length) return loans;
+
+ const scheduleDueByLoanId = new Map<string, string>();
+
+ for (let i = 0; i < targets.length; i += 8) {
+ const chunk = targets.slice(i, i + 8);
+ await Promise.all(
+ chunk.map(async (loan) => {
+ if (loan.next_due_date) {
+ scheduleDueByLoanId.set(loan.id, loan.next_due_date);
+ return;
+ }
+ const res = await falcoServerFetch<unknown>(
+ `/loans/${encodeURIComponent(loan.id)}/schedule`,
+ { request: options?.request }
+ );
+ if (!res.ok) return;
+ const nextDue = nextDueDateFromSchedule(extractScheduleList(res.data));
+ if (nextDue) scheduleDueByLoanId.set(loan.id, nextDue);
+ })
+ );
+ }
+
+ return loans.map((loan) => {
+ const nextDue = scheduleDueByLoanId.get(loan.id);
+ if (!nextDue) return loan;
+ return { ...loan, next_due_date: nextDue };
+ });
+}
+
 /** Full server-side enrichment for loan list and detail routes. */
 export async function enrichLoansFully(
  loans: LoanListRow[],
- options?: { request?: Request; branchId?: string }
+ options?: { request?: Request; branchId?: string; includeNextDue?: boolean }
 ): Promise<LoanListRow[]> {
  if (!loans.length) return loans;
  let result = await enrichLoansWithCustomerContext(loans, options);
  result = await enrichLoansWithPaymentTotals(result, options);
+ if (options?.includeNextDue) {
+ result = await enrichLoansWithNextDueDates(result, options);
+ }
  return result;
 }
 

@@ -20,7 +20,9 @@ import {
  Scale,
  Loader2,
  RefreshCcw,
+ RotateCcw,
 } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -51,6 +53,8 @@ import {
  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import type {
  PaymentViewRow,
  ReconciliationStatus,
@@ -58,6 +62,7 @@ import type {
 } from "@/lib/payment-adapters";
 import type { PaymentMethod, PaymentStatus } from "@/lib/types";
 import { extractLoansList, type LoanListRow } from "@/lib/loan-adapters";
+import { loanAcceptsPayment, PAYMENT_BLOCKED_HELP_TEXT } from "@/lib/loan-display";
 import { formatApiResponseError } from "@/lib/falco-api";
 import { forceCachedReload } from "@/lib/client-fetch-cache";
 import { formatCurrency, formatDateTime } from "@/lib/formatters";
@@ -70,6 +75,7 @@ const methodConfig: Record<PaymentMethod, { label: string; icon: typeof CreditCa
  mobile_money: { label: "Mobile Money", icon: Smartphone },
  bank_transfer: { label: "Bank Transfer", icon: Building2 },
  cheque: { label: "Cheque", icon: CreditCard },
+ gateway: { label: "Gateway (Auto)", icon: Smartphone },
 };
 
 const statusConfig: Record<
@@ -101,6 +107,30 @@ const emptyReconciliation: ReconciliationSummary = {
  unmatched: 0,
 };
 
+/** Compact allocation label with hover/focus tooltip for P / I / F abbreviations. */
+function AllocationAbbrev({
+  abbr,
+  label,
+  amount,
+}: {
+  abbr: string;
+  label: string;
+  amount: number;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <p className="cursor-help underline decoration-dotted decoration-muted-foreground/60 underline-offset-2">
+          <span className="sr-only">{label}: </span>
+          <span aria-hidden>{abbr}: </span>
+          {formatCurrency(amount)}
+        </p>
+      </TooltipTrigger>
+      <TooltipContent side="top">{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 export default function PaymentsPage() {
  const { user } = useSessionUser();
  const isOfficerView = user?.role === "loan_officer";
@@ -128,6 +158,16 @@ export default function PaymentsPage() {
  const [mobileNumber, setMobileNumber] = useState("");
  const [requestedLoanId, setRequestedLoanId] = useState<string | null>(null);
  const [openPaymentForm, setOpenPaymentForm] = useState<string | null>(null);
+ const [repaymentReference, setRepaymentReference] = useState<string | null>(null);
+ const [repaymentReferenceLoading, setRepaymentReferenceLoading] = useState(false);
+ const [paymentInstructions, setPaymentInstructions] = useState<string | null>(null);
+ const [reversePayment, setReversePayment] = useState<PaymentViewRow | null>(null);
+ const [reverseReason, setReverseReason] = useState("");
+ const [reverseLoading, setReverseLoading] = useState(false);
+ const canReverse =
+ user?.role === "super_admin" ||
+ user?.role === "accountant" ||
+ Boolean(user?.permissions?.includes("payments.reverse"));
 
  const load = useCallback(async () => {
  setLoading(true);
@@ -225,7 +265,53 @@ export default function PaymentsPage() {
  })
  .reduce((sum, p) => sum + p.amount, 0);
 
- const selectedLoanDetails = selectedLoan ? loanById.get(selectedLoan) : undefined;
+const selectedLoanDetails = selectedLoan ? loanById.get(selectedLoan) : undefined;
+ const selectedLoanBlocked = selectedLoanDetails ? !loanAcceptsPayment(selectedLoanDetails) : false;
+
+useEffect(() => {
+ let cancelled = false;
+ setRepaymentReference(null);
+ setRepaymentReferenceLoading(Boolean(selectedLoanDetails?.customer_id));
+ setPaymentInstructions(null);
+ if (!selectedLoanDetails?.customer_id) return;
+
+ void Promise.all([
+ fetch(`/api/customers/${encodeURIComponent(selectedLoanDetails.customer_id)}`, {
+ credentials: "include",
+ }).then((response) => response.json()),
+ fetch("/api/settings/payment-channels", { credentials: "include" }).then((response) =>
+ response.json()
+ ),
+ ]).then(([customerPayload, channelPayload]) => {
+ if (cancelled) return;
+ const customer =
+ customerPayload?.customer && typeof customerPayload.customer === "object"
+ ? customerPayload.customer
+ : customerPayload;
+ const references = Array.isArray(customer?.payment_references)
+ ? customer.payment_references
+ : [];
+ const active =
+ references.find((row: Record<string, unknown>) => row.is_active === true) ?? references[0];
+ if (active?.reference) setRepaymentReference(String(active.reference));
+
+ const channels = Array.isArray(channelPayload?.channels) ? channelPayload.channels : [];
+ const instruction = channels.find(
+ (row: Record<string, unknown>) =>
+ String(row.gateway ?? "").toLowerCase() === "clickpesa" &&
+ String(row.type ?? "").toLowerCase() === "mobile_money"
+ );
+ if (instruction?.instructions) setPaymentInstructions(String(instruction.instructions));
+ }).catch(() => {
+ // Manual repayment entry remains available if reference metadata cannot be loaded.
+ }).finally(() => {
+ if (!cancelled) setRepaymentReferenceLoading(false);
+ });
+
+ return () => {
+ cancelled = true;
+ };
+ }, [selectedLoanDetails?.customer_id]);
 
  const preselectedLoan = useMemo(
  () => (requestedLoanId ? loanById.get(requestedLoanId) : undefined),
@@ -242,7 +328,7 @@ export default function PaymentsPage() {
  useEffect(() => {
  if (!preselectedLoan) return;
  setSelectedLoan(preselectedLoan.id);
- if (!paymentAmount) setPaymentAmount(String(Math.round(preselectedLoan.installment_amount)));
+ if (!paymentAmount) setPaymentAmount(String(Math.round(preselectedLoan.total_outstanding)));
  if (openPaymentForm === "1") setIsDialogOpen(true);
  }, [preselectedLoan, openPaymentForm, paymentAmount]);
 
@@ -250,6 +336,15 @@ export default function PaymentsPage() {
  if (!selectedLoan || !paymentAmount) return;
  const amount = Number(paymentAmount);
  if (!Number.isFinite(amount) || amount <= 0) return;
+ const maxPayable = selectedLoanDetails?.total_outstanding ?? 0;
+ if (maxPayable > 0 && amount > maxPayable) {
+ setError(`Payment cannot be more than ${formatCurrency(maxPayable)}.`);
+ return;
+ }
+ if (selectedLoanBlocked) {
+ setError(PAYMENT_BLOCKED_HELP_TEXT);
+ return;
+ }
 
  setActionLoading(true);
  setError(null);
@@ -292,11 +387,38 @@ export default function PaymentsPage() {
  }
  };
 
+ const handleReversePayment = async () => {
+ if (!reversePayment || !reverseReason.trim()) return;
+ setReverseLoading(true);
+ setError(null);
+ try {
+ const res = await fetch(
+ `/api/payments/${encodeURIComponent(reversePayment.id)}/reverse`,
+ {
+ method: "POST",
+ credentials: "include",
+ headers: { "Content-Type": "application/json" },
+ body: JSON.stringify({ reason: reverseReason.trim() }),
+ }
+ );
+ const { data } = await parseJsonResponse<Record<string, unknown>>(res);
+ if (!res.ok) {
+ setError(formatApiResponseError(data, "Failed to reverse payment"));
+ return;
+ }
+ setReversePayment(null);
+ setReverseReason("");
+ await load();
+ } finally {
+ setReverseLoading(false);
+ }
+ };
+
  return (
  <>
  <DashboardHeader
  title="Payments"
- description="Record and track loan repayments — including automatic gateway collections"
+ description="Record and track loan repayments."
  />
  <main className="flex-1 overflow-auto p-4 lg:p-6">
  <div className="mx-auto max-w-7xl space-y-6">
@@ -309,7 +431,7 @@ export default function PaymentsPage() {
  {loading ? (
  <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
  <Loader2 className="h-5 w-5 animate-spin" />
- Loading payments from server…
+ Loading payments…
  </div>
  ) : (
  <>
@@ -355,7 +477,7 @@ export default function PaymentsPage() {
  <CardTitle className="flex items-center justify-between gap-2">
  <span className="flex items-center gap-2">
  <Scale className="h-5 w-5" />
- Payment Reconciliation (from server)
+ Payment Reconciliation
  </span>
  <Button variant="link" size="sm" className="h-auto px-0" asChild>
  <Link href={reconciliationHref}>
@@ -375,8 +497,8 @@ export default function PaymentsPage() {
  ))}
  </CardContent>
  <p className="px-6 pb-4 text-xs text-muted-foreground">
- Gateway/webhook payments appear here automatically when the backend confirms them. Manual
- collections are tagged for review until reconciled.
+ Online payments appear here after confirmation. Manual collections are tagged for review until
+ reconciled.
  </p>
  </Card>
 
@@ -402,6 +524,7 @@ export default function PaymentsPage() {
  <SelectItem value="mobile_money">Mobile Money</SelectItem>
  <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
  <SelectItem value="cheque">Cheque</SelectItem>
+ <SelectItem value="gateway">Gateway (Auto)</SelectItem>
  </SelectContent>
  </Select>
  </div>
@@ -455,9 +578,18 @@ export default function PaymentsPage() {
  type="number"
  className="h-9"
  placeholder="Enter amount"
+ max={selectedLoanDetails?.total_outstanding}
  value={paymentAmount}
  onChange={(e) => setPaymentAmount(e.target.value)}
  />
+ {selectedLoanDetails ? (
+ <p className="text-xs text-muted-foreground">
+ Maximum payable: {formatCurrency(selectedLoanDetails.total_outstanding)}
+ </p>
+ ) : null}
+ {selectedLoanBlocked ? (
+ <p className="text-xs font-medium text-destructive">{PAYMENT_BLOCKED_HELP_TEXT}</p>
+ ) : null}
  </Field>
  <Field>
  <FieldLabel>Payment Method</FieldLabel>
@@ -475,6 +607,20 @@ export default function PaymentsPage() {
  </Field>
  {paymentMethod === "mobile_money" && (
  <>
+ <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950">
+ <p className="font-medium">ClickPesa automatic repayment</p>
+ <p className="mt-1">
+ Ask the customer to pay using reference{" "}
+ <span className="font-mono font-semibold">
+ {repaymentReferenceLoading ? "loading…" : repaymentReference ?? "not available"}
+ </span>.
+ The confirmed ClickPesa webhook records and allocates the repayment automatically.
+ </p>
+ {paymentInstructions ? <p className="mt-1 text-sky-900">{paymentInstructions}</p> : null}
+ <p className="mt-1 text-sky-800">
+ Use this form only when the transaction has already been independently verified.
+ </p>
+ </div>
  <Field>
  <FieldLabel>Mobile provider</FieldLabel>
  <Select value={mobileProvider} onValueChange={setMobileProvider}>
@@ -510,7 +656,7 @@ export default function PaymentsPage() {
  <SelectValue />
  </SelectTrigger>
  <SelectContent>
- <SelectItem value="system">System Captured</SelectItem>
+ <SelectItem value="system">Verified external transaction</SelectItem>
  <SelectItem value="manual_collection">Manual Collection (Loan Officer)</SelectItem>
  </SelectContent>
  </Select>
@@ -537,6 +683,7 @@ export default function PaymentsPage() {
  actionLoading ||
  !selectedLoan ||
  !paymentAmount ||
+ selectedLoanBlocked ||
  (paymentMethod === "mobile_money" && !mobileNumber.trim())
  }
  >
@@ -555,8 +702,101 @@ export default function PaymentsPage() {
  </div>
  </div>
 
- <Card>
- <CardContent className="p-0">
+ <Card className="overflow-hidden border-emerald-100">
+ <CardContent className="space-y-4 p-0">
+ <div className="grid gap-3 p-4 sm:hidden">
+ {filteredPayments.length === 0 ? (
+ <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
+ No payments found
+ </p>
+ ) : (
+ filteredPayments.map((payment) => {
+ const loan = loanById.get(payment.loan_id);
+ const method = methodConfig[payment.payment_method] ?? methodConfig.cash;
+ const status = statusConfig[payment.status] ?? statusConfig.completed;
+ const reconKey = payment.reconciliation_status ?? "unmatched";
+ const reconciliationUi = reconciliationVariant[reconKey];
+ const MethodIcon = method.icon;
+ const StatusIcon = status.icon;
+ const ReconciliationIcon = reconciliationUi.icon;
+ const customerName =
+ payment.customer_display_name ?? loan?.customerDisplayName ?? "—";
+
+ return (
+ <div
+ key={payment.id}
+ className="rounded-xl border border-emerald-100 bg-emerald-50/30 p-3"
+ >
+ <div className="flex items-start justify-between gap-2">
+ <p className="font-mono text-xs font-medium">{payment.payment_number}</p>
+ <Badge variant={status.variant} className="shrink-0 gap-1">
+ <StatusIcon className="h-3 w-3" />
+ {status.label}
+ </Badge>
+ </div>
+
+ <p className="mt-2 font-medium">{customerName}</p>
+ {payment.customer_phone ? (
+ <p className="text-sm text-muted-foreground">{payment.customer_phone}</p>
+ ) : null}
+ <p className="font-mono text-xs text-muted-foreground">
+ {payment.loan_number ?? loan?.loan_number ?? "—"}
+ </p>
+
+ <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+ <div>
+ <p className="text-xs text-muted-foreground">Amount</p>
+ <p className="font-semibold">{formatCurrency(payment.amount)}</p>
+ </div>
+ <div>
+ <p className="text-xs text-muted-foreground">Date</p>
+ <p className="font-medium">{formatDateTime(payment.payment_date)}</p>
+ </div>
+ </div>
+
+ <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+ <div className="flex items-center gap-1.5">
+ <MethodIcon className="h-3.5 w-3.5 text-muted-foreground" />
+ <span>{method.label}</span>
+ {payment.metadata?.gateway ? (
+ <span className="text-xs text-muted-foreground">(auto)</span>
+ ) : null}
+ </div>
+ {payment.reference_number ? (
+ <span className="font-mono text-xs text-muted-foreground">
+ Ref: {payment.reference_number}
+ </span>
+ ) : null}
+ </div>
+
+ <div className="mt-3 rounded-lg border bg-background/80 p-2 text-xs">
+ <p className="font-medium text-muted-foreground">Allocation</p>
+ <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5">
+ <p>Penalty: {formatCurrency(payment.penalty_allocated)}</p>
+ <p>Principal: {formatCurrency(payment.principal_allocated)}</p>
+ <p>Interest: {formatCurrency(payment.interest_allocated)}</p>
+ <p>Fees: {formatCurrency(payment.fees_allocated)}</p>
+ </div>
+ </div>
+
+ <div className="mt-3 space-y-1">
+ <Badge variant={reconciliationUi.variant} className="gap-1">
+ <ReconciliationIcon className="h-3 w-3" />
+ {reconciliationUi.label}
+ </Badge>
+ {payment.reconciliation_note ? (
+ <p className="text-xs leading-relaxed text-muted-foreground">
+ {payment.reconciliation_note}
+ </p>
+ ) : null}
+ </div>
+ </div>
+ );
+ })
+ )}
+ </div>
+
+ <div className="hidden sm:block">
  <Table>
  <TableHeader>
  <TableRow>
@@ -570,12 +810,13 @@ export default function PaymentsPage() {
  <TableHead>Status</TableHead>
  <TableHead>Reconciliation</TableHead>
  <TableHead>Date</TableHead>
+ {canReverse ? <TableHead className="text-right">Action</TableHead> : null}
  </TableRow>
  </TableHeader>
  <TableBody>
  {filteredPayments.length === 0 ? (
  <TableRow>
- <TableCell colSpan={10} className="py-8 text-center text-muted-foreground">
+ <TableCell colSpan={canReverse ? 11 : 10} className="py-8 text-center text-muted-foreground">
  No payments found
  </TableCell>
  </TableRow>
@@ -619,9 +860,10 @@ export default function PaymentsPage() {
  <TableCell className="font-mono text-xs">{payment.reference_number || "—"}</TableCell>
  <TableCell>
  <div className="space-y-0.5 text-xs">
- <p>P: {formatCurrency(payment.principal_allocated)}</p>
- <p>I: {formatCurrency(payment.interest_allocated)}</p>
- <p>F: {formatCurrency(payment.fees_allocated)}</p>
+ <p>Penalty: {formatCurrency(payment.penalty_allocated)}</p>
+ <AllocationAbbrev abbr="P" label="Principal" amount={payment.principal_allocated} />
+ <AllocationAbbrev abbr="I" label="Interest" amount={payment.interest_allocated} />
+ <AllocationAbbrev abbr="F" label="Fees" amount={payment.fees_allocated} />
  </div>
  </TableCell>
  <TableCell>
@@ -644,18 +886,74 @@ export default function PaymentsPage() {
  <TableCell className="text-sm text-muted-foreground">
  {formatDateTime(payment.payment_date)}
  </TableCell>
+ {canReverse ? (
+ <TableCell className="text-right">
+ {payment.status === "completed" &&
+ payment.amount > 0 &&
+ payment.metadata?.reversal_entry !== true ? (
+ <Button
+ type="button"
+ size="sm"
+ variant="outline"
+ className="text-destructive hover:bg-destructive/10"
+ onClick={() => {
+ setReversePayment(payment);
+ setReverseReason("");
+ }}
+ >
+ <RotateCcw className="mr-1 h-3.5 w-3.5" />
+ Reverse
+ </Button>
+ ) : null}
+ </TableCell>
+ ) : null}
  </TableRow>
  );
  })
  )}
  </TableBody>
  </Table>
+ </div>
  </CardContent>
  </Card>
  </>
  )}
  </div>
  </main>
+
+ <Dialog open={Boolean(reversePayment)} onOpenChange={(open) => !open && setReversePayment(null)}>
+ <DialogContent className="sm:max-w-md">
+ <DialogHeader>
+ <DialogTitle>Reverse repayment</DialogTitle>
+ <DialogDescription>
+ This creates a compensating entry and restores the loan and schedule balances.
+ </DialogDescription>
+ </DialogHeader>
+ <div className="space-y-2">
+ <Label htmlFor="reversal-reason">Reason</Label>
+ <Textarea
+ id="reversal-reason"
+ value={reverseReason}
+ onChange={(event) => setReverseReason(event.target.value)}
+ placeholder="Why is this repayment being reversed?"
+ />
+ </div>
+ <DialogFooter>
+ <Button type="button" variant="outline" onClick={() => setReversePayment(null)}>
+ Cancel
+ </Button>
+ <Button
+ type="button"
+ variant="destructive"
+ disabled={reverseLoading || !reverseReason.trim()}
+ onClick={() => void handleReversePayment()}
+ >
+ {reverseLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+ Confirm reversal
+ </Button>
+ </DialogFooter>
+ </DialogContent>
+ </Dialog>
  </>
  );
 }

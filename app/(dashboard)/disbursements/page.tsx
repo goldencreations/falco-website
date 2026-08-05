@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
+ ChevronDown,
  Loader2,
  Plus,
  RefreshCcw,
@@ -16,6 +17,9 @@ import {
  Banknote,
  FileText,
  Sparkles,
+ MoreHorizontal,
+ CheckCircle2,
+ XCircle,
 } from "lucide-react";
 import {
  Bar,
@@ -57,6 +61,14 @@ import {
  DialogTitle,
 } from "@/components/ui/dialog";
 import {
+ DropdownMenu,
+ DropdownMenuContent,
+ DropdownMenuItem,
+ DropdownMenuLabel,
+ DropdownMenuSeparator,
+ DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
  Field,
  FieldGroup,
  FieldLabel,
@@ -71,6 +83,8 @@ import {
  type DisbursementKpis,
  type DisbursementViewRow,
  type EligibleLoanRow,
+ isValidTanzanianMsisdn,
+ normalizeTanzanianMsisdn,
 } from "@/lib/disbursement-adapters";
 import type { EligibleApplicationRow } from "@/lib/disbursement-eligible";
 import type { LoanApplicationStatus } from "@/lib/types";
@@ -83,7 +97,9 @@ import {
  canApproveDisbursement as userCanApproveDisbursement,
  canPrepareDisbursement as userCanPrepareDisbursement,
 } from "@/lib/disbursement-permissions";
+import { canFinalApproveApplication } from "@/lib/application-workflow-permissions";
 import { useSessionUser } from "@/lib/use-session-user";
+import { resolvePortalHref } from "@/lib/portal-paths";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/formatters";
 import { formatApiResponseError } from "@/lib/falco-api";
 import { parseJsonResponse } from "@/lib/parse-json-response";
@@ -91,16 +107,23 @@ import { parseJsonResponse } from "@/lib/parse-json-response";
 const STATUS_ORDER: Disbursement["status"][] = [
  "pending_approval",
  "approved",
+ "processing",
  "completed",
  "rejected",
 ];
 
+/**
+ * Labels mirror the raw contract status values exactly (per Frontend Implementation
+ * Guide — "approved" does NOT mean money received). Ambiguity/context is surfaced via
+ * separate helper text, not by relabeling the badge itself.
+ */
 const statusConfig: Record<
  Disbursement["status"],
  { label: string; variant: "default" | "secondary" | "destructive" | "outline" }
 > = {
- pending_approval: { label: "Pending approval", variant: "secondary" },
+ pending_approval: { label: "Pending Approval", variant: "secondary" },
  approved: { label: "Approved", variant: "default" },
+ processing: { label: "Processing", variant: "default" },
  completed: { label: "Completed", variant: "default" },
  rejected: { label: "Rejected", variant: "destructive" },
 };
@@ -134,6 +157,169 @@ function staffDisplayLabel(name: string | undefined, userId: string | undefined)
  if (userId && label === userId) return "—";
  if (/^\d+$/.test(label)) return "—";
  return label;
+}
+
+function isGatewayChannel(method: DisbursementPaymentChannel): boolean {
+ return MOBILE_CHANNELS.includes(method) || BANK_CHANNELS.includes(method);
+}
+
+function rawGatewayError(row: DisbursementViewRow): string {
+ const value = row.metadata?.gateway_error;
+ return typeof value === "string" ? value.trim() : "";
+}
+
+/** `metadata.gateway_response` may be a string or a nested object — render either as text. */
+function rawGatewayResponse(row: DisbursementViewRow): string {
+ const value = row.metadata?.gateway_response;
+ if (typeof value === "string") return value.trim();
+ if (value && typeof value === "object") {
+ try {
+ return JSON.stringify(value, null, 2);
+ } catch {
+ return "";
+ }
+ }
+ return "";
+}
+
+/** Timeout / ambiguous gateway outcomes must not be treated as confirmed rejections. */
+function isAmbiguousGatewayOutcome(row: DisbursementViewRow): boolean {
+ if (row.status !== "rejected") return false;
+ return /cURL error 28|timed out|timeout|ambiguous/i.test(rawGatewayError(row));
+}
+
+/** Confirmed backend rejection only — timeouts stay as awaiting confirmation. */
+function isConfirmedRejection(row: DisbursementViewRow): boolean {
+ return row.status === "rejected" && !isAmbiguousGatewayOutcome(row);
+}
+
+function isAwaitingClickPesaConfirmation(row: DisbursementViewRow): boolean {
+ if (isAmbiguousGatewayOutcome(row)) return true;
+ if (row.status === "processing") return true;
+ if (row.status === "approved" && (Boolean(row.gateway) || isGatewayChannel(row.method))) {
+ return true;
+ }
+ return false;
+}
+
+/** Badge always shows the raw contract status — never an invented label. */
+function displayStatus(row: DisbursementViewRow): {
+ label: string;
+ variant: "default" | "secondary" | "destructive" | "outline";
+} {
+ return statusConfig[row.status] ?? statusConfig.pending_approval;
+}
+
+/** Explanatory helper text shown alongside the status badge — clarifies without relabeling it. */
+function statusHelperText(row: DisbursementViewRow): string | null {
+ if (isAwaitingClickPesaConfirmation(row)) {
+ return "Payout may still be processing with ClickPesa — do not create a duplicate disbursement.";
+ }
+ if (row.status === "approved" && !row.gateway && !isGatewayChannel(row.method)) {
+ return "Approved — mark Completed once the cash has been handed over.";
+ }
+ return null;
+}
+
+/**
+ * Detects gateway timeout / "payout already in progress" style errors on `POST /disbursements`
+ * create. These must never be retried with a second create — instead recover the existing
+ * disbursement for the loan so the operator opens it rather than risking a duplicate payout.
+ */
+function isTimeoutOrInProgressError(message: string): boolean {
+ return /cURL error 28|timed out|timeout|already in progress|already exists|duplicate|in[- ]?flight/i.test(
+ message
+ );
+}
+
+function rejectedExplanation(row: DisbursementViewRow): string {
+ const manualReason = row.rejection_reason?.trim();
+ if (manualReason) return manualReason;
+
+ const gatewayError = rawGatewayError(row);
+ if (gatewayError) {
+ return "ClickPesa could not complete this payment. Check this reference in ClickPesa before creating a new disbursement.";
+ }
+
+ return "No reason was recorded. Check this reference in ClickPesa before creating a new disbursement.";
+}
+
+function DisbursementRowActions({
+ row,
+ canApprove,
+ actionLoading,
+ onView,
+ onApprove,
+ onReject,
+ onComplete,
+}: {
+ row: DisbursementViewRow;
+ canApprove: boolean;
+ actionLoading: boolean;
+ onView: () => void;
+ onApprove: () => void;
+ onReject: () => void;
+ onComplete: () => void;
+}) {
+ const canApprovePending = canApprove && row.status === "pending_approval";
+ const canCompleteCash =
+ canApprove &&
+ row.status === "approved" &&
+ !row.gateway &&
+ !isGatewayChannel(row.method);
+ const approveLabel = isGatewayChannel(row.method)
+ ? "Approve & send"
+ : "Approve & activate";
+
+ return (
+ <DropdownMenu>
+ <DropdownMenuTrigger asChild>
+ <Button
+ type="button"
+ size="icon"
+ variant="ghost"
+ className="h-8 w-8"
+ disabled={actionLoading}
+ aria-label="Open actions"
+ >
+ {actionLoading ? (
+ <Loader2 className="h-4 w-4 animate-spin" />
+ ) : (
+ <MoreHorizontal className="h-4 w-4" />
+ )}
+ </Button>
+ </DropdownMenuTrigger>
+ <DropdownMenuContent align="end" className="w-48">
+ <DropdownMenuLabel>Actions</DropdownMenuLabel>
+ <DropdownMenuSeparator />
+ <DropdownMenuItem onClick={onView}>
+ <Eye className="mr-2 h-4 w-4" />
+ View details
+ </DropdownMenuItem>
+ {canApprovePending ? (
+ <>
+ <DropdownMenuItem onClick={onApprove}>
+ <CheckCircle2 className="mr-2 h-4 w-4" />
+ {approveLabel}
+ </DropdownMenuItem>
+ <DropdownMenuItem
+ className="text-destructive focus:text-destructive"
+ onClick={onReject}
+ >
+ <XCircle className="mr-2 h-4 w-4" />
+ Reject
+ </DropdownMenuItem>
+ </>
+ ) : null}
+ {canCompleteCash ? (
+ <DropdownMenuItem onClick={onComplete}>
+ <CheckCircle2 className="mr-2 h-4 w-4" />
+ Complete
+ </DropdownMenuItem>
+ ) : null}
+ </DropdownMenuContent>
+ </DropdownMenu>
+ );
 }
 
 function MiniSpark({ className }: { className?: string }) {
@@ -170,7 +356,9 @@ function DisbursementDetailPanel({
  const prepared = staffDisplayLabel(row.prepared_by_name, row.prepared_by);
  const approved = staffDisplayLabel(row.approved_by_name, row.approved_by ?? undefined) || "—";
  const rejectedU = staffDisplayLabel(row.rejected_by_name, row.rejected_by ?? undefined) || "—";
- const sc = statusConfig[row.status];
+ const sc = displayStatus(row);
+ const awaitingClickPesa = isAwaitingClickPesaConfirmation(row);
+ const confirmedRejected = isConfirmedRejection(row);
 
  return (
  <>
@@ -202,13 +390,33 @@ function DisbursementDetailPanel({
  </div>
  </div>
  <p className="pointer-events-none absolute bottom-2 right-4 hidden rotate-[-8deg] select-none border-2 border-white/25 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-white/30 sm:block">
- {row.status.replace(/_/g, " ")}
+ {sc.label}
  </p>
  </div>
 
  <div className="max-h-[55vh] overflow-y-auto overscroll-contain px-6 py-5">
- <div className="grid gap-6 md:grid-cols-2">
- <div className="space-y-4">
+ {awaitingClickPesa ? (
+ <div className="mb-5 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">
+ <p className="font-medium">ClickPesa confirmation is pending. Do not submit another payout.</p>
+ <p className="mt-1 text-sky-900/80">
+ Status updates only when ClickPesa confirms via webhook or scheduled reconciliation.
+ </p>
+ {(row.order_reference || row.transaction_reference) && (
+ <p className="mt-2 text-xs text-sky-900/70">
+ Reference{" "}
+ <span className="font-mono text-sky-950">
+ {row.order_reference ?? row.transaction_reference}
+ </span>
+                </p>
+              )}
+            </div>
+          ) : statusHelperText(row) ? (
+            <div className="mb-5 rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+              {statusHelperText(row)}
+            </div>
+          ) : null}
+          <div className="grid gap-6 md:grid-cols-2">
+            <div className="space-y-4">
  <div>
  <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
  Amount & channel
@@ -257,9 +465,36 @@ function DisbursementDetailPanel({
  <dt className="text-muted-foreground">Transaction reference</dt>
  <dd className="font-mono text-sm">{row.transaction_reference ?? "—"}</dd>
  </div>
+ <div>
+ <dt className="text-muted-foreground">Gateway</dt>
+ <dd className="font-medium capitalize">{row.gateway ?? "—"}</dd>
+ </div>
+ <div>
+ <dt className="text-muted-foreground">Order reference</dt>
+ <dd className="font-mono text-sm">{row.order_reference ?? "—"}</dd>
+ </div>
  </dl>
  </div>
  </div>
+
+ {rawGatewayResponse(row) || rawGatewayError(row) ? (
+ <>
+ <Separator className="my-5" />
+ <div>
+ <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+ Gateway response
+ </h4>
+ {rawGatewayError(row) ? (
+ <p className="mt-2 text-sm text-destructive">{rawGatewayError(row)}</p>
+ ) : null}
+ {rawGatewayResponse(row) ? (
+ <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
+ {rawGatewayResponse(row)}
+ </pre>
+ ) : null}
+ </div>
+ </>
+ ) : null}
 
  <Separator className="my-5" />
 
@@ -279,11 +514,11 @@ function DisbursementDetailPanel({
  <div className="rounded-lg border border-border/60 bg-card/50 px-3 py-2 sm:col-span-2">
  <p className="text-[11px] uppercase text-muted-foreground">Rejected</p>
  <p className="font-medium">
- {row.rejected_at ? formatDateTime(row.rejected_at) : "—"}
+ {confirmedRejected && row.rejected_at ? formatDateTime(row.rejected_at) : "—"}
  </p>
- {row.rejection_reason && (
+ {confirmedRejected && row.rejection_reason ? (
  <p className="mt-2 text-destructive">{row.rejection_reason}</p>
- )}
+ ) : null}
  </div>
  </div>
 
@@ -321,6 +556,13 @@ export default function DisbursementsPage() {
  permissions: user.permissions ?? [],
  })
  : false;
+ const canFinalizeApproval = user
+ ? canFinalApproveApplication({
+ role: user.role,
+ permissions: user.permissions ?? [],
+ })
+ : false;
+ const pendingReviewHref = resolvePortalHref(user?.role, "/applications/pending-review");
  const isBranchScoped =
  user?.role === "branch_manager" ||
  user?.role === "loan_officer" ||
@@ -346,17 +588,24 @@ export default function DisbursementsPage() {
  const [formAccountName, setFormAccountName] = useState("");
  const [formAccountNumber, setFormAccountNumber] = useState("");
  const [formBankName, setFormBankName] = useState("");
+ const [formBankBic, setFormBankBic] = useState("");
+ const [formBankTransferType, setFormBankTransferType] = useState<"ACH" | "RTGS">("ACH");
  const [formNotes, setFormNotes] = useState("");
 
  const [viewRow, setViewRow] = useState<DisbursementViewRow | null>(null);
+ const [approveRow, setApproveRow] = useState<DisbursementViewRow | null>(null);
  const [completeRow, setCompleteRow] = useState<DisbursementViewRow | null>(null);
  const [completeRef, setCompleteRef] = useState("");
+ const [approveRef, setApproveRef] = useState("");
  const [rejectRow, setRejectRow] = useState<DisbursementViewRow | null>(null);
  const [rejectReason, setRejectReason] = useState("");
+ const [expandedRejectedRows, setExpandedRejectedRows] = useState<Set<string>>(new Set());
 
- const load = useCallback(async () => {
+ const load = useCallback(async (opts?: { silent?: boolean }) => {
+ if (!opts?.silent) {
  setLoading(true);
  setError(null);
+ }
  try {
  const params = new URLSearchParams();
  params.set("include_eligible", "0");
@@ -364,6 +613,7 @@ export default function DisbursementsPage() {
  if (searchQuery.trim()) params.set("search", searchQuery.trim());
  const res = await fetch(`/api/disbursements?${params.toString()}`, {
  credentials: "include",
+ cache: "no-store",
  });
  const { data } = await parseJsonResponse<{
  disbursements?: DisbursementViewRow[];
@@ -380,19 +630,34 @@ export default function DisbursementsPage() {
  : "Failed to load disbursements"
  );
  }
- if (!data) throw new Error("Empty response from server");
+ if (!data) throw new Error("Disbursement details could not be loaded.");
  setRows(Array.isArray(data.disbursements) ? data.disbursements : []);
  setKpis(data.kpis && typeof data.kpis === "object" ? data.kpis : null);
  } catch (e) {
+ if (!opts?.silent) {
  setError(e instanceof Error ? e.message : "Load failed");
+ }
  } finally {
- setLoading(false);
+ if (!opts?.silent) setLoading(false);
  }
  }, [statusFilter, searchQuery]);
 
  useEffect(() => {
- load();
+ void load();
  }, [load]);
+
+ const shouldPollClickPesa = useMemo(
+ () => rows.some((row) => isAwaitingClickPesaConfirmation(row)),
+ [rows]
+ );
+
+ useEffect(() => {
+ if (!shouldPollClickPesa) return;
+ const timer = window.setInterval(() => {
+ void load({ silent: true });
+ }, 12_000);
+ return () => window.clearInterval(timer);
+ }, [shouldPollClickPesa, load]);
 
  const loadEligibleLoans = useCallback(async () => {
  setEligibleLoading(true);
@@ -414,7 +679,7 @@ export default function DisbursementsPage() {
  : "Failed to load eligible loans"
  );
  }
- if (!data) throw new Error("Empty response from server");
+ if (!data) throw new Error("Eligible loans could not be loaded.");
  setEligibleLoans(data.eligible_loans ?? []);
  setEligibleApplications(data.eligible_applications ?? []);
  setEligibleBranchScope(
@@ -442,13 +707,24 @@ export default function DisbursementsPage() {
  setFormLoan(loanId);
  }, []);
 
- /** Approved applications and any row with a linked loan. */
+ /** Applications with a loan account, or approved apps that this user can finalize into a loan. */
  const selectableApplications = useMemo(
  () =>
  eligibleApplications.filter(
- (a) => Boolean(a.loan_id) || a.status === "approved" || a.ready_for_disbursement
+ (a) =>
+ Boolean(a.loan_id) ||
+ a.ready_for_disbursement ||
+ (Boolean(a.needs_final_approval) && canFinalizeApproval)
  ),
- [eligibleApplications]
+ [eligibleApplications, canFinalizeApproval]
+ );
+
+ const awaitingAdminFinalApproval = useMemo(
+ () =>
+ eligibleApplications.filter(
+ (a) => Boolean(a.needs_final_approval) && !a.loan_id && !canFinalizeApproval
+ ),
+ [eligibleApplications, canFinalizeApproval]
  );
 
  const selectableLoans = useMemo(() => {
@@ -476,11 +752,11 @@ export default function DisbursementsPage() {
  }, [eligibleLoans, selectableApplications]);
 
  const approvedAwaitingLoan = selectableApplications.filter(
- (a) => (a.status === "approved" || a.ready_for_disbursement) && !a.loan_id
+ (a) => Boolean(a.needs_final_approval) && !a.loan_id && canFinalizeApproval
  );
  const canSelectForDisbursement =
  selectableLoans.length > 0 ||
- selectableApplications.length > 0 ||
+ selectableApplications.some((a) => a.loan_id || a.ready_for_disbursement) ||
  approvedAwaitingLoan.length > 0;
 
  useEffect(() => {
@@ -575,7 +851,7 @@ export default function DisbursementsPage() {
  }
  const loanId =
  typeof data.loan_id === "string" && data.loan_id.trim() ? data.loan_id.trim() : null;
- if (!loanId) throw new Error("No loan account returned from server.");
+ if (!loanId) throw new Error("The loan account could not be prepared.");
  const loanNumber =
  typeof data.loan_number === "string" && data.loan_number.trim()
  ? data.loan_number.trim()
@@ -602,7 +878,22 @@ export default function DisbursementsPage() {
  setFormLoan(linked.id);
  return;
  }
- if (app.status !== "approved" && !app.ready_for_disbursement) return;
+
+ if (app.needs_final_approval && !canFinalizeApproval) {
+ setError(
+ "This application is manager-approved only. A super admin must give final approval on Pending Review before a loan account can be created for disbursement."
+ );
+ setFormLoan("");
+ return;
+ }
+
+ if (
+ !app.needs_final_approval &&
+ !app.ready_for_disbursement &&
+ app.status !== "approved"
+ ) {
+ return;
+ }
 
  setPreparingApplicationId(app.id);
  try {
@@ -615,7 +906,13 @@ export default function DisbursementsPage() {
  setPreparingApplicationId(null);
  }
  },
- [selectableLoans, prepareApplicationForDisbursement, loadEligibleLoans, addLoanToFormState]
+ [
+ selectableLoans,
+ prepareApplicationForDisbursement,
+ loadEligibleLoans,
+ addLoanToFormState,
+ canFinalizeApproval,
+ ]
  );
 
  useEffect(() => {
@@ -634,6 +931,35 @@ export default function DisbursementsPage() {
  if (linked) setFormLoan(linked.id);
  }, [formApplicationId, eligibleApplications, selectableLoans]);
 
+ /**
+ * On gateway timeout / "already in progress" create errors, look up the loan's existing
+ * disbursement (by `order_reference`/most-recent) via `GET /disbursements?loan_id=` instead
+ * of allowing a second create — avoids duplicate payout risk.
+ */
+ const recoverExistingDisbursement = useCallback(
+ async (loanId: string): Promise<DisbursementViewRow | null> => {
+ if (!loanId) return null;
+ try {
+ const res = await fetch(
+ `/api/disbursements?loan_id=${encodeURIComponent(loanId)}&include_eligible=0&page_size=10`,
+ { credentials: "include", cache: "no-store" }
+ );
+ const { data } = await parseJsonResponse<{ disbursements?: DisbursementViewRow[] }>(res);
+ if (!res.ok) return null;
+ const found = Array.isArray(data?.disbursements) ? data.disbursements : [];
+ if (found.length === 0) return null;
+ const sorted = [...found].sort(
+ (a, b) => new Date(b.updated_at ?? 0).getTime() - new Date(a.updated_at ?? 0).getTime()
+ );
+ await load({ silent: true });
+ return sorted[0];
+ } catch {
+ return null;
+ }
+ },
+ [load]
+ );
+
  const handleCreate = async () => {
  if (!formLoan) return;
  const amount = Number(formAmount);
@@ -646,11 +972,16 @@ export default function DisbursementsPage() {
  };
  if (MOBILE_CHANNELS.includes(formMethod) || BANK_CHANNELS.includes(formMethod)) {
  if (formAccountName) body.account_name = formAccountName;
- if (formAccountNumber) body.account_number = formAccountNumber;
+ if (formAccountNumber) {
+ body.account_number = MOBILE_CHANNELS.includes(formMethod)
+ ? normalizeTanzanianMsisdn(formAccountNumber)
+ : formAccountNumber;
+ }
  }
  if (BANK_CHANNELS.includes(formMethod) && formBankName) body.bank_name = formBankName;
- if (BANK_CHANNELS.includes(formMethod) && !formBankName) {
- body.bank_name = DISBURSEMENT_CHANNEL_LABELS[formMethod];
+ if (BANK_CHANNELS.includes(formMethod)) {
+ body.bank_bic = formBankBic.trim();
+ body.bank_transfer_type = formBankTransferType;
  }
 
  setActionLoading("create");
@@ -667,7 +998,23 @@ export default function DisbursementsPage() {
  setError("Your session expired. Please sign in again and retry.");
  return;
  }
- setError(formatApiResponseError(data, "Create failed"));
+ const message = formatApiResponseError(data, "Create failed");
+ if (isTimeoutOrInProgressError(message)) {
+ const recovered = await recoverExistingDisbursement(formLoan);
+ if (recovered) {
+ setCreateOpen(false);
+ setViewRow(recovered);
+ setError(
+ "This payout may already be in progress. We found the existing disbursement below — please confirm its status before creating another one."
+ );
+ return;
+ }
+ setError(
+ `${message} This looks like a gateway timeout or duplicate payout — check the disbursements list for an existing record before retrying.`
+ );
+ return;
+ }
+ setError(message);
  return;
  }
  setCreateOpen(false);
@@ -678,6 +1025,8 @@ export default function DisbursementsPage() {
  setFormAccountName("");
  setFormAccountNumber("");
  setFormBankName("");
+ setFormBankBic("");
+ setFormBankTransferType("ACH");
  await load();
  await loadEligibleLoans();
  } finally {
@@ -704,9 +1053,11 @@ export default function DisbursementsPage() {
  setError(formatApiResponseError(data, "Update failed"));
  return;
  }
+    setApproveRow(null);
     setCompleteRow(null);
     setRejectRow(null);
     setCompleteRef("");
+    setApproveRef("");
     setRejectReason("");
     await load();
     // Signal the Applications page to reload immediately so the status badge
@@ -720,14 +1071,25 @@ export default function DisbursementsPage() {
   }
 };
 
- const canApprove = user ? userCanApproveDisbursement(user) : false;
+ const toggleRejectedExplanation = useCallback((id: string) => {
+ setExpandedRejectedRows((current) => {
+ const next = new Set(current);
+ if (next.has(id)) next.delete(id);
+ else next.add(id);
+ return next;
+ });
+ }, []);
+
+ const canApprove = user
+ ? userCanApproveDisbursement({ ...user, permissions: user.permissions ?? [] })
+ : false;
 
  const chartData = useMemo(() => {
  if (!kpis) return [];
  return [
  { name: "Pending", short: "Pend.", count: kpis.pending_approval, fill: "#ea580c" },
- { name: "Approved", short: "Appr.", count: kpis.approved, fill: "#0284c7" },
- { name: "Completed", short: "Done", count: kpis.completed, fill: "#059669" },
+ { name: "Processing", short: "Proc.", count: kpis.approved, fill: "#0284c7" },
+ { name: "Disbursed", short: "Done", count: kpis.completed, fill: "#059669" },
  { name: "Rejected", short: "Rej.", count: kpis.rejected, fill: "#e11d48" },
  ];
  }, [kpis]);
@@ -761,6 +1123,11 @@ export default function DisbursementsPage() {
  (!Number.isFinite(createAmountNum) ||
  createAmountNum <= 0 ||
  (maxDisburseAmount > 0 && createAmountNum > maxDisburseAmount));
+ const destinationInvalid =
+ (MOBILE_CHANNELS.includes(formMethod) &&
+ (!formAccountNumber.trim() || !isValidTanzanianMsisdn(normalizeTanzanianMsisdn(formAccountNumber)))) ||
+ (BANK_CHANNELS.includes(formMethod) &&
+ (!formAccountName.trim() || !formAccountNumber.trim() || !formBankBic.trim()));
 
  const handleExportPdf = useCallback((row: DisbursementViewRow) => {
  exportDisbursementToPdf({
@@ -957,7 +1324,9 @@ export default function DisbursementsPage() {
  placeholder="Search loan number or customer..."
  value={searchQuery}
  onChange={(e) => setSearchQuery(e.target.value)}
- onKeyDown={(e) => e.key === "Enter" && load()}
+ onKeyDown={(e) => {
+ if (e.key === "Enter") void load();
+ }}
  className="pl-9"
  />
  </div>
@@ -976,7 +1345,13 @@ export default function DisbursementsPage() {
  </Select>
  </div>
  <div className="flex flex-wrap gap-2">
- <Button type="button" variant="outline" size="sm" onClick={() => forceCachedReload(load)} disabled={loading}>
+ <Button
+ type="button"
+ variant="outline"
+ size="sm"
+ onClick={() => forceCachedReload(() => load())}
+ disabled={loading}
+ >
  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
  <span className="ml-2">Refresh</span>
  </Button>
@@ -1040,6 +1415,21 @@ export default function DisbursementsPage() {
  </p>
  ) : (
  <>
+ {awaitingAdminFinalApproval.length > 0 ? (
+ <div className="mb-2 rounded-lg border border-amber-200/80 bg-amber-50/80 px-3 py-2 text-xs dark:border-amber-900/50 dark:bg-amber-950/30">
+ <p className="font-medium text-foreground">
+ {awaitingAdminFinalApproval.length} application
+ {awaitingAdminFinalApproval.length === 1 ? "" : "s"} await super-admin final approval
+ </p>
+ <p className="mt-1 text-muted-foreground">
+ Manager approval is done. Final approval on{" "}
+ <Link href={pendingReviewHref} className="text-primary hover:underline">
+ Pending Review
+ </Link>{" "}
+ creates the loan account before you can disburse.
+ </p>
+ </div>
+ ) : null}
  {selectableApplications.length > 0 ? (
  <p className="mb-2 text-xs text-muted-foreground">
  Click a ready row or use the selectors below ({selectableApplications.length} ready).
@@ -1057,17 +1447,20 @@ export default function DisbursementsPage() {
  </TableHeader>
  <TableBody>
  {eligibleApplications.map((app) => {
- const canSelect =
- app.status === "approved" ||
- app.ready_for_disbursement ||
- Boolean(
- app.loan_id ||
+ const hasLinkedLoan =
+ Boolean(app.loan_id) ||
  selectableLoans.some(
  (l) =>
  l.application_id === app.id ||
- l.application_number?.toLowerCase() === app.application_number.toLowerCase()
- )
+ l.application_number?.toLowerCase() ===
+ app.application_number.toLowerCase()
  );
+ const waitingForAdmin =
+ Boolean(app.needs_final_approval) && !hasLinkedLoan && !canFinalizeApproval;
+ const canSelect =
+ hasLinkedLoan ||
+ app.ready_for_disbursement ||
+ (Boolean(app.needs_final_approval) && canFinalizeApproval);
  const isPreparing = preparingApplicationId === app.id;
  return (
  <TableRow
@@ -1077,19 +1470,30 @@ export default function DisbursementsPage() {
  !canSelect && "opacity-70",
  formApplicationId === app.id && "bg-emerald-50/80 dark:bg-emerald-950/40"
  )}
- onClick={() => void selectApplication(app)}
+ onClick={() => {
+ if (!canSelect && waitingForAdmin) {
+ setFormApplicationId(app.id);
+ setError(
+ "This application is manager-approved only. A super admin must give final approval on Pending Review before a loan account can be created for disbursement."
+ );
+ return;
+ }
+ if (canSelect) void selectApplication(app);
+ }}
  title={
  isPreparing
  ? "Creating loan account…"
+ : waitingForAdmin
+ ? "Waiting for super-admin final approval"
  : !canSelect
  ? "Not ready for disbursement yet"
- : app.status === "approved" && !app.loan_id
- ? "Creates loan account and selects for disbursement"
+ : app.needs_final_approval && !app.loan_id
+ ? "Final-approve and create loan account for disbursement"
  : "Select this application for disbursement"
  }
  >
  <TableCell className="py-2 text-xs font-medium">{app.application_number}</TableCell>
-            <TableCell className="py-2 text-xs">{app.customer_display_name || "—"}</TableCell>
+ <TableCell className="py-2 text-xs">{app.customer_display_name || "—"}</TableCell>
  <TableCell className="py-2">
  <Badge
  variant={canSelect ? "default" : "secondary"}
@@ -1097,10 +1501,12 @@ export default function DisbursementsPage() {
  >
  {isPreparing
  ? "Preparing…"
- : app.loan_id
+ : hasLinkedLoan
  ? "Ready for disbursement"
- : app.status === "approved"
- ? "Approved"
+ : waitingForAdmin
+ ? "Awaiting admin approval"
+ : app.needs_final_approval
+ ? "Ready to finalize"
  : APPLICATION_STATUS_LABELS[app.status]}
  </Badge>
  </TableCell>
@@ -1126,8 +1532,22 @@ export default function DisbursementsPage() {
  </div>
  {!canSelectForDisbursement && !eligibleLoading ? (
  <div className="rounded-xl border border-amber-200/80 bg-amber-50/80 px-4 py-3 text-sm dark:border-amber-900/50 dark:bg-amber-950/30">
- <p className="font-medium text-foreground">No applications ready for disbursement</p>
+ <p className="font-medium text-foreground">
+ {awaitingAdminFinalApproval.length > 0
+ ? "Waiting for super-admin final approval"
+ : "No applications ready for disbursement"}
+ </p>
  <p className="mt-1 text-xs text-muted-foreground">
+ {awaitingAdminFinalApproval.length > 0 ? (
+ <>
+ These applications are manager-approved. A super admin must finalize them on{" "}
+ <Link href={pendingReviewHref} className="text-primary hover:underline">
+ Pending Review
+ </Link>{" "}
+ before disbursement.
+ </>
+ ) : (
+ <>
  Approve loan applications first, then{" "}
  <button
  type="button"
@@ -1137,9 +1557,11 @@ export default function DisbursementsPage() {
  refresh
  </button>
  .{" "}
- <Link href="/applications/pending-review" className="text-primary hover:underline">
+ <Link href={pendingReviewHref} className="text-primary hover:underline">
  Open pending review
  </Link>
+ </>
+ )}
  </p>
  </div>
  ) : null}
@@ -1147,7 +1569,7 @@ export default function DisbursementsPage() {
  <div className="rounded-xl border border-sky-200/80 bg-sky-50/80 px-4 py-3 text-sm dark:border-sky-900/50 dark:bg-sky-950/30">
  <p className="font-medium text-foreground">Select an approved application below</p>
  <p className="mt-1 text-xs text-muted-foreground">
- A loan account is created automatically when you pick an approved application.
+ As super admin, picking an application runs final approval and creates the loan account.
  </p>
  </div>
  ) : null}
@@ -1175,23 +1597,30 @@ export default function DisbursementsPage() {
  </SelectTrigger>
  <SelectContent>
  {eligibleApplications.map((app) => {
- const canPick =
- app.status === "approved" ||
- app.ready_for_disbursement ||
+ const hasLinkedLoan =
  Boolean(app.loan_id) ||
  selectableLoans.some(
  (l) =>
  l.application_id === app.id ||
  l.application_number?.toLowerCase() === app.application_number.toLowerCase()
  );
+ const canPick =
+ hasLinkedLoan ||
+ app.ready_for_disbursement ||
+ (Boolean(app.needs_final_approval) && canFinalizeApproval);
+ const waitingForAdmin =
+ Boolean(app.needs_final_approval) && !hasLinkedLoan && !canFinalizeApproval;
  return (
  <SelectItem key={app.id} value={app.id} disabled={!canPick || preparingApplicationId === app.id}>
  <span className="font-medium">{app.application_number}</span>
-              {app.customer_display_name ? (
-                <span className="text-muted-foreground"> · {app.customer_display_name}</span>
-              ) : null}
+ {app.customer_display_name ? (
+ <span className="text-muted-foreground"> · {app.customer_display_name}</span>
+ ) : null}
  {app.loan_number ? (
  <span className="text-muted-foreground"> · {app.loan_number}</span>
+ ) : null}
+ {waitingForAdmin ? (
+ <span className="text-muted-foreground"> · awaiting admin</span>
  ) : null}
  {preparingApplicationId === app.id ? (
  <span className="text-muted-foreground"> · preparing…</span>
@@ -1220,6 +1649,8 @@ export default function DisbursementsPage() {
  ? "Loading loans…"
  : selectableLoans.length === 0 && approvedAwaitingLoan.length > 0
  ? "Select application first (loan is created automatically)"
+ : selectableLoans.length === 0 && awaitingAdminFinalApproval.length > 0
+ ? "Waiting for super-admin final approval"
  : selectableLoans.length === 0
  ? "No loan accounts yet"
  : "Select loan"
@@ -1229,7 +1660,14 @@ export default function DisbursementsPage() {
  <SelectContent>
  {selectableLoans.length === 0 && approvedAwaitingLoan.length > 0 ? (
  <div className="px-2 py-3 text-xs text-muted-foreground">
- Pick an approved application above to create and select a loan account.
+ Pick an application above to run final approval and select the loan account.
+ </div>
+ ) : null}
+ {selectableLoans.length === 0 &&
+ awaitingAdminFinalApproval.length > 0 &&
+ approvedAwaitingLoan.length === 0 ? (
+ <div className="px-2 py-3 text-xs text-muted-foreground">
+ No loan accounts yet — waiting for super-admin final approval.
  </div>
  ) : null}
  {selectableLoans.map((l) => (
@@ -1368,9 +1806,21 @@ export default function DisbursementsPage() {
  }
  className="h-11 font-mono"
  />
+ {MOBILE_CHANNELS.includes(formMethod) && formAccountNumber.trim() ? (
+ isValidTanzanianMsisdn(normalizeTanzanianMsisdn(formAccountNumber)) ? (
+ <p className="mt-1 text-[11px] text-muted-foreground">
+ Sent as {normalizeTanzanianMsisdn(formAccountNumber)}
+ </p>
+ ) : (
+ <p className="mt-1 text-[11px] text-destructive">
+ Enter a valid Tanzanian number, e.g. 0712345678 or 255712345678.
+ </p>
+ )
+ ) : null}
  </Field>
  </div>
  {BANK_CHANNELS.includes(formMethod) && (
+ <div className="grid gap-4 sm:grid-cols-2">
  <Field>
  <FieldLabel className="text-xs font-medium">Bank name</FieldLabel>
  <Input
@@ -1380,6 +1830,31 @@ export default function DisbursementsPage() {
  className="h-11"
  />
  </Field>
+ <Field>
+ <FieldLabel className="text-xs font-medium">Bank BIC / SWIFT code</FieldLabel>
+ <Input
+ value={formBankBic}
+ onChange={(e) => setFormBankBic(e.target.value)}
+ placeholder="Required by ClickPesa"
+ className="h-11 font-mono"
+ />
+ </Field>
+ <Field className="sm:col-span-2">
+ <FieldLabel className="text-xs font-medium">Transfer type</FieldLabel>
+ <Select
+ value={formBankTransferType}
+ onValueChange={(value) => setFormBankTransferType(value as "ACH" | "RTGS")}
+ >
+ <SelectTrigger className="h-11 bg-background">
+ <SelectValue />
+ </SelectTrigger>
+ <SelectContent>
+ <SelectItem value="ACH">ACH</SelectItem>
+ <SelectItem value="RTGS">RTGS</SelectItem>
+ </SelectContent>
+ </Select>
+ </Field>
+ </div>
  )}
  </div>
  </>
@@ -1425,7 +1900,8 @@ export default function DisbursementsPage() {
  !formLoan ||
  actionLoading === "create" ||
  !formAmount.trim() ||
- createAmountInvalid
+ createAmountInvalid ||
+ destinationInvalid
  }
  >
  {actionLoading === "create" ? (
@@ -1473,9 +1949,13 @@ export default function DisbursementsPage() {
  </TableRow>
  ) : (
  rows.map((row) => {
- const sc = statusConfig[row.status];
+ const sc = displayStatus(row);
+ const rejectedOpen = expandedRejectedRows.has(row.id);
+ const awaitingClickPesa = isAwaitingClickPesaConfirmation(row);
+ const confirmedRejected = isConfirmedRejection(row);
  return (
- <TableRow key={row.id}>
+ <Fragment key={row.id}>
+ <TableRow>
  <TableCell className="font-medium">
  <Link className="text-primary hover:underline" href="/loans">
  {row.loan_number ?? row.loan_id}
@@ -1487,63 +1967,90 @@ export default function DisbursementsPage() {
  </TableCell>
  <TableCell>{DISBURSEMENT_CHANNEL_LABELS[row.method]}</TableCell>
  <TableCell>
+ <div className="flex flex-col items-start gap-1">
+ <div className="flex items-center gap-1.5">
  <Badge variant={sc.variant}>{sc.label}</Badge>
- </TableCell>
+ {confirmedRejected && (
+ <Button
+ type="button"
+ size="icon"
+ variant="ghost"
+ className="h-6 w-6 rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive"
+ aria-expanded={rejectedOpen}
+ aria-label={rejectedOpen ? "Hide rejection reason" : "Show rejection reason"}
+ onClick={() => toggleRejectedExplanation(row.id)}
+ >
+ <ChevronDown
+ className={cn("h-3.5 w-3.5 transition-transform", rejectedOpen && "rotate-180")}
+ />
+ </Button>
+ )}
+ </div>
+                  {awaitingClickPesa ? (
+                    <p className="max-w-[16rem] text-[11px] leading-snug text-muted-foreground">
+                      ClickPesa confirmation is pending. Do not submit another payout.
+                    </p>
+                  ) : statusHelperText(row) ? (
+                    <p className="max-w-[16rem] text-[11px] leading-snug text-muted-foreground">
+                      {statusHelperText(row)}
+                    </p>
+                  ) : null}
+                </div>
+              </TableCell>
  <TableCell className="text-sm">
  {staffDisplayLabel(row.prepared_by_name, row.prepared_by)}
  </TableCell>
  <TableCell className="text-xs text-muted-foreground">
  <div className="space-y-0.5">
  {row.approved_at && <div>Approved {formatDate(row.approved_at)}</div>}
- {row.rejected_at && <div>Rejected {formatDate(row.rejected_at)}</div>}
+ {confirmedRejected && row.rejected_at && (
+ <div>Rejected {formatDate(row.rejected_at)}</div>
+ )}
  {row.disbursed_at && <div>Disbursed {formatDateTime(row.disbursed_at)}</div>}
- {!row.approved_at && !row.rejected_at && !row.disbursed_at && "—"}
+ {!row.approved_at && !(confirmedRejected && row.rejected_at) && !row.disbursed_at && "—"}
  </div>
  </TableCell>
  <TableCell className="text-right">
- <div className="flex justify-end gap-1">
- <Button size="sm" variant="ghost" onClick={() => setViewRow(row)}>
- <Eye className="h-4 w-4" />
- </Button>
- {canApprove && row.status === "pending_approval" && (
- <>
- <Button
- size="sm"
- variant="outline"
- disabled={actionLoading === row.id}
- onClick={() => patch(row.id, { action: "approve" })}
- title="Approves disbursement and activates the loan"
- >
- Approve & activate
- </Button>
- <Button
- size="sm"
- variant="destructive"
- disabled={actionLoading === row.id}
- onClick={() => {
+ <div className="flex justify-end">
+ <DisbursementRowActions
+ row={row}
+ canApprove={canApprove}
+ actionLoading={actionLoading === row.id}
+ onView={() => setViewRow(row)}
+ onApprove={() => setApproveRow(row)}
+ onReject={() => {
  setRejectRow(row);
  setRejectReason("");
  }}
- >
- Reject
- </Button>
- </>
- )}
- {canApprove && row.status === "approved" && (
- <Button
- size="sm"
- onClick={() => {
+ onComplete={() => {
  setCompleteRow(row);
  setCompleteRef(row.transaction_reference ?? "");
  }}
- disabled={actionLoading === row.id}
- >
- Complete
- </Button>
+ />
+ </div>
+ </TableCell>
+ </TableRow>
+ {confirmedRejected && rejectedOpen && (
+ <TableRow className="bg-destructive/5 hover:bg-destructive/5">
+ <TableCell colSpan={8} className="sticky left-0 px-4 py-3">
+ <div className="box-border w-[calc(100vw-20rem)] min-w-0 max-w-[calc(100vw-20rem)] overflow-hidden rounded-md border border-destructive/20 bg-background px-4 py-3 text-sm">
+ <p className="font-medium text-destructive">Why this was rejected</p>
+ <p className="mt-1 max-w-3xl whitespace-normal break-words leading-5 text-muted-foreground [overflow-wrap:anywhere]">
+ {rejectedExplanation(row)}
+ </p>
+ {(row.order_reference || row.transaction_reference) && (
+ <p className="mt-2 whitespace-normal break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
+ Reference{" "}
+ <span className="font-mono text-foreground">
+ {row.order_reference ?? row.transaction_reference}
+ </span>
+ </p>
  )}
  </div>
  </TableCell>
  </TableRow>
+ )}
+ </Fragment>
  );
  })
  )}
@@ -1565,7 +2072,10 @@ export default function DisbursementsPage() {
  </p>
  ) : (
  rows.map((row) => {
- const sc = statusConfig[row.status];
+ const sc = displayStatus(row);
+ const rejectedOpen = expandedRejectedRows.has(row.id);
+ const awaitingClickPesa = isAwaitingClickPesaConfirmation(row);
+ const confirmedRejected = isConfirmedRejection(row);
  return (
  <Card key={row.id}>
  <CardHeader className="pb-2">
@@ -1574,10 +2084,49 @@ export default function DisbursementsPage() {
  <CardTitle className="text-base">{row.loan_number ?? row.loan_id}</CardTitle>
  <p className="text-sm text-muted-foreground">{row.customer_display_name ?? "—"}</p>
  </div>
+ <div className="flex items-center gap-1.5">
  <Badge variant={sc.variant}>{sc.label}</Badge>
+ {confirmedRejected && (
+ <Button
+ type="button"
+ size="icon"
+ variant="ghost"
+ className="h-6 w-6 rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive"
+ aria-expanded={rejectedOpen}
+ aria-label={rejectedOpen ? "Hide rejection reason" : "Show rejection reason"}
+ onClick={() => toggleRejectedExplanation(row.id)}
+ >
+ <ChevronDown
+ className={cn("h-3.5 w-3.5 transition-transform", rejectedOpen && "rotate-180")}
+ />
+ </Button>
+ )}
+ <DisbursementRowActions
+ row={row}
+ canApprove={canApprove}
+ actionLoading={actionLoading === row.id}
+ onView={() => setViewRow(row)}
+ onApprove={() => setApproveRow(row)}
+ onReject={() => {
+ setRejectRow(row);
+ setRejectReason("");
+ }}
+ onComplete={() => {
+ setCompleteRow(row);
+ setCompleteRef(row.transaction_reference ?? "");
+ }}
+ />
+ </div>
  </div>
  </CardHeader>
  <CardContent className="space-y-3 text-sm">
+                {awaitingClickPesa ? (
+                  <p className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950">
+                    ClickPesa confirmation is pending. Do not submit another payout.
+                  </p>
+                ) : statusHelperText(row) ? (
+                  <p className="text-xs text-muted-foreground">{statusHelperText(row)}</p>
+                ) : null}
  <div className="flex justify-between">
  <span className="text-muted-foreground">Amount</span>
  <span className="font-semibold">{formatCurrency(row.amount)}</span>
@@ -1590,50 +2139,22 @@ export default function DisbursementsPage() {
  <span className="text-muted-foreground">Prepared by</span>
  <span>{staffDisplayLabel(row.prepared_by_name, row.prepared_by)}</span>
  </div>
- <div className="flex flex-wrap gap-2 pt-1">
- <Button size="sm" variant="outline" className="flex-1" onClick={() => setViewRow(row)}>
- <Eye className="mr-1 h-4 w-4" />
- View
- </Button>
- {canApprove && row.status === "pending_approval" && (
- <>
- <Button
- size="sm"
- className="flex-1"
- disabled={actionLoading === row.id}
- onClick={() => patch(row.id, { action: "approve" })}
- title="Approves disbursement and activates the loan"
- >
- Approve & activate
- </Button>
- <Button
- size="sm"
- variant="destructive"
- className="flex-1"
- disabled={actionLoading === row.id}
- onClick={() => {
- setRejectRow(row);
- setRejectReason("");
- }}
- >
- Reject
- </Button>
- </>
- )}
- {canApprove && row.status === "approved" && (
- <Button
- size="sm"
- className="flex-1"
- disabled={actionLoading === row.id}
- onClick={() => {
- setCompleteRow(row);
- setCompleteRef(row.transaction_reference ?? "");
- }}
- >
- Complete
- </Button>
+ {confirmedRejected && rejectedOpen && (
+ <div className="min-w-0 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2">
+ <p className="font-medium text-destructive">Why this was rejected</p>
+ <p className="mt-1 whitespace-normal break-words leading-5 text-muted-foreground [overflow-wrap:anywhere]">
+ {rejectedExplanation(row)}
+ </p>
+ {(row.order_reference || row.transaction_reference) && (
+ <p className="mt-2 whitespace-normal break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
+ Reference{" "}
+ <span className="font-mono text-foreground">
+ {row.order_reference ?? row.transaction_reference}
+ </span>
+ </p>
  )}
  </div>
+ )}
  </CardContent>
  </Card>
  );
@@ -1652,6 +2173,113 @@ export default function DisbursementsPage() {
  onExportPdf={handleExportPdf}
  />
  ) : null}
+ </DialogContent>
+ </Dialog>
+
+ <Dialog
+ open={!!approveRow}
+ onOpenChange={(o) => {
+ if (!o) {
+ setApproveRow(null);
+ setApproveRef("");
+ }
+ }}
+ >
+ <DialogContent>
+ <DialogHeader>
+ <DialogTitle>Confirm disbursement</DialogTitle>
+ <DialogDescription>
+ {approveRow && isGatewayChannel(approveRow.method)
+ ? "Review the payout details below. Continuing will send this amount via ClickPesa. After that, wait for confirmation — do not submit another payout."
+ : "Review the disbursement details below before approving."}
+ </DialogDescription>
+ </DialogHeader>
+ {approveRow ? (
+ <div className="space-y-4 py-2">
+ <div className="rounded-lg border bg-muted/30 p-4">
+ <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+ Recipient
+ </p>
+ <p className="mt-1 text-base font-semibold">
+ {approveRow.customer_display_name ?? "—"}
+ </p>
+ <p className="text-sm text-muted-foreground">
+ Loan {approveRow.loan_number ?? approveRow.loan_id}
+ </p>
+ </div>
+ <div className="rounded-lg border bg-muted/30 p-4">
+ <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+ Amount
+ </p>
+ <p className="mt-1 text-2xl font-bold tabular-nums">
+ {formatCurrency(approveRow.amount)}
+ </p>
+ <p className="mt-1 text-sm text-muted-foreground">
+ {DISBURSEMENT_CHANNEL_LABELS[approveRow.method]}
+ </p>
+ </div>
+ {(approveRow.account_name ||
+ approveRow.account_number ||
+ approveRow.bank_name) && (
+ <dl className="grid gap-2 rounded-lg border bg-muted/30 p-4 text-sm">
+ {approveRow.account_name && (
+ <div>
+ <dt className="text-muted-foreground">Account name</dt>
+ <dd className="font-medium">{approveRow.account_name}</dd>
+ </div>
+ )}
+ {approveRow.account_number && (
+ <div>
+ <dt className="text-muted-foreground">Account number</dt>
+ <dd className="font-mono">{approveRow.account_number}</dd>
+ </div>
+ )}
+ {approveRow.bank_name && (
+ <div>
+ <dt className="text-muted-foreground">Bank</dt>
+ <dd>{approveRow.bank_name}</dd>
+ </div>
+ )}
+ </dl>
+ )}
+ {!isGatewayChannel(approveRow.method) && (
+ <div>
+ <Label htmlFor="approve-ref">Transaction reference (optional)</Label>
+ <Input
+ id="approve-ref"
+ value={approveRef}
+ onChange={(e) => setApproveRef(e.target.value)}
+ placeholder="e.g. cash receipt or bank slip number"
+ />
+ </div>
+ )}
+ </div>
+ ) : null}
+ <DialogFooter>
+ <Button
+ variant="outline"
+ onClick={() => {
+ setApproveRow(null);
+ setApproveRef("");
+ }}
+ >
+ Cancel
+ </Button>
+ <Button
+ onClick={() =>
+ approveRow &&
+ patch(approveRow.id, {
+ action: "approve",
+ ...(approveRef.trim() ? { transaction_reference: approveRef.trim() } : {}),
+ })
+ }
+ disabled={!approveRow || actionLoading === approveRow?.id}
+ >
+ {approveRow && isGatewayChannel(approveRow.method)
+ ? "Continue & send"
+ : "Continue"}
+ </Button>
+ </DialogFooter>
  </DialogContent>
  </Dialog>
 

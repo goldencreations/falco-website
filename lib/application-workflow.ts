@@ -126,8 +126,9 @@ export function buildReviewRequestBody(options: {
  approved_amount?: number;
  review_notes?: string;
  rejection_reason?: string;
+ rejection_code?: string;
 }): Record<string, unknown> {
- const { decision, approved_amount, review_notes, rejection_reason } = options;
+ const { decision, approved_amount, review_notes, rejection_reason, rejection_code } = options;
  const body: Record<string, unknown> = { decision };
  if (decision === "approve") {
  if (approved_amount == null || !Number.isFinite(approved_amount) || approved_amount <= 0) {
@@ -136,8 +137,17 @@ export function buildReviewRequestBody(options: {
  body.approved_amount = approved_amount;
  }
  if (review_notes?.trim()) body.review_notes = review_notes.trim();
- if (decision === "reject" && rejection_reason?.trim()) {
- body.rejection_reason = rejection_reason.trim();
+ if (decision === "reject") {
+ // `rejection_code` is mandatory on reject; `rejection_reason` is additionally required
+ // when the code is "other" (see Frontend Implementation Guide §4).
+ if (!rejection_code?.trim()) {
+ throw new Error("Select a rejection reason before rejecting this application.");
+ }
+ if (rejection_code.trim() === "other" && !rejection_reason?.trim()) {
+ throw new Error("Describe the rejection reason when selecting \"Other\".");
+ }
+ body.rejection_code = rejection_code.trim();
+ if (rejection_reason?.trim()) body.rejection_reason = rejection_reason.trim();
  }
  return body;
 }
@@ -265,6 +275,7 @@ export async function reviewApplicationApi(
  approved_amount?: number;
  review_notes?: string;
  rejection_reason?: string;
+ rejection_code?: string;
  }
 ): Promise<{ ok: true; data: unknown } | { ok: false; error: string }> {
  let payload: Record<string, unknown>;
@@ -587,7 +598,10 @@ export type ApplicationWorkflowAction = {
  id: string;
  label: string;
  variant?: "default" | "destructive";
- run: () => Promise<{ ok: boolean; error?: string }>;
+ /** For `id === "reject"`, the caller must collect `rejection_code` (and `rejection_reason`
+  * when the code is "other") via a dialog before invoking `run`. */
+ requiresRejectionReason?: boolean;
+ run: (details?: { rejection_code?: string; rejection_reason?: string }) => Promise<{ ok: boolean; error?: string }>;
 };
 
 const ADMIN_ACTIVATABLE: LoanApplicationStatus[] = [
@@ -651,34 +665,42 @@ export function getApplicationWorkflowActions(
  });
  }
 
- if (canReview && (app.status === "submitted" || app.status === "under_review")) {
- actions.push({
- id: "reject",
- label: "Reject",
- variant: "destructive",
- run: async () => {
- const r = await reviewApplicationApi(app.id, {
- decision: "reject",
- rejection_reason: `Rejected by ${actorName}.`,
- });
- return r.ok ? { ok: true } : { ok: false, error: r.error };
- },
- });
- }
+  // Backend allows reject from under_review or approved (Awaiting Treasury).
+  // Also expose reject from submitted so reviewers can decline before opening review.
+  if (
+    canReview &&
+    (app.status === "submitted" || app.status === "under_review" || app.status === "approved")
+  ) {
+    actions.push({
+      id: "reject",
+      label: "Reject",
+      variant: "destructive",
+      requiresRejectionReason: true,
+      run: async (details) => {
+        const r = await reviewApplicationApi(app.id, {
+          decision: "reject",
+          rejection_code: details?.rejection_code,
+          rejection_reason:
+            details?.rejection_reason?.trim() || `Rejected by ${actorName}.`,
+        });
+        return r.ok ? { ok: true } : { ok: false, error: r.error };
+      },
+    });
+  }
 
- if (canReview && app.status === "under_review") {
- actions.push({
- id: "more_info",
- label: "Request more information",
- run: async () => {
- const r = await reviewApplicationApi(app.id, {
- decision: "request_more_info",
- review_notes: `More information requested by ${actorName}.`,
- });
- return r.ok ? { ok: true } : { ok: false, error: r.error };
- },
- });
- }
+  if (canReview && (app.status === "under_review" || app.status === "approved")) {
+    actions.push({
+      id: "more_info",
+      label: "Request more information",
+      run: async () => {
+        const r = await reviewApplicationApi(app.id, {
+          decision: "request_more_info",
+          review_notes: `More information requested by ${actorName}.`,
+        });
+        return r.ok ? { ok: true } : { ok: false, error: r.error };
+      },
+    });
+  }
 
  return actions;
 }

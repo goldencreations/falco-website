@@ -83,7 +83,7 @@ export function DeleteApplicationDialog({ open, onOpenChange, application, onDel
  ? step === 1
  ? `You are about to permanently delete ${application.application_number}${
  application.customerDisplayName ? ` (${application.customerDisplayName})` : ""
- }. This removes the record from the database and cannot be undone.`
+ }. This removes the application and cannot be undone.`
  : `Type ${confirmToken} below to confirm permanent deletion.`
  : "Select an application to delete."}
  </DialogDescription>

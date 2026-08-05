@@ -75,6 +75,45 @@ export function isApprovedApplicationStatus(status: LoanApplicationStatus): bool
  return status === "approved" || status === "pending_disbursement" || status === "disbursed";
 }
 
+/**
+ * Server-driven status labels that supersede the generic per-status labels when the
+ * backend's `operational_state` field is present (per Frontend Implementation Guide).
+ * These specifically replace the ambiguous "Approved"/"Pending disbursement" wording.
+ */
+const OPERATIONAL_STATE_STATUS_LABELS: Partial<Record<LoanApplicationStatus, string>> = {
+ approved: "Awaiting Treasury",
+ pending_disbursement: "Ready for Disbursement",
+};
+
+function titleCaseFromSnake(value: string): string {
+ return value
+ .replace(/[-_]+/g, " ")
+ .trim()
+ .split(/\s+/)
+ .map((word) => (word ? word[0].toUpperCase() + word.slice(1) : word))
+ .join(" ");
+}
+
+/**
+ * Resolve the display label for an application's status. Prefers the backend's
+ * `operational_state` string (title-cased) when present; otherwise falls back to the
+ * updated static labels for `approved` / `pending_disbursement`, or the raw status.
+ */
+export function applicationOperationalStatusLabel(
+ status: LoanApplicationStatus,
+ operationalState?: string | null,
+ fallbackLabel?: string
+): string {
+ if (operationalState?.trim()) return titleCaseFromSnake(operationalState);
+ return OPERATIONAL_STATE_STATUS_LABELS[status] ?? fallbackLabel ?? titleCaseFromSnake(status);
+}
+
+/** Human-readable label for an `aging_bucket` value (e.g. "over_48h" -> "Over 48h"). */
+export function applicationAgingBucketLabel(agingBucket?: string | null): string | undefined {
+ if (!agingBucket?.trim()) return undefined;
+ return titleCaseFromSnake(agingBucket);
+}
+
 /** Application (and linked loan) is ready for the disbursement console. */
 export function isApplicationReadyForDisbursement(
  rawOrStatus: string | undefined | null,

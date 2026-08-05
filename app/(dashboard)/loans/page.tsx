@@ -17,7 +17,10 @@ import {
  CalendarRange,
  TrendingUp,
  Loader2,
+ Copy,
+ ShieldAlert,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Button } from "@/components/ui/button";
@@ -55,13 +58,15 @@ import { adaptApiCustomerRowToCustomer, extractCustomerDetail, extractCustomersL
 import {
  effectiveLoanTotalPaid,
  effectivePaidPercent,
+ loanAcceptsPayment,
  loanCustomerLabel,
  loanProductLabel,
+ PAYMENT_BLOCKED_HELP_TEXT,
 } from "@/lib/loan-display";
 import { extractPaymentsPayload } from "@/lib/payment-adapters";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/formatters";
 import type { PaymentViewRow } from "@/lib/payment-adapters";
-import type { Customer, LoanStatus, RepaymentSchedule, RiskClassification } from "@/lib/types";
+import type { Customer, LoanStatus, RepaymentDetails, RepaymentSchedule, RiskClassification } from "@/lib/types";
 import { loanMatchesOfficerPortfolio } from "@/lib/loan-officer-portfolio";
 import { isBranchScopedStaffRole, rolePortalBase } from "@/lib/role-portal";
 import { useSessionUser } from "@/lib/use-session-user";
@@ -87,6 +92,128 @@ const riskConfig: Record<RiskClassification, { label: string; color: string }> =
  doubtful: { label: "Doubtful", color: "bg-destructive" },
  loss: { label: "Loss", color: "bg-foreground" },
 };
+
+const DEFAULT_ALLOCATION_ORDER = ["penalty", "fees", "interest", "principal"];
+
+function allocationStepLabel(step: string): string {
+ const s = step.trim().toLowerCase();
+ if (!s) return step;
+ return s[0].toUpperCase() + s.slice(1);
+}
+
+/**
+ * Customer-facing BillPay card for `loan.repayment_details` (see `RepaymentDetails` in lib/types.ts).
+ * `bill_pay_number` is the only number the customer should ever be given — never a ClickPesa
+ * transaction/receipt id from elsewhere in the UI.
+ */
+function RepaymentInstructionsCard({ repaymentDetails }: { repaymentDetails: RepaymentDetails }) {
+ const canAccept = repaymentDetails.can_accept_payment !== false && repaymentDetails.bill_pay_active !== false;
+ const allocationOrder =
+ repaymentDetails.allocation_order && repaymentDetails.allocation_order.length > 0
+ ? repaymentDetails.allocation_order
+ : DEFAULT_ALLOCATION_ORDER;
+
+ const copyBillPayNumber = async () => {
+ const number = repaymentDetails.bill_pay_number ?? "";
+ try {
+ await navigator.clipboard.writeText(number);
+ toast.success("BillPay number copied");
+ } catch {
+ toast.error("Could not copy — copy it manually instead.");
+ }
+ };
+
+ return (
+ <Card
+ className={
+ canAccept
+ ? "border-emerald-200/60 bg-gradient-to-br from-emerald-50/55 to-background"
+ : "border-muted bg-muted/30"
+ }
+ >
+ <CardHeader className="pb-2">
+ <div className="flex items-center justify-between gap-2">
+ <CardTitle className="text-base">Repayment Instructions</CardTitle>
+ {!canAccept ? (
+ <Badge variant="outline" className="gap-1 text-destructive">
+ <ShieldAlert className="h-3 w-3" />
+ Not currently accepting payments
+ </Badge>
+ ) : null}
+ </div>
+ </CardHeader>
+ <CardContent className="space-y-4">
+ <div>
+ <p className="text-xs text-muted-foreground">
+ BillPay number — the only number the customer should enter in mobile-money BillPay
+ </p>
+ <div className="mt-1 flex flex-wrap items-center gap-2">
+ <span className="rounded-md border border-emerald-200/70 bg-emerald-100/50 px-3 py-1.5 font-mono text-lg font-semibold tracking-wide">
+ {repaymentDetails.bill_pay_number}
+ </span>
+ <Button type="button" size="sm" variant="outline" onClick={() => void copyBillPayNumber()}>
+ <Copy className="mr-1.5 h-3.5 w-3.5" />
+ Copy
+ </Button>
+ </div>
+ </div>
+
+ <div className="grid gap-3 sm:grid-cols-2">
+ {repaymentDetails.amount_due != null ? (
+ <div className="rounded-lg border border-border/60 bg-background/60 p-3">
+ <p className="text-xs text-muted-foreground">Amount due</p>
+ <p className="text-lg font-semibold">{formatCurrency(repaymentDetails.amount_due)}</p>
+ </div>
+ ) : null}
+ {repaymentDetails.penalty_outstanding != null && repaymentDetails.penalty_outstanding > 0 ? (
+ <div className="rounded-lg border border-border/60 bg-background/60 p-3">
+ <p className="text-xs text-muted-foreground">Penalty outstanding</p>
+ <p className="text-lg font-semibold text-destructive">
+ {formatCurrency(repaymentDetails.penalty_outstanding)}
+ </p>
+ </div>
+ ) : null}
+ </div>
+
+ {repaymentDetails.accepts_partial_payments ? (
+ <p className="rounded-md bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+ Partial payments are allowed. Money received is applied in order:{" "}
+ <span className="font-medium text-foreground">
+ {allocationOrder.map(allocationStepLabel).join(" → ")}
+ </span>
+ .
+ </p>
+ ) : null}
+
+ {repaymentDetails.channels && repaymentDetails.channels.length > 0 ? (
+ <div className="space-y-2">
+ <p className="text-xs font-medium text-muted-foreground">Mobile-money channels</p>
+ <div className="grid gap-2 sm:grid-cols-2">
+ {repaymentDetails.channels.map((channel, i) => (
+ <div key={`${channel.name ?? "channel"}-${i}`} className="rounded-lg border border-border/60 bg-background/60 p-3 text-sm">
+ <p className="font-medium">{channel.name ?? channel.type ?? "Channel"}</p>
+ {channel.ussd_code ? (
+ <p className="mt-0.5 font-mono text-xs text-muted-foreground">{channel.ussd_code}</p>
+ ) : null}
+ {channel.instructions ? (
+ <p className="mt-1 text-xs text-muted-foreground">{channel.instructions}</p>
+ ) : null}
+ </div>
+ ))}
+ </div>
+ </div>
+ ) : null}
+
+ {!canAccept ? (
+ <p className="text-xs text-destructive">
+ This loan is not currently accepting BillPay payments. Do not share this number with the
+ customer until it is reactivated.
+ </p>
+ ) : null}
+ </CardContent>
+ </Card>
+ );
+}
 
 export default function LoansPage() {
  const { user } = useSessionUser();
@@ -185,6 +312,10 @@ export default function LoansPage() {
  });
 
  const totalOutstanding = visibleLoans.reduce((sum, l) => sum + l.total_outstanding, 0);
+ const totalPenaltyOutstanding = visibleLoans.reduce(
+ (sum, l) => sum + (l.penalty_outstanding ?? l.penalty ?? 0),
+ 0
+ );
  const totalPrincipal = visibleLoans.reduce((sum, l) => sum + l.principal_amount, 0);
  const activeLoans = visibleLoans.filter((l) => l.status === "active").length;
  const inArrearsLoans = visibleLoans.filter((l) => l.status === "in_arrears").length;
@@ -265,13 +396,10 @@ export default function LoansPage() {
  );
  setViewPayments(paymentRows);
  const paidFromPayments = paymentRows
- .filter((p) => {
- const s = String(p.status ?? "").toLowerCase();
- if (s === "reversed" || s === "failed") return false;
- if (s === "completed") return true;
- const ledger = String(p.ledger_status ?? "").toLowerCase();
- return ledger === "verified" || ledger === "posted" || p.reconciliation_status === "matched";
- })
+ // `status` is canonical for settlement — the backend already maps verified ledger
+ // rows to "completed" (see payments-controller.md), so ledger_status/reconciliation
+ // metadata aren't independently trustworthy signals for "has this money posted".
+ .filter((p) => String(p.status ?? "").toLowerCase() === "completed")
  .reduce((sum, p) => sum + p.amount, 0);
  if (paidFromPayments > 0) {
  setDetailLoan((prev) => {
@@ -311,6 +439,7 @@ export default function LoansPage() {
  );
  const interestCollected = viewPaymentsCompleted.reduce((sum, p) => sum + p.interest_allocated, 0);
  const feeCollected = viewPaymentsCompleted.reduce((sum, p) => sum + p.fees_allocated, 0);
+ const penaltyCollected = viewPaymentsCompleted.reduce((sum, p) => sum + p.penalty_allocated, 0);
  const disbursementChartData = displayLoan
  ? [
  { name: "Disbursed", amount: displayLoan.principal_amount },
@@ -332,7 +461,7 @@ export default function LoansPage() {
  ? "Active loans for customers assigned to you in your branch. Open a row for schedule, payments, and collections."
  : isManagerView
  ? "Active loans in your branch. Open a row for schedule, payments, and collections."
- : "Loans from the Falco API. Open a row for schedule, payments, and collections."
+ : "Open a row for schedules, payments, and collections."
  }
  />
  <main className="flex-1 overflow-auto p-4 lg:p-6">
@@ -361,54 +490,70 @@ export default function LoansPage() {
  <p className="text-[11px] text-muted-foreground">Disbursed</p>
  <p className="text-sm font-semibold">{formatCurrency(totalPrincipal)}</p>
  </div>
- <div className="rounded-lg border border-emerald-200/70 bg-emerald-100/60 p-3 ">
- <p className="text-[11px] text-muted-foreground">Outstanding</p>
- <p className="text-sm font-semibold">{formatCurrency(totalOutstanding)}</p>
- </div>
- </div>
+              <div className="rounded-lg border border-emerald-200/70 bg-emerald-100/60 p-3 ">
+                <p className="text-[11px] text-muted-foreground">Outstanding</p>
+                <p className="text-sm font-semibold">{formatCurrency(totalOutstanding)}</p>
+              </div>
+              <div className="rounded-lg border border-emerald-200/70 bg-emerald-100/60 p-3 ">
+                <p className="text-[11px] text-muted-foreground">Total Penalty</p>
+                <p className="text-sm font-semibold text-destructive">
+                  {formatCurrency(totalPenaltyOutstanding)}
+                </p>
+              </div>
+            </div>
  <p className="text-xs text-muted-foreground">
  {activeLoans} active loans and {inArrearsLoans} in arrears.
  </p>
  </CardContent>
  </Card>
 
- <div className="hidden gap-4 sm:grid sm:grid-cols-2 lg:grid-cols-4">
- <Card>
- <CardHeader className="pb-2">
- <CardTitle className="text-sm font-medium text-muted-foreground">Total Loans</CardTitle>
- </CardHeader>
- <CardContent>
- <div className="text-2xl font-bold">{listLoading ? "…" : visibleLoans.length}</div>
- <p className="text-sm text-muted-foreground">
- {activeLoans} active, {inArrearsLoans} in arrears
- </p>
- </CardContent>
- </Card>
- <Card>
- <CardHeader className="pb-2">
- <CardTitle className="text-sm font-medium text-muted-foreground">Total Outstanding</CardTitle>
- </CardHeader>
- <CardContent>
- <div className="text-2xl font-bold">{formatCurrency(totalOutstanding)}</div>
- </CardContent>
- </Card>
- <Card>
- <CardHeader className="pb-2">
- <CardTitle className="text-sm font-medium text-muted-foreground">Total Disbursed</CardTitle>
- </CardHeader>
- <CardContent>
- <div className="text-2xl font-bold">{formatCurrency(totalPrincipal)}</div>
- </CardContent>
- </Card>
- <Card>
- <CardHeader className="pb-2">
- <CardTitle className="text-sm font-medium text-muted-foreground">Recovery Rate</CardTitle>
- </CardHeader>
- <CardContent>
- <div className="text-2xl font-bold text-accent">{recoveryRate}%</div>
- </CardContent>
- </Card>
- </div>
+          <div className="hidden gap-4 sm:grid sm:grid-cols-2 lg:grid-cols-5">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Total Loans</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{listLoading ? "…" : visibleLoans.length}</div>
+                <p className="text-sm text-muted-foreground">
+                  {activeLoans} active, {inArrearsLoans} in arrears
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Total Outstanding</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{formatCurrency(totalOutstanding)}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Total Penalty</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-destructive">
+                  {formatCurrency(totalPenaltyOutstanding)}
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Total Disbursed</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{formatCurrency(totalPrincipal)}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Recovery Rate</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-accent">{recoveryRate}%</div>
+              </CardContent>
+            </Card>
+          </div>
 
  {/* Filters */}
  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -439,9 +584,114 @@ export default function LoansPage() {
  </div>
  </div>
 
- {/* Loans Table */}
- <Card>
+ {/* Loans list */}
+ <Card className="overflow-hidden border-emerald-100">
  <CardContent className="p-0">
+ <div className="grid gap-3 p-4 sm:hidden">
+ {listLoading ? (
+ <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+ <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+ Loading loans…
+ </div>
+ ) : filteredLoans.length === 0 ? (
+ <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
+ No loans found
+ </p>
+ ) : (
+ filteredLoans.map((loan) => {
+ const status = statusConfig[loan.status];
+ const riskRow = riskConfig[loan.risk_classification] ?? riskConfig.current;
+ const StatusIcon = status.icon;
+ const paidPercent = effectivePaidPercent(loan);
+ const totalPaidDisplay = effectiveLoanTotalPaid(loan);
+ const penaltyOutstanding = loan.penalty_outstanding ?? loan.penalty ?? 0;
+
+ return (
+ <div key={loan.id} className="rounded-xl border border-emerald-100 bg-emerald-50/30 p-3">
+ <div className="flex items-start justify-between gap-2">
+ <p className="font-mono text-xs font-medium">{loan.loan_number}</p>
+ <Badge variant={status.variant} className="gap-1 shrink-0">
+ <StatusIcon className="h-3 w-3" />
+ {status.label}
+ </Badge>
+ </div>
+ <p className="mt-2 font-medium">{loanCustomerLabel(loan)}</p>
+ <p className="text-xs text-muted-foreground">{loan.customerPhone?.trim() || "—"}</p>
+ <p className="mt-1 text-xs text-muted-foreground">{loanProductLabel(loan)}</p>
+ <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+ <div className="rounded-md border border-emerald-100 bg-background/80 px-2 py-1.5">
+ <p className="text-muted-foreground">Principal</p>
+ <p className="font-semibold">{formatCurrency(loan.principal_amount)}</p>
+ </div>
+ <div className="rounded-md border border-emerald-100 bg-background/80 px-2 py-1.5">
+ <p className="text-muted-foreground">Outstanding</p>
+ <p className="font-semibold">{formatCurrency(loan.total_outstanding)}</p>
+ </div>
+ </div>
+ {penaltyOutstanding > 0 ? (
+ <p className="mt-2 text-xs font-medium text-destructive">
+ Penalty {formatCurrency(penaltyOutstanding)}
+ {loan.daily_penalty_rate ? ` · ${formatCurrency(loan.daily_penalty_rate)}/day` : ""}
+ </p>
+ ) : null}
+ <div className="mt-3">
+ <Progress value={Math.min(100, paidPercent)} className="h-2" />
+ <p className="mt-1 text-xs text-muted-foreground">
+ {paidPercent.toFixed(0)}% paid
+ {totalPaidDisplay > 0 ? ` · ${formatCurrency(totalPaidDisplay)}` : ""}
+ </p>
+ </div>
+ <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+ <div className="flex items-center gap-1.5">
+ <div className={`h-2 w-2 rounded-full ${riskRow.color}`} />
+ <span>{riskRow.label}</span>
+ {loan.days_in_arrears > 0 ? (
+ <span className="text-destructive">({loan.days_in_arrears}d)</span>
+ ) : null}
+ </div>
+ <span>·</span>
+ <span>Due {formatDate(loan.maturity_date)}</span>
+ </div>
+ <div className="mt-3 flex flex-wrap gap-2">
+ <Button size="sm" variant="outline" className="h-8 flex-1 min-w-[7rem]" onClick={() => setViewLoan(loan)}>
+ <Eye className="mr-1 h-3.5 w-3.5" />
+ View Details
+ </Button>
+ {loanAcceptsPayment(loan) ? (
+ <Button size="sm" variant="outline" className="h-8 flex-1 min-w-[7rem]" asChild>
+ <Link href={`${paymentsBasePath}?loan=${loan.id}&openPayment=1`}>
+ <CreditCard className="mr-1 h-3.5 w-3.5" />
+ Record Payment
+ </Link>
+ </Button>
+ ) : (
+ <Button
+ size="sm"
+ variant="outline"
+ className="h-8 flex-1 min-w-[7rem]"
+ disabled
+ title={PAYMENT_BLOCKED_HELP_TEXT}
+ >
+ <CreditCard className="mr-1 h-3.5 w-3.5" />
+ Record Payment
+ </Button>
+ )}
+ {loan.application_id ? (
+ <Button size="sm" variant="outline" className="h-8 w-full sm:w-auto" asChild title="Credit analysis for originating application">
+ <Link href={`${creditAnalysisPath}?applicationId=${loan.application_id}`}>
+ <Scale className="mr-1 h-3.5 w-3.5" />
+ Credit Analysis
+ </Link>
+ </Button>
+ ) : null}
+ </div>
+ </div>
+ );
+ })
+ )}
+ </div>
+
+ <div className="hidden sm:block">
  <Table>
  <TableHeader>
  <TableRow>
@@ -450,6 +700,7 @@ export default function LoansPage() {
  <TableHead>Product</TableHead>
  <TableHead className="text-right">Principal</TableHead>
  <TableHead className="text-right">Outstanding</TableHead>
+ <TableHead className="text-right">Penalty</TableHead>
  <TableHead>Progress</TableHead>
  <TableHead>Status</TableHead>
  <TableHead>Risk</TableHead>
@@ -460,13 +711,13 @@ export default function LoansPage() {
  <TableBody>
  {listLoading ? (
  <TableRow>
- <TableCell colSpan={10} className="py-10 text-center text-muted-foreground">
+ <TableCell colSpan={11} className="py-10 text-center text-muted-foreground">
  <Loader2 className="mx-auto h-6 w-6 animate-spin" aria-label="Loading loans" />
  </TableCell>
  </TableRow>
  ) : filteredLoans.length === 0 ? (
  <TableRow>
- <TableCell colSpan={10} className="py-8 text-center text-muted-foreground">
+ <TableCell colSpan={11} className="py-8 text-center text-muted-foreground">
  No loans found
  </TableCell>
  </TableRow>
@@ -490,15 +741,35 @@ export default function LoansPage() {
  <TableCell>{loanProductLabel(loan)}</TableCell>
  <TableCell className="text-right">{formatCurrency(loan.principal_amount)}</TableCell>
  <TableCell className="text-right font-medium">{formatCurrency(loan.total_outstanding)}</TableCell>
- <TableCell>
- <div className="w-24">
- <Progress value={Math.min(100, paidPercent)} className="h-2" />
- <p className="mt-1 text-xs text-muted-foreground">
- {paidPercent.toFixed(0)}% paid
- {totalPaidDisplay > 0 ? ` · ${formatCurrency(totalPaidDisplay)}` : ""}
+ <TableCell className="text-right">
+ {(loan.penalty_outstanding ?? loan.penalty ?? 0) > 0 ? (
+ <div>
+ <p className="font-medium text-destructive">
+ {formatCurrency(loan.penalty_outstanding ?? loan.penalty ?? 0)}
  </p>
+ {loan.daily_penalty_rate ? (
+ <p className="text-xs text-muted-foreground">
+ {formatCurrency(loan.daily_penalty_rate)}/day
+ </p>
+ ) : null}
  </div>
+ ) : (
+ <span className="text-muted-foreground">—</span>
+ )}
  </TableCell>
+                      <TableCell>
+                        <div className="w-24">
+                          <Progress value={Math.min(100, paidPercent)} className="h-2" />
+                          <p className="mt-1 text-xs text-muted-foreground leading-tight">
+                            {paidPercent.toFixed(0)}% paid
+                          </p>
+                          {totalPaidDisplay > 0 ? (
+                            <p className="text-xs text-muted-foreground leading-tight">
+                              {formatCurrency(totalPaidDisplay)}
+                            </p>
+                          ) : null}
+                        </div>
+                      </TableCell>
  <TableCell>
  <Badge variant={status.variant} className="gap-1">
  <StatusIcon className="h-3 w-3" />
@@ -520,11 +791,17 @@ export default function LoansPage() {
  <Button variant="ghost" size="sm" onClick={() => setViewLoan(loan)}>
  <Eye className="h-4 w-4" />
  </Button>
- <Button variant="ghost" size="sm" asChild>
+ {loanAcceptsPayment(loan) ? (
+ <Button variant="ghost" size="sm" asChild title="Record payment">
  <Link href={`${paymentsBasePath}?loan=${loan.id}&openPayment=1`}>
  <CreditCard className="h-4 w-4" />
  </Link>
  </Button>
+ ) : (
+ <Button variant="ghost" size="sm" disabled title={PAYMENT_BLOCKED_HELP_TEXT}>
+ <CreditCard className="h-4 w-4" />
+ </Button>
+ )}
  {loan.application_id ? (
  <Button variant="ghost" size="sm" asChild title="Credit analysis for originating application">
  <Link href={`${creditAnalysisPath}?applicationId=${loan.application_id}`}>
@@ -540,6 +817,7 @@ export default function LoansPage() {
  )}
  </TableBody>
  </Table>
+ </div>
  </CardContent>
  </Card>
  </div>
@@ -555,10 +833,10 @@ export default function LoansPage() {
  {detailLoading ? (
  <span className="flex items-center gap-2 text-muted-foreground">
  <Loader2 className="h-4 w-4 animate-spin" />
- Loading schedule, payments, and customer from API…
+ Loading schedule, payments, and customer details…
  </span>
  ) : (
- "Customer, balances, repayment schedule, and payments from the backend."
+ "Customer, balances, repayment schedule, and payment history."
  )}
  </DialogDescription>
  </DialogHeader>
@@ -623,6 +901,10 @@ export default function LoansPage() {
  </Card>
  </div>
 
+ {displayLoan.repayment_details?.bill_pay_number ? (
+ <RepaymentInstructionsCard repaymentDetails={displayLoan.repayment_details} />
+ ) : null}
+
  <Card className="border-emerald-200/60 bg-gradient-to-br from-emerald-50/55 to-background ">
  <CardHeader className="pb-2">
  <CardTitle className="text-base">Financial Distribution</CardTitle>
@@ -656,6 +938,18 @@ export default function LoansPage() {
  <p className="text-xs text-muted-foreground">Outstanding Balance</p>
  <p className="text-lg font-semibold">{formatCurrency(displayLoan.total_outstanding)}</p>
  </div>
+ <div className="rounded-lg border border-red-200/70 bg-red-50 p-3 ">
+ <p className="text-xs text-muted-foreground">Outstanding penalty</p>
+ <p className="text-lg font-semibold text-destructive">
+ {formatCurrency(displayLoan.penalty_outstanding ?? displayLoan.penalty ?? 0)}
+ </p>
+ </div>
+ <div className="rounded-lg border border-amber-200/70 bg-amber-50 p-3 ">
+ <p className="text-xs text-muted-foreground">Daily late penalty</p>
+ <p className="text-lg font-semibold">
+ {formatCurrency(displayLoan.daily_penalty_rate ?? 0)}/day
+ </p>
+ </div>
  </div>
  </CardContent>
  </Card>
@@ -673,6 +967,10 @@ export default function LoansPage() {
  <p className="flex justify-between">
  <span className="text-muted-foreground">Interest collected</span>
  <span className="font-medium">{formatCurrency(interestCollected)}</span>
+ </p>
+ <p className="flex justify-between">
+ <span className="text-muted-foreground">Penalty collected</span>
+ <span className="font-medium">{formatCurrency(penaltyCollected)}</span>
  </p>
  <p className="flex justify-between">
  <span className="text-muted-foreground">Fee collected</span>
@@ -724,6 +1022,97 @@ export default function LoansPage() {
  </CardContent>
  </Card>
  </div>
+
+ <Card className="border-emerald-200/60 bg-gradient-to-br from-emerald-50/55 to-background ">
+ <CardHeader className="pb-2">
+ <CardTitle className="text-base">Repayment Schedule</CardTitle>
+ </CardHeader>
+ <CardContent className="p-0">
+ {viewSchedule.length === 0 ? (
+ <p className="px-4 py-6 text-sm text-muted-foreground">No schedule rows found.</p>
+ ) : (
+ <div className="overflow-x-auto">
+ <Table>
+ <TableHeader>
+ <TableRow>
+ <TableHead>Due date</TableHead>
+ <TableHead className="text-right">Days overdue</TableHead>
+ <TableHead className="text-right">Penalty</TableHead>
+ <TableHead className="text-right">Penalty paid</TableHead>
+ <TableHead className="text-right">Penalty left</TableHead>
+ <TableHead className="text-right">Balance due</TableHead>
+ </TableRow>
+ </TableHeader>
+ <TableBody>
+ {viewSchedule.map((row) => (
+ <TableRow
+ key={row.id}
+ className={row.days_overdue > 0 ? "bg-red-50/70 hover:bg-red-50" : undefined}
+ >
+ <TableCell className="text-sm">{formatDate(row.due_date)}</TableCell>
+ <TableCell className="text-right">
+ {row.days_overdue > 0 ? (
+ <span className="font-medium text-destructive">{row.days_overdue}</span>
+ ) : (
+ <span className="text-muted-foreground">0</span>
+ )}
+ </TableCell>
+ <TableCell className="text-right">{formatCurrency(row.penalty_due)}</TableCell>
+ <TableCell className="text-right">{formatCurrency(row.penalty_paid)}</TableCell>
+ <TableCell className="text-right">{formatCurrency(row.penalty_outstanding)}</TableCell>
+ <TableCell className="text-right font-medium">
+ {formatCurrency(row.balance_due || row.balance)}
+ </TableCell>
+ </TableRow>
+ ))}
+ </TableBody>
+ </Table>
+ </div>
+ )}
+ </CardContent>
+ </Card>
+
+ <Card className="border-emerald-200/60 bg-gradient-to-br from-emerald-50/55 to-background ">
+ <CardHeader className="pb-2">
+ <CardTitle className="text-base">Payment Allocation</CardTitle>
+ </CardHeader>
+ <CardContent className="p-0">
+ {viewPaymentsCompleted.length === 0 ? (
+ <p className="px-4 py-6 text-sm text-muted-foreground">No completed payments yet.</p>
+ ) : (
+ <div className="overflow-x-auto">
+ <Table>
+ <TableHeader>
+ <TableRow>
+ <TableHead>Date</TableHead>
+ <TableHead>Reference</TableHead>
+ <TableHead className="text-right">Amount</TableHead>
+ <TableHead className="text-right">Penalty paid</TableHead>
+ <TableHead className="text-right">Fees</TableHead>
+ <TableHead className="text-right">Interest</TableHead>
+ <TableHead className="text-right">Principal</TableHead>
+ </TableRow>
+ </TableHeader>
+ <TableBody>
+ {viewPaymentsCompleted.slice(0, 8).map((payment) => (
+ <TableRow key={payment.id}>
+ <TableCell className="text-sm">{formatDate(payment.payment_date)}</TableCell>
+ <TableCell className="font-mono text-xs">
+ {payment.reference_number || payment.payment_number}
+ </TableCell>
+ <TableCell className="text-right font-medium">{formatCurrency(payment.amount)}</TableCell>
+ <TableCell className="text-right">{formatCurrency(payment.penalty_allocated)}</TableCell>
+ <TableCell className="text-right">{formatCurrency(payment.fees_allocated)}</TableCell>
+ <TableCell className="text-right">{formatCurrency(payment.interest_allocated)}</TableCell>
+ <TableCell className="text-right">{formatCurrency(payment.principal_allocated)}</TableCell>
+ </TableRow>
+ ))}
+ </TableBody>
+ </Table>
+ </div>
+ )}
+ </CardContent>
+ </Card>
  </div>
  </ScrollArea>
  </>

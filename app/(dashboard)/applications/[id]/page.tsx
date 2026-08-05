@@ -9,6 +9,7 @@ import {
   DeleteApplicationDialog,
   type DeleteApplicationTarget,
 } from "@/components/applications/delete-application-dialog";
+import { RejectApplicationDialog } from "@/components/applications/reject-application-dialog";
 import { RequiredDocumentsFields } from "@/components/applications/required-documents-fields";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,7 @@ import {
   extractApplicationDetail,
   type ApplicationViewRow,
 } from "@/lib/application-adapters";
+import { adaptApiCustomerRowToCustomer, extractCustomerDetail } from "@/lib/customer-adapters";
 import {
   enrichApplicationRow,
   fetchApplicationEnrichmentContext,
@@ -37,6 +39,7 @@ import { exportApplicationToPdf } from "@/lib/application-pdf";
 import {
   activateApplicationApi,
   runAdminActivateApplicationWorkflow,
+  type ApplicationWorkflowAction,
 } from "@/lib/application-workflow";
 import {
   getCachedApplicationDetail,
@@ -51,6 +54,35 @@ import { withCacheBypass } from "@/lib/client-fetch-cache";
 import { prefetchApplicationMedia } from "@/lib/document-prefetch";
 import { resolvePortalPath } from "@/lib/portal-paths";
 import { useSessionUser } from "@/lib/use-session-user";
+
+async function enrichApplicationWithCustomerPhoto(
+  app: ApplicationViewRow
+): Promise<ApplicationViewRow> {
+  if (app.customerPassportPhotoUrl || app.customerPassportPhotoPreviewUrl || !app.customer_id) {
+    return app;
+  }
+
+  try {
+    const res = await fetch(`/api/customers/${encodeURIComponent(app.customer_id)}`, {
+      credentials: "include",
+      cache: "no-store",
+    });
+    if (!res.ok) return app;
+    const json = await res.json().catch(() => null);
+    const row = extractCustomerDetail(json);
+    if (!row) return app;
+    const customer = adaptApiCustomerRowToCustomer(row);
+    if (!customer.passport_photo_url && !customer.passport_photo_preview_url) return app;
+    return {
+      ...app,
+      customerPassportPhotoUrl: customer.passport_photo_url ?? app.customerPassportPhotoUrl,
+      customerPassportPhotoPreviewUrl:
+        customer.passport_photo_preview_url ?? app.customerPassportPhotoPreviewUrl,
+    };
+  } catch {
+    return app;
+  }
+}
 
 export default function ApplicationDetailPage() {
   const params = useParams<{ id: string }>();
@@ -82,6 +114,10 @@ export default function ApplicationDetailPage() {
   } | null>(null);
   const [activateDocFiles, setActivateDocFiles] = useState<Record<string, File[]>>({});
   const [activateUploadedTypes, setActivateUploadedTypes] = useState<string[]>([]);
+  const [rejectTarget, setRejectTarget] = useState<{
+    app: ApplicationViewRow;
+    run: ApplicationWorkflowAction["run"];
+  } | null>(null);
 
   const loadApplication = useCallback(async (options?: { background?: boolean }) => {
     const cached = options?.background ? null : getCachedApplicationDetail(params.id);
@@ -109,7 +145,7 @@ export default function ApplicationDetailPage() {
           return ctx;
         });
 
-    const fetchInit =
+    const fetchInit: RequestInit =
       cached || options?.background
         ? withCacheBypass({ credentials: "include" })
         : { credentials: "include" };
@@ -165,7 +201,7 @@ export default function ApplicationDetailPage() {
         documents_count: rawRow.documents?.length ?? 0,
         documents_with_url: rawRow.documents?.filter((d) => d.url?.trim()).length ?? 0,
       });
-      const enriched = enrichApplicationRow(rawRow, ctx);
+      const enriched = await enrichApplicationWithCustomerPhoto(enrichApplicationRow(rawRow, ctx));
       setCachedApplicationDetail(params.id, enriched);
       setApplication(enriched);
       prefetchApplicationMedia(enriched);
@@ -351,6 +387,7 @@ export default function ApplicationDetailPage() {
                 applicationsNewPath={applicationsNewPath}
                 onAdminActivate={handleAdminActivate}
                 onWorkflowAction={runWorkflowAction}
+                onRejectRequest={(app, run) => setRejectTarget({ app, run })}
                 onDelete={(app) =>
                   setDeleteTarget({
                     id: app.id,
@@ -431,6 +468,30 @@ export default function ApplicationDetailPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <RejectApplicationDialog
+        open={Boolean(rejectTarget)}
+        onOpenChange={(next) => {
+          if (!next) setRejectTarget(null);
+        }}
+        subjectLabel={
+          rejectTarget
+            ? `${rejectTarget.app.customerDisplayName} · ${rejectTarget.app.application_number}`
+            : undefined
+        }
+        onConfirm={async ({ rejection_code, rejection_reason }) => {
+          const target = rejectTarget;
+          if (!target) return { ok: false, error: "No application selected." };
+          let result: { ok: boolean; error?: string } = { ok: false };
+          const ok = await runWorkflowAction(target.app.id, async () => {
+            const r = await target.run({ rejection_code, rejection_reason });
+            result = r;
+            return r;
+          });
+          if (ok) setSuccessMessage("Application rejected.");
+          return result;
+        }}
+      />
     </>
   );
 }

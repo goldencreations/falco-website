@@ -32,7 +32,7 @@ function LocationBlock({ title, address, pin, addressQuery }: LocationBlockProps
 
   return (
     <div className="overflow-hidden rounded-lg border bg-card">
-      <div className="flex flex-col gap-3 border-b bg-muted/30 px-3 py-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex flex-col gap-3 border-b bg-muted/30 px-3 py-3 md:flex-row md:items-start md:justify-between">
         <div className="min-w-0 flex-1 space-y-1">
           <p className="text-sm font-semibold text-foreground">{title}</p>
           {address ? (
@@ -46,14 +46,14 @@ function LocationBlock({ title, address, pin, addressQuery }: LocationBlockProps
             <p className="text-[10px] text-amber-800">Approximate — from registered address</p>
           ) : null}
         </div>
-        <div className="flex shrink-0 flex-wrap gap-1.5">
-          <Button type="button" variant="outline" size="sm" className="h-8 text-xs" asChild>
+        <div className="grid w-full shrink-0 grid-cols-1 gap-1.5 min-[380px]:grid-cols-2 md:w-auto">
+          <Button type="button" variant="outline" size="sm" className="h-8 justify-center text-xs" asChild>
             <a href={searchUrl} target="_blank" rel="noopener noreferrer">
               <ExternalLink className="mr-1 h-3 w-3" />
               Open map
             </a>
           </Button>
-          <Button type="button" variant="outline" size="sm" className="h-8 text-xs" asChild>
+          <Button type="button" variant="outline" size="sm" className="h-8 justify-center text-xs" asChild>
             <a href={directionsUrl} target="_blank" rel="noopener noreferrer">
               <Navigation className="mr-1 h-3 w-3" />
               Directions
@@ -61,7 +61,7 @@ function LocationBlock({ title, address, pin, addressQuery }: LocationBlockProps
           </Button>
         </div>
       </div>
-      <div className="aspect-[16/10] w-full bg-muted/20 sm:aspect-[2/1]">
+      <div className="aspect-[4/3] w-full bg-muted/20 sm:aspect-[16/10] xl:aspect-[2/1]">
         <iframe
           title={`${title} map`}
           src={embedUrl}
@@ -160,7 +160,7 @@ export function CustomerLocationCard({ customer }: Props) {
           <div
             className={cn(
               "grid w-full gap-3",
-              locationCount > 1 ? "md:grid-cols-2" : "max-w-3xl"
+              locationCount > 1 ? "xl:grid-cols-2" : "max-w-3xl"
             )}
           >
             {showHome ? (

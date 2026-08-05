@@ -393,7 +393,7 @@ export default function NewGroupPage() {
  <Card>
  <CardHeader>
  <CardTitle>Group details</CardTitle>
- <CardDescription>Required fields per the LMS groups API</CardDescription>
+ <CardDescription>Enter the required information for this group.</CardDescription>
  </CardHeader>
  <CardContent className="grid gap-4 sm:grid-cols-2">
  <div className="sm:col-span-2 space-y-2">

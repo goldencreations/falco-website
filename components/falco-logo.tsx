@@ -23,14 +23,14 @@ const wordmarkHeights = {
   sm: "h-8",
   md: "h-10",
   lg: "h-12",
-  xl: "h-16 sm:h-[4.5rem]",
+  xl: "h-[7.8rem] sm:h-[9.1rem]",
 } as const;
 
 const wordmarkDimensions = {
   sm: { width: 160, height: 48 },
   md: { width: 200, height: 56 },
   lg: { width: 220, height: 64 },
-  xl: { width: 320, height: 96 },
+  xl: { width: 520, height: 156 },
 } as const;
 
 export function FalcoLogo({

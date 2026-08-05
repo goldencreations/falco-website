@@ -46,6 +46,7 @@ No bearer token is accepted or required. The request body must include gateway c
 - `PAYMENT RECEIVED`: resolves `payment_references.reference` from `data.orderReference`, finds the customer’s payable loan, and posts payment through the same `PaymentService` used by `POST /payments`.
 - `PAYMENT FAILED`: marks webhook processed with failure metadata only.
 - `PAYOUT INITIATED`: updates `Disbursement.status` to `processing`; loan remains `pending_disbursement`.
+- `PAYOUT SUCCESS` / `PAYOUT COMPLETED`: activates the loan, marks the application disbursed, and materializes the repayment schedule.
 - `PAYOUT REVERSED` / `PAYOUT REFUNDED`: updates `Disbursement.status` to `reversed`; loan remains `pending_disbursement`.
 - `DEPOSIT RECEIVED`: records the event as processed without loan action.
 
@@ -60,4 +61,4 @@ No bearer token is accepted or required. The request body must include gateway c
 - Invalid signatures are rejected before logging.
 - Valid payloads are logged before dispatch.
 - Payment webhooks reuse manual payment allocation logic.
-- Payout webhooks update disbursement state without activating the loan.
+- Initiated/reversed payout webhooks update state without activation; successful/completed payout webhooks activate the loan exactly once.

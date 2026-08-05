@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ClipboardCheck, Loader2, RefreshCcw, Search } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { PendingReviewCard } from "@/components/applications/pending-review-card";
+import { RejectApplicationDialog } from "@/components/applications/reject-application-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -78,6 +79,7 @@ export default function PendingReviewPage() {
  const [actionError, setActionError] = useState<string | null>(null);
  const [successMessage, setSuccessMessage] = useState<string | null>(null);
  const [approvedAmounts, setApprovedAmounts] = useState<Record<string, string>>({});
+ const [rejectTarget, setRejectTarget] = useState<ApplicationViewRow | null>(null);
 
  const reload = useCallback(async () => {
  setListLoading(true);
@@ -146,7 +148,10 @@ export default function PendingReviewPage() {
  resolveApplicationApprovalSuccessMessage(
  {
  message: result.message,
- loanId: "loanId" in result ? result.loanId : undefined,
+ loanId:
+ "loanId" in result && typeof result.loanId === "string"
+ ? result.loanId
+ : undefined,
  data: "data" in result ? result.data : undefined,
  },
  { role: effectiveRole, permissions: user?.permissions ?? [] }
@@ -319,15 +324,7 @@ export default function PendingReviewPage() {
  : { ok: false, error: r.error };
  })
  }
- onReject={() =>
- void runAction(app.id, async () => {
- const r = await reviewApplicationApi(app.id, {
- decision: "reject",
- rejection_reason: `Rejected from pending review by ${user?.full_name ?? "Reviewer"}.`,
- });
- return r.ok ? { ok: true } : { ok: false, error: r.error };
- })
- }
+ onReject={() => setRejectTarget(app)}
  onQueueReview={() =>
  void runAction(app.id, async () => {
  const r = await assignApplicationOfficerApi(app.id, { workflow_stage: "manager" });
@@ -341,6 +338,28 @@ export default function PendingReviewPage() {
  )}
  </div>
  </main>
+ <RejectApplicationDialog
+ open={Boolean(rejectTarget)}
+ onOpenChange={(next) => {
+ if (!next) setRejectTarget(null);
+ }}
+ subjectLabel={rejectTarget ? `${rejectTarget.customerDisplayName} · ${rejectTarget.application_number}` : undefined}
+ onConfirm={async ({ rejection_code, rejection_reason }) => {
+ const app = rejectTarget;
+ if (!app) return { ok: false, error: "No application selected." };
+ let result: { ok: boolean; error?: string } = { ok: false };
+ await runAction(app.id, async () => {
+ const r = await reviewApplicationApi(app.id, {
+ decision: "reject",
+ rejection_code,
+ rejection_reason,
+ });
+ result = r.ok ? { ok: true } : { ok: false, error: r.error };
+ return result;
+ });
+ return result;
+ }}
+ />
  </>
  );
 }

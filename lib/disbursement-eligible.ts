@@ -2,9 +2,7 @@ import type { SessionUser } from "@/lib/auth";
 import { isBranchDataScoped, isSuperAdmin, resolvedBranchIdForListQuery } from "@/lib/authorization";
 import { adaptApiApplicationListRow, extractApplicationsList } from "@/lib/application-adapters";
 import {
- isApplicationReadyForDisbursement,
  isBlockedApplicationRawStatus,
- isFinalApprovalRawStatus,
  rawApplicationStatus,
 } from "@/lib/application-status";
 import {
@@ -77,7 +75,14 @@ function toEligibleApplicationRow(app: AppRow, linkedLoan?: EligibleLoanRow): El
  const loanId = linkedLoan?.id ?? app.loan_id;
  const hasLoan = Boolean(loanId);
  const isApproved =
- app.status === "approved" || raw === "approved" || raw === "pending_approval";
+  app.status === "approved" || raw === "approved" || raw === "pending_approval";
+ /** Manager can approve, but only super-admin final approval creates the loan for disbursement. */
+ const needsFinalApproval = isApproved && !hasLoan;
+ const pastFinalApproval =
+  raw === "pending_disbursement" ||
+  raw === "pending_disbursal" ||
+  raw === "awaiting_disbursement" ||
+  app.status === "pending_disbursement";
  return {
  id: app.id,
  application_number: app.application_number,
@@ -88,9 +93,9 @@ function toEligibleApplicationRow(app: AppRow, linkedLoan?: EligibleLoanRow): El
  branch_id: app.branch_id || linkedLoan?.branch_id || undefined,
  loan_id: loanId,
  loan_number: linkedLoan?.loan_number ?? app.loan_number,
- /** Approved applications are disbursable; loan is created on prepare if missing. */
- ready_for_disbursement: hasLoan || isApproved || isApplicationReadyForDisbursement(raw, app.status),
- needs_final_approval: false,
+ /** Ready only when a loan exists, or status is past final approval (not bare manager-approved). */
+ ready_for_disbursement: hasLoan || pastFinalApproval,
+ needs_final_approval: needsFinalApproval,
  };
 }
 

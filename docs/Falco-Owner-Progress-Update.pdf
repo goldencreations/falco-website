@@ -1,0 +1,1222 @@
+%PDF-1.3
+%ºß¬à
+3 0 obj
+<</Type /Page
+/Parent 1 0 R
+/Resources 2 0 R
+/MediaBox [0 0 595.2799999999999727 841.8899999999999864]
+/Contents 4 0 R
+>>
+endobj
+4 0 obj
+<<
+/Length 7473
+>>
+stream
+0.5670000000000001 w
+0 G
+0.06 0.46 0.43 rg
+0. 841.8899999999999864 595.2799999999999727 -79.3700787401574814 re
+f
+BT
+/F2 13 Tf
+14.9499999999999993 TL
+1. g
+45.354330708661422 810.7088976377953031 Td
+(Falco Financial Services) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+1. g
+45.354330708661422 793.7010236220472734 Td
+(Loan Management System · Progress update for leadership) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+1. g
+45.354330708661422 779.5277952755905062 Td
+(United Republic of Tanzania) Tj
+ET
+BT
+/F1 7 Tf
+8.0499999999999989 TL
+1. g
+510.5156692913385541 810.7088976377953031 Td
+(27 July 2026) Tj
+ET
+BT
+/F2 18 Tf
+20.6999999999999993 TL
+0.024 0.373 0.275 rg
+45.354330708661422 728.5041732283464171 Td
+(What we have completed) Tj
+ET
+BT
+/F1 11 Tf
+12.6499999999999986 TL
+0.353 g
+45.354330708661422 705.8270078740157487 Td
+(A plain-language update on Falco system improvements) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.11 g
+45.354330708661422 677.480551181102328 Td
+(Dear Falco leadership,) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.11 g
+45.354330708661422 654.8033858267716596 Td
+(This note explains the improvements already delivered in the Falco Loan Management System, based on the requested) Tj
+T* (system changes document. It is written for business owners and managers — not for software engineers.) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.11 g
+45.354330708661422 615.1183464566928478 Td
+(In short: staff can now capture better customer and guarantor information, work faster with clearer screens and) Tj
+T* (downloads, and handle payments with fewer mistakes. Some larger reports and new finance modules still need backend) Tj
+T* (\(server\) support before they can go live.) Tj
+ET
+0.93 0.99 0.96 rg
+51.0236220472441033 549.9214960629921052 m
+544.2563779527558836 549.9214960629921052 l
+547.3874411014028283 549.9214960629921052 549.9256692913385223 547.3832678730564112 549.9256692913385223 544.2522047244093528 c
+549.9256692913385223 476.220708661417234 l
+549.9256692913385223 473.0896455127702893 546.7946061426914639 470.5514173228345953 544.2563779527558836 470.5514173228345953 c
+51.0236220472441033 470.5514173228345953 l
+47.8925588985970805 470.5514173228345953 45.354330708661422 473.6824804714815969 45.354330708661422 476.220708661417234 c
+45.354330708661422 544.2522047244093528 l
+45.354330708661422 547.3832678730564112 48.4853938573084378 549.9214960629921052 51.0236220472441033 549.9214960629921052 c
+h
+f
+BT
+/F2 9 Tf
+10.3499999999999996 TL
+0.024 0.373 0.275 rg
+56.6929133858267775 530.0789763779526993 Td
+(At a glance) Tj
+ET
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.11 g
+56.6929133858267775 515.9057480314959321 Td
+(•  Customer & guarantor registration is stronger and more complete) Tj
+ET
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.11 g
+56.6929133858267775 504.0002362204724022 Td
+(•  Loan calculator can be downloaded as PDF or Excel) Tj
+ET
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.11 g
+56.6929133858267775 492.0947244094487587 Td
+(•  Payments are clearer \(labels explain Principal / Interest / Fees\)) Tj
+ET
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.11 g
+56.6929133858267775 480.1892125984251152 Td
+(•  Several leadership reports and new modules are still planned next) Tj
+ET
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.024 0.373 0.275 rg
+45.354330708661422 447.8742519685038701 Td
+(1. Customers & registration — clearer, fuller records) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.11 g
+45.354330708661422 430.8663779527558404 Td
+(When registering or editing a customer, staff can now:) Tj
+ET
+0. G
+0.5670000000000001 w
+0. G
+0.5670000000000001 w
+0.06 0.46 0.43 rg
+0.78 G
+0. w
+0.06 0.46 0.43 rg
+45.354330708661422 411.0238582677164914 136.0629921259842661 -24.523228346456694 re
+f
+BT
+/F2 9 Tf
+10.3499999999999996 TL
+1. g
+52.4409448818897701 396.2872440944881305 Td
+(Improvement) Tj
+ET
+0.06 0.46 0.43 rg
+0.78 G
+0. w
+0.06 0.46 0.43 rg
+181.4173228346456881 411.0238582677164914 368.5083464566928342 -24.523228346456694 re
+f
+BT
+/F2 9 Tf
+10.3499999999999996 TL
+1. g
+188.5039370078740433 396.2872440944881305 Td
+(What this means for Falco) Tj
+ET
+0. G
+0.5670000000000001 w
+0.93 0.99 0.96 rg
+0.78 G
+0.2834645669291339 w
+0.93 0.99 0.96 rg
+45.354330708661422 386.5006299212597582 136.0629921259842661 -33.7232283464567004 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.11 g
+52.4409448818897701 372.1890157480314656 Td
+(Larger passport / profile) Tj
+T* (photo) Tj
+ET
+1. g
+0.78 G
+0.2834645669291339 w
+1. g
+181.4173228346456881 386.5006299212597582 368.5083464566928342 -33.7232283464567004 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.11 g
+188.5039370078740433 372.1890157480314656 Td
+(Customer photos are bigger and easier to recognise on the profile screen — less need to) Tj
+T* (zoom in.) Tj
+ET
+0.93 0.99 0.96 rg
+0.78 G
+0.2834645669291339 w
+0.93 0.99 0.96 rg
+45.354330708661422 352.7774015748030934 136.0629921259842661 -33.7232283464567004 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.11 g
+52.4409448818897701 338.4657874015748007 Td
+(Several phone numbers) Tj
+ET
+1. g
+0.78 G
+0.2834645669291339 w
+1. g
+181.4173228346456881 352.7774015748030934 368.5083464566928342 -33.7232283464567004 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.11 g
+188.5039370078740433 338.4657874015748007 Td
+(A customer can have many alternative numbers \(not only one or two\), so officers can still) Tj
+T* (reach them.) Tj
+ET
+0.93 0.99 0.96 rg
+0.78 G
+0.2834645669291339 w
+0.93 0.99 0.96 rg
+45.354330708661422 319.0541732283464285 136.0629921259842661 -23.9482283464566947 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.11 g
+52.4409448818897701 304.7425590551181358 Td
+(Different ID types) Tj
+ET
+1. g
+0.78 G
+0.2834645669291339 w
+1. g
+181.4173228346456881 319.0541732283464285 368.5083464566928342 -23.9482283464566947 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.11 g
+188.5039370078740433 304.7425590551181358 Td
+(Staff can choose National ID, voter ID, driving licence, or passport — not only National ID.) Tj
+ET
+0.93 0.99 0.96 rg
+0.78 G
+0.2834645669291339 w
+0.93 0.99 0.96 rg
+45.354330708661422 295.1059448818897408 136.0629921259842661 -23.9482283464566947 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.11 g
+52.4409448818897701 280.7943307086613913 Td
+(Map location tools) Tj
+ET
+1. g
+0.78 G
+0.2834645669291339 w
+1. g
+181.4173228346456881 295.1059448818897408 368.5083464566928342 -23.9482283464566947 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.11 g
+188.5039370078740433 280.7943307086613913 Td
+(Staff can place the customer on a map or search an area, instead of typing coordinates only.) Tj
+ET
+0.93 0.99 0.96 rg
+0.78 G
+0.2834645669291339 w
+0.93 0.99 0.96 rg
+45.354330708661422 271.1577165354330532 136.0629921259842661 -23.9482283464566947 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.11 g
+52.4409448818897701 256.8461023622047605 Td
+(Faster photo loading) Tj
+ET
+1. g
+0.78 G
+0.2834645669291339 w
+1. g
+181.4173228346456881 271.1577165354330532 368.5083464566928342 -23.9482283464566947 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.11 g
+188.5039370078740433 256.8461023622047605 Td
+(Photos open more smoothly using a quick preview, so screens feel snappier.) Tj
+ET
+0. G
+0.5670000000000001 w
+0.78 G
+0. w
+0. G
+0.5670000000000001 w
+0. G
+0.5670000000000001 w
+0.06 0.46 0.43 RG
+0.9921259842519685 w
+45.354330708661422 45.354330708661422 m
+549.9256692913385223 45.354330708661422 l
+S
+BT
+/F1 7 Tf
+8.0499999999999989 TL
+0.431 g
+45.354330708661422 34.0157480314960594 Td
+(Prepared for Falco system owner · Non-technical summary) Tj
+ET
+BT
+/F1 7 Tf
+8.0499999999999989 TL
+0.431 g
+514.3656692913385768 34.0157480314960594 Td
+(Page 1 of 3) Tj
+ET
+endstream
+endobj
+5 0 obj
+<</Type /Page
+/Parent 1 0 R
+/Resources 2 0 R
+/MediaBox [0 0 595.2799999999999727 841.8899999999999864]
+/Contents 6 0 R
+>>
+endobj
+6 0 obj
+<<
+/Length 9274
+>>
+stream
+0.5670000000000001 w
+0. G
+0.06 0.46 0.43 rg
+0. 841.8899999999999864 595.2799999999999727 -79.3700787401574814 re
+f
+BT
+/F2 13 Tf
+14.9499999999999993 TL
+1. g
+45.354330708661422 810.7088976377953031 Td
+(Falco Financial Services) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+1. g
+45.354330708661422 793.7010236220472734 Td
+(Loan Management System · Progress update for leadership) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+1. g
+45.354330708661422 779.5277952755905062 Td
+(United Republic of Tanzania) Tj
+ET
+BT
+/F1 7 Tf
+8.0499999999999989 TL
+1. g
+498.9656692913385427 810.7088976377953031 Td
+(Progress update) Tj
+ET
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.024 0.373 0.275 rg
+45.354330708661422 734.1734645669291695 Td
+(2. Guarantors — more complete protection for each loan) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.11 g
+45.354330708661422 717.1655905511811397 Td
+(Guarantors are people who stand behind a borrower. The system now captures more of what the business asked for:) Tj
+ET
+0. G
+0.5670000000000001 w
+0. G
+0.5670000000000001 w
+0.06 0.46 0.43 rg
+0.78 G
+0. w
+0.06 0.46 0.43 rg
+45.354330708661422 697.3230708661417339 136.0629921259842661 -24.523228346456694 re
+f
+BT
+/F2 9 Tf
+10.3499999999999996 TL
+1. g
+52.4409448818897701 682.5864566929133161 Td
+(Improvement) Tj
+ET
+0.06 0.46 0.43 rg
+0.78 G
+0. w
+0.06 0.46 0.43 rg
+181.4173228346456881 697.3230708661417339 368.5083464566928342 -24.523228346456694 re
+f
+BT
+/F2 9 Tf
+10.3499999999999996 TL
+1. g
+188.5039370078740433 682.5864566929133161 Td
+(What this means for Falco) Tj
+ET
+0. G
+0.5670000000000001 w
+0.93 0.99 0.96 rg
+0.78 G
+0.2834645669291339 w
+0.93 0.99 0.96 rg
+45.354330708661422 672.7998425196849439 136.0629921259842661 -33.7232283464567004 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.11 g
+52.4409448818897701 658.4882283464567081 Td
+(Passport-style photo) Tj
+ET
+1. g
+0.78 G
+0.2834645669291339 w
+1. g
+181.4173228346456881 672.7998425196849439 368.5083464566928342 -33.7232283464567004 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.11 g
+188.5039370078740433 658.4882283464567081 Td
+(Each guarantor has a circular photo upload, same idea as a customer passport photo — easy) Tj
+T* (to recognise later.) Tj
+ET
+0.93 0.99 0.96 rg
+0.78 G
+0.2834645669291339 w
+0.93 0.99 0.96 rg
+45.354330708661422 639.0766141732283359 136.0629921259842661 -23.9482283464566947 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.11 g
+52.4409448818897701 624.7649999999999864 Td
+(Sex / gender recorded) Tj
+ET
+1. g
+0.78 G
+0.2834645669291339 w
+1. g
+181.4173228346456881 639.0766141732283359 368.5083464566928342 -23.9482283464566947 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.11 g
+188.5039370078740433 624.7649999999999864 Td
+(Guarantor sex is captured as part of registration.) Tj
+ET
+0.93 0.99 0.96 rg
+0.78 G
+0.2834645669291339 w
+0.93 0.99 0.96 rg
+45.354330708661422 615.1283858267715914 136.0629921259842661 -23.9482283464566947 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.11 g
+52.4409448818897701 600.8167716535433556 Td
+(More than one guarantor) Tj
+ET
+1. g
+0.78 G
+0.2834645669291339 w
+1. g
+181.4173228346456881 615.1283858267715914 368.5083464566928342 -23.9482283464566947 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.11 g
+188.5039370078740433 600.8167716535433556 Td
+(Staff are no longer limited to a single guarantor — they can add as many as needed.) Tj
+ET
+0.93 0.99 0.96 rg
+0.78 G
+0.2834645669291339 w
+0.93 0.99 0.96 rg
+45.354330708661422 591.1801574803149606 136.0629921259842661 -23.9482283464566947 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.11 g
+52.4409448818897701 576.8685433070866111 Td
+(Guarantor collateral photos) Tj
+ET
+1. g
+0.78 G
+0.2834645669291339 w
+1. g
+181.4173228346456881 591.1801574803149606 368.5083464566928342 -23.9482283464566947 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.11 g
+188.5039370078740433 576.8685433070866111 Td
+(Photos of items pledged by a guarantor can be uploaded freely \(no tight limit\).) Tj
+ET
+0. G
+0.5670000000000001 w
+0.78 G
+0. w
+0. G
+0.5670000000000001 w
+0. G
+0.5670000000000001 w
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.024 0.373 0.275 rg
+45.354330708661422 538.8854724409449091 Td
+(3. Groups \(Vikundi\) — fairer loan applications per member) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.11 g
+45.354330708661422 521.8775984251968794 Td
+(For group lending, each member can apply for their own loan amount through the group page. That matches real field) Tj
+T* (practice: members in the same group often need different loan sizes. Group outstanding totals are also easier to see.) Tj
+ET
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.024 0.373 0.275 rg
+45.354330708661422 470.8539763779527902 Td
+(4. Day-to-day tools staff use every day) Tj
+ET
+0. G
+0.5670000000000001 w
+0. G
+0.5670000000000001 w
+0.06 0.46 0.43 rg
+0.78 G
+0. w
+0.06 0.46 0.43 rg
+45.354330708661422 453.8461023622047037 136.0629921259842661 -24.523228346456694 re
+f
+BT
+/F2 9 Tf
+10.3499999999999996 TL
+1. g
+52.4409448818897701 439.1094881889763997 Td
+(Improvement) Tj
+ET
+0.06 0.46 0.43 rg
+0.78 G
+0. w
+0.06 0.46 0.43 rg
+181.4173228346456881 453.8461023622047037 368.5083464566928342 -24.523228346456694 re
+f
+BT
+/F2 9 Tf
+10.3499999999999996 TL
+1. g
+188.5039370078740433 439.1094881889763997 Td
+(What this means for Falco) Tj
+ET
+0. G
+0.5670000000000001 w
+0.93 0.99 0.96 rg
+0.78 G
+0.2834645669291339 w
+0.93 0.99 0.96 rg
+45.354330708661422 429.3228740157480274 136.0629921259842661 -33.7232283464567004 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.11 g
+52.4409448818897701 415.0112598425197348 Td
+(Loan calculator downloads) Tj
+ET
+1. g
+0.78 G
+0.2834645669291339 w
+1. g
+181.4173228346456881 429.3228740157480274 368.5083464566928342 -33.7232283464567004 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.11 g
+188.5039370078740433 415.0112598425197348 Td
+(After calculating a loan, staff can download a PDF or Excel file of the result and repayment) Tj
+T* (schedule — useful for printing, sharing, or filing.) Tj
+ET
+0.93 0.99 0.96 rg
+0.78 G
+0.2834645669291339 w
+0.93 0.99 0.96 rg
+45.354330708661422 395.5996456692913625 136.0629921259842661 -33.7232283464567004 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.11 g
+52.4409448818897701 381.288031496063013 Td
+(Clearer payment breakdown) Tj
+ET
+1. g
+0.78 G
+0.2834645669291339 w
+1. g
+181.4173228346456881 395.5996456692913625 368.5083464566928342 -33.7232283464567004 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.11 g
+188.5039370078740433 381.288031496063013 Td
+(On the payments screen, short codes P, I, and F show a tip when you hover: Principal,) Tj
+T* (Interest, and Fees. New staff understand allocations faster.) Tj
+ET
+0.93 0.99 0.96 rg
+0.78 G
+0.2834645669291339 w
+0.93 0.99 0.96 rg
+45.354330708661422 361.8764173228346976 136.0629921259842661 -23.9482283464566947 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.11 g
+52.4409448818897701 347.5648031496063481 Td
+(Safer payment reversal) Tj
+ET
+1. g
+0.78 G
+0.2834645669291339 w
+1. g
+181.4173228346456881 361.8764173228346976 368.5083464566928342 -23.9482283464566947 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.11 g
+188.5039370078740433 347.5648031496063481 Td
+(Reversing a payment asks for confirmation and a reason, reducing accidental reversals.) Tj
+ET
+0.93 0.99 0.96 rg
+0.78 G
+0.2834645669291339 w
+0.93 0.99 0.96 rg
+45.354330708661422 337.92818897637801 136.0629921259842661 -33.7232283464567004 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.11 g
+52.4409448818897701 323.6165748031496605 Td
+(Lead tracking basics) Tj
+ET
+1. g
+0.78 G
+0.2834645669291339 w
+1. g
+181.4173228346456881 337.92818897637801 368.5083464566928342 -33.7232283464567004 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.11 g
+188.5039370078740433 323.6165748031496605 Td
+(Lead reports can show gender and which staff member added the lead — helpful for) Tj
+T* (performance follow-up.) Tj
+ET
+0.93 0.99 0.96 rg
+0.78 G
+0.2834645669291339 w
+0.93 0.99 0.96 rg
+45.354330708661422 304.2049606299213451 136.0629921259842661 -23.9482283464566947 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.11 g
+52.4409448818897701 289.8933464566930525 Td
+(Portfolio risk ageing) Tj
+ET
+1. g
+0.78 G
+0.2834645669291339 w
+1. g
+181.4173228346456881 304.2049606299213451 368.5083464566928342 -23.9482283464566947 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.11 g
+188.5039370078740433 289.8933464566930525 Td
+(PAR / ageing views help management see how late loans are distributed by days overdue.) Tj
+ET
+0.93 0.99 0.96 rg
+0.78 G
+0.2834645669291339 w
+0.93 0.99 0.96 rg
+45.354330708661422 280.2567322834646575 136.0629921259842661 -33.7232283464567004 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.11 g
+52.4409448818897701 265.945118110236308 Td
+(Loan progress bars) Tj
+ET
+1. g
+0.78 G
+0.2834645669291339 w
+1. g
+181.4173228346456881 280.2567322834646575 368.5083464566928342 -33.7232283464567004 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.11 g
+188.5039370078740433 265.945118110236308 Td
+(Active loans show a visual progress bar for how much has been paid, not only a percentage in) Tj
+T* (text.) Tj
+ET
+0. G
+0.5670000000000001 w
+0.78 G
+0. w
+0. G
+0.5670000000000001 w
+0. G
+0.5670000000000001 w
+0.06 0.46 0.43 RG
+0.9921259842519685 w
+45.354330708661422 45.354330708661422 m
+549.9256692913385223 45.354330708661422 l
+S
+BT
+/F1 7 Tf
+8.0499999999999989 TL
+0.431 g
+45.354330708661422 34.0157480314960594 Td
+(Prepared for Falco system owner · Non-technical summary) Tj
+ET
+BT
+/F1 7 Tf
+8.0499999999999989 TL
+0.431 g
+514.3656692913385768 34.0157480314960594 Td
+(Page 2 of 3) Tj
+ET
+endstream
+endobj
+7 0 obj
+<</Type /Page
+/Parent 1 0 R
+/Resources 2 0 R
+/MediaBox [0 0 595.2799999999999727 841.8899999999999864]
+/Contents 8 0 R
+>>
+endobj
+8 0 obj
+<<
+/Length 4894
+>>
+stream
+0.5670000000000001 w
+0. G
+0.06 0.46 0.43 rg
+0. 841.8899999999999864 595.2799999999999727 -79.3700787401574814 re
+f
+BT
+/F2 13 Tf
+14.9499999999999993 TL
+1. g
+45.354330708661422 810.7088976377953031 Td
+(Falco Financial Services) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+1. g
+45.354330708661422 793.7010236220472734 Td
+(Loan Management System · Progress update for leadership) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+1. g
+45.354330708661422 779.5277952755905062 Td
+(United Republic of Tanzania) Tj
+ET
+BT
+/F1 7 Tf
+8.0499999999999989 TL
+1. g
+498.9656692913385427 810.7088976377953031 Td
+(Progress update) Tj
+ET
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.024 0.373 0.275 rg
+45.354330708661422 734.1734645669291695 Td
+(5. Business value in simple terms) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.11 g
+45.354330708661422 717.1655905511811397 Td
+(These changes help Falco in three practical ways:) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.11 g
+45.354330708661422 694.4884251968503577 Td
+(Better information — Officers capture phones, IDs, guarantor photos, and collateral evidence that credit and collections) Tj
+T* (teams need later.) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.11 g
+45.354330708661422 657.6380314960629221 Td
+(Fewer mistakes — Clearer payment labels, confirmation before reversing money, and downloadable calculator results) Tj
+T* (reduce confusion.) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.11 g
+45.354330708661422 620.7876377952754865 Td
+(Faster fieldwork — Larger photos, quicker image loading, and group member loan apply make daily registration and) Tj
+T* (group work smoother.) Tj
+ET
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.024 0.373 0.275 rg
+45.354330708661422 564.0947244094487587 Td
+(6. What is still coming next) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.11 g
+45.354330708661422 547.086850393700729 Td
+(Some requests from the original improvement list are not finished yet. Many of those need new work on the system’s) Tj
+T* (server side \(the “backend”\) before the screens can show them. Important examples:) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.11 g
+45.354330708661422 510.2364566929133503 Td
+(•  Advanced lead performance dashboards \(conversion rates, stale leads, lost-lead reasons\)) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.11 g
+45.354330708661422 491.8112598425196325 Td
+(•  Customer demographic reports \(by sex, age group, region, economic activity\)) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.11 g
+45.354330708661422 473.3860629921259147 Td
+(•  Branch targets, cash/vault tracking, and disbursement turnaround-time reports) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.11 g
+45.354330708661422 454.9608661417322537 Td
+(•  Group meeting attendance and group-level risk badges) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.11 g
+45.354330708661422 436.5356692913385359 Td
+(•  Importing ClickPesa / bank statements for reconciliation, and batch approve tools) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.11 g
+45.354330708661422 418.1104724409448181 Td
+(•  New modules for other income, expenses, and non-client payments) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.11 g
+45.354330708661422 382.6774015748030706 Td
+(A separate technical brief has already been prepared for the backend developer so those remaining items can be) Tj
+T* (scheduled in clear waves.) Tj
+ET
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.024 0.373 0.275 rg
+45.354330708661422 325.9844881889763428 Td
+(7. Closing note) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.11 g
+45.354330708661422 308.9766141732283131 Td
+(The system is already more useful for onboarding customers and guarantors, supporting group lending, explaining) Tj
+T* (payments, and sharing loan calculations. The next phase focuses on management reports, branch controls, and finance) Tj
+T* (modules that need deeper server support.) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.11 g
+45.354330708661422 252.2837007874014716 Td
+(If you would like a live walkthrough of the completed screens \(customer registration, guarantors, calculator download,) Tj
+T* (and payments\), the team can arrange a short demonstration.) Tj
+ET
+BT
+/F2 9 Tf
+10.3499999999999996 TL
+0.024 0.373 0.275 rg
+45.354330708661422 189.9214960629919915 Td
+(Prepared by the Falco LMS product team) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.353 g
+45.354330708661422 175.748267716535338 Td
+(27 July 2026) Tj
+ET
+BT
+/F1 7.5 Tf
+8.625 TL
+0.353 g
+45.354330708661422 153.0711023622046696 Td
+(Reference: FALCO SYSTEM CHANGES-IMPROVEMENTS.pdf · Owner-facing summary \(no coding detail\).) Tj
+ET
+0.06 0.46 0.43 RG
+0.9921259842519685 w
+45.354330708661422 45.354330708661422 m
+549.9256692913385223 45.354330708661422 l
+S
+BT
+/F1 7 Tf
+8.0499999999999989 TL
+0.431 g
+45.354330708661422 34.0157480314960594 Td
+(Prepared for Falco system owner · Non-technical summary) Tj
+ET
+BT
+/F1 7 Tf
+8.0499999999999989 TL
+0.431 g
+514.3656692913385768 34.0157480314960594 Td
+(Page 3 of 3) Tj
+ET
+endstream
+endobj
+1 0 obj
+<</Type /Pages
+/Kids [3 0 R 5 0 R 7 0 R ]
+/Count 3
+>>
+endobj
+9 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+10 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+11 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-Oblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+12 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-BoldOblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+13 0 obj
+<<
+/Type /Font
+/BaseFont /Courier
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+14 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+15 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-Oblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+16 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-BoldOblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+17 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Roman
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+18 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+19 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Italic
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+20 0 obj
+<<
+/Type /Font
+/BaseFont /Times-BoldItalic
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+21 0 obj
+<<
+/Type /Font
+/BaseFont /ZapfDingbats
+/Subtype /Type1
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+22 0 obj
+<<
+/Type /Font
+/BaseFont /Symbol
+/Subtype /Type1
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+2 0 obj
+<<
+/ProcSet [/PDF /Text /ImageB /ImageC /ImageI]
+/Font <<
+/F1 9 0 R
+/F2 10 0 R
+/F3 11 0 R
+/F4 12 0 R
+/F5 13 0 R
+/F6 14 0 R
+/F7 15 0 R
+/F8 16 0 R
+/F9 17 0 R
+/F10 18 0 R
+/F11 19 0 R
+/F12 20 0 R
+/F13 21 0 R
+/F14 22 0 R
+>>
+/XObject <<
+>>
+>>
+endobj
+23 0 obj
+<<
+/Producer (jsPDF 4.2.1)
+/CreationDate (D:20260727112238+03'00')
+>>
+endobj
+24 0 obj
+<<
+/Type /Catalog
+/Pages 1 0 R
+/OpenAction [3 0 R /FitH null]
+/PageLayout /OneColumn
+>>
+endobj
+xref
+0 25
+0000000000 65535 f 
+0000022223 00000 n 
+0000024056 00000 n 
+0000000015 00000 n 
+0000000152 00000 n 
+0000007677 00000 n 
+0000007814 00000 n 
+0000017140 00000 n 
+0000017277 00000 n 
+0000022292 00000 n 
+0000022417 00000 n 
+0000022548 00000 n 
+0000022682 00000 n 
+0000022820 00000 n 
+0000022944 00000 n 
+0000023073 00000 n 
+0000023205 00000 n 
+0000023341 00000 n 
+0000023469 00000 n 
+0000023596 00000 n 
+0000023725 00000 n 
+0000023858 00000 n 
+0000023960 00000 n 
+0000024308 00000 n 
+0000024394 00000 n 
+trailer
+<<
+/Size 25
+/Root 24 0 R
+/Info 23 0 R
+/ID [ <3F1C64223EF8AB1C041F8B2CB11F24B2> <3F1C64223EF8AB1C041F8B2CB11F24B2> ]
+>>
+startxref
+24498
+%%EOF

@@ -1,0 +1,1152 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ArrowDownCircle,
+  ArrowUpCircle,
+  Banknote,
+  Check,
+  CheckCircle2,
+  ChevronsUpDown,
+  Filter,
+  Loader2,
+  Plus,
+  RefreshCcw,
+  RotateCcw,
+  ShieldAlert,
+  Sparkles,
+  Wallet,
+  X,
+} from "lucide-react";
+import { DashboardHeader } from "@/components/dashboard-header";
+import { useOptionalBranchAssignment } from "@/components/branch-assignment-context";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
+import { extractCustomersList } from "@/lib/customer-adapters";
+import {
+  financialEntryCategoryLabel,
+  financialEntryIsReversible,
+  financialEntryNeedsClassification,
+  financialEntrySourceLabel,
+} from "@/lib/financial-entry-adapters";
+import { formatApiResponseError } from "@/lib/falco-api";
+import { forceCachedReload } from "@/lib/client-fetch-cache";
+import { formatCurrency, formatDate } from "@/lib/formatters";
+import { cn } from "@/lib/utils";
+import { parseJsonResponse } from "@/lib/parse-json-response";
+import { isBranchScopedStaffRole } from "@/lib/role-portal";
+import type { CashbookSummary, Customer, FinancialEntry, FinancialEntryDirection, FinancialEntrySource } from "@/lib/types";
+import { useSessionUser } from "@/lib/use-session-user";
+
+const MANUAL_CATEGORY_PRESETS = ["office_expense", "bank_deposit", "cash_transfer", "other"];
+const UNCLASSIFIED_QUEUE_CATEGORY = "unclassified_gateway_income";
+
+function todayInputDate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function directionBadge(direction: FinancialEntryDirection) {
+  if (direction === "in") {
+    return (
+      <Badge variant="default" className="gap-1 bg-accent text-accent-foreground">
+        <ArrowDownCircle className="h-3 w-3" />
+        Cash in
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="outline" className="gap-1 text-destructive">
+      <ArrowUpCircle className="h-3 w-3" />
+      Cash out
+    </Badge>
+  );
+}
+
+function sourceBadge(entry: FinancialEntry) {
+  if (financialEntryNeedsClassification(entry)) {
+    return (
+      <Badge variant="secondary" className="gap-1">
+        <Sparkles className="h-3 w-3" />
+        Unclassified · ClickPesa
+      </Badge>
+    );
+  }
+  return <Badge variant="outline">{financialEntrySourceLabel(entry.source)}</Badge>;
+}
+
+export default function CashbookPage() {
+  const { user, loaded: sessionLoaded } = useSessionUser();
+  const branchCtx = useOptionalBranchAssignment();
+  const branches = branchCtx?.branches ?? [];
+  const isScopedRole = isBranchScopedStaffRole(user?.role);
+  const scopedBranchId = isScopedRole && user?.branch_id?.trim() ? user.branch_id.trim() : null;
+
+  const [entries, setEntries] = useState<FinancialEntry[]>([]);
+  const [cashbook, setCashbook] = useState<CashbookSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [branchFilter, setBranchFilter] = useState("all");
+  const [directionFilter, setDirectionFilter] = useState<"all" | FinancialEntryDirection>("all");
+  const [sourceFilter, setSourceFilter] = useState<"all" | FinancialEntrySource>("all");
+  const [unclassifiedOnly, setUnclassifiedOnly] = useState(false);
+  const [fromDate, setFromDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return d.toISOString().slice(0, 10);
+  });
+  const [toDate, setToDate] = useState(todayInputDate);
+
+  const effectiveBranchId = scopedBranchId ?? (branchFilter !== "all" ? branchFilter : undefined);
+
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [createDirection, setCreateDirection] = useState<FinancialEntryDirection>("out");
+  const [createCategory, setCreateCategory] = useState("office_expense");
+  const [createAmount, setCreateAmount] = useState("");
+  const [createDate, setCreateDate] = useState(todayInputDate);
+  const [createNotes, setCreateNotes] = useState("");
+  const [createBranchId, setCreateBranchId] = useState<string>(scopedBranchId ?? "");
+  const [createLoading, setCreateLoading] = useState(false);
+
+  const [classifyEntry, setClassifyEntry] = useState<FinancialEntry | null>(null);
+  const [classifyBranchId, setClassifyBranchId] = useState("");
+  const [classifyCategory, setClassifyCategory] = useState("");
+  const [classifyIncomeType, setClassifyIncomeType] = useState("");
+  const [classifyBelongsToCustomer, setClassifyBelongsToCustomer] = useState(false);
+  const [classifySelectedCustomer, setClassifySelectedCustomer] = useState<Customer | null>(null);
+  const [classifyCustomerQuery, setClassifyCustomerQuery] = useState("");
+  const [classifyCustomerResults, setClassifyCustomerResults] = useState<Customer[]>([]);
+  const [classifyCustomerUsedGlobalFallback, setClassifyCustomerUsedGlobalFallback] = useState(false);
+  const [classifyCustomerSearching, setClassifyCustomerSearching] = useState(false);
+  const [classifyCustomerComboOpen, setClassifyCustomerComboOpen] = useState(false);
+  const [classifyReason, setClassifyNotes] = useState("");
+  const [classifyConfirming, setClassifyConfirming] = useState(false);
+  const [classifyLoading, setClassifyLoading] = useState(false);
+  const [classifyFieldErrors, setClassifyFieldErrors] = useState<Record<string, string>>({});
+  const classifySearchToken = useRef(0);
+
+  const [reverseEntry, setReverseEntry] = useState<FinancialEntry | null>(null);
+  const [reverseReason, setReverseReason] = useState("");
+  const [reverseLoading, setReverseLoading] = useState(false);
+
+  const canAccess = user?.role === "super_admin" || user?.role === "accountant";
+  const canManage = canAccess;
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams();
+      params.set("page_size", "200");
+      if (fromDate) params.set("from", fromDate);
+      if (toDate) params.set("to", toDate);
+      if (effectiveBranchId) params.set("branch_id", effectiveBranchId);
+
+      if (unclassifiedOnly) {
+        // The exact finance-queue query from the ClickPesa handoff spec: a successful gateway
+        // receipt the accountant hasn't classified yet — not a failed payment.
+        params.set("source", "clickpesa");
+        params.set("category", UNCLASSIFIED_QUEUE_CATEGORY);
+        params.set("status", "posted");
+      } else {
+        if (directionFilter !== "all") params.set("direction", directionFilter);
+        if (sourceFilter !== "all") params.set("source", sourceFilter);
+      }
+
+      const res = await fetch(`/api/financial-entries?${params.toString()}`, { credentials: "include" });
+      const { data } = await parseJsonResponse<{
+        entries?: FinancialEntry[];
+        data?: FinancialEntry[];
+        cashbook?: CashbookSummary | null;
+        message?: string;
+      }>(res);
+      if (!res.ok) {
+        if (res.status === 401) {
+          setError("Your session expired. Please sign in again and retry.");
+          setEntries([]);
+          setCashbook(null);
+          return;
+        }
+        throw new Error(formatApiResponseError(data, "Failed to load the cashbook"));
+      }
+      // The unclassified queue query is narrow enough that a backend not yet supporting the
+      // `unclassified_gateway_income`/`status` filters could echo back everything — belt-and-braces
+      // re-filter client-side so the toggle is trustworthy either way.
+      const rows = data?.entries ?? data?.data ?? [];
+      setEntries(unclassifiedOnly ? rows.filter(financialEntryNeedsClassification) : rows);
+      setCashbook(data?.cashbook ?? null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load the cashbook");
+      setEntries([]);
+      setCashbook(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [fromDate, toDate, directionFilter, sourceFilter, unclassifiedOnly, effectiveBranchId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const unclassifiedCount = useMemo(
+    () => entries.filter(financialEntryNeedsClassification).length,
+    [entries]
+  );
+
+  const handleCreate = async () => {
+    const amount = Number(createAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError("Enter a valid amount greater than zero.");
+      return;
+    }
+    setCreateLoading(true);
+    setError(null);
+    try {
+      const body: Record<string, unknown> = {
+        direction: createDirection,
+        category: createCategory,
+        amount,
+        transaction_date: createDate,
+        notes: createNotes.trim() || undefined,
+      };
+      if (createBranchId) body.branch_id = createBranchId;
+
+      const res = await fetch("/api/financial-entries", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const { data } = await parseJsonResponse<Record<string, unknown>>(res);
+      if (!res.ok) {
+        if (res.status === 401) {
+          setError("Your session expired. Please sign in again and retry.");
+          return;
+        }
+        setError(formatApiResponseError(data, "Failed to record the entry"));
+        return;
+      }
+      setIsCreateOpen(false);
+      setCreateAmount("");
+      setCreateNotes("");
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to record the entry");
+    } finally {
+      setCreateLoading(false);
+    }
+  };
+
+  const openClassify = (entry: FinancialEntry) => {
+    setClassifyEntry(entry);
+    setClassifyBranchId(scopedBranchId ?? entry.branch_id ?? "");
+    setClassifyCategory("");
+    setClassifyIncomeType("");
+    const hasCustomer = Boolean(entry.customer_id?.trim());
+    setClassifyBelongsToCustomer(hasCustomer);
+    setClassifySelectedCustomer(
+      hasCustomer ? { id: entry.customer_id! } as Customer : null
+    );
+    setClassifyCustomerQuery(entry.customer_name ?? "");
+    setClassifyCustomerResults([]);
+    setClassifyCustomerUsedGlobalFallback(false);
+    setClassifyNotes("");
+    setClassifyConfirming(false);
+    setClassifyFieldErrors({});
+  };
+
+  /** Maps `PATCH .../classification` validation `details[]` onto the form fields that produced them. */
+  const applyClassifyFieldErrors = (details: unknown): boolean => {
+    if (!Array.isArray(details)) return false;
+    const map: Record<string, string> = {};
+    for (const d of details as { field?: string; message?: string }[]) {
+      const field = (d.field ?? "").toLowerCase();
+      const message = d.message ?? "";
+      if (!message) continue;
+      if (field.includes("branch")) map.branch = message;
+      else if (field.includes("customer")) map.customer = message;
+      else if (field.includes("categor")) map.category = message;
+      else if (field.includes("entry_type") || field.includes("income")) map.entry_type = message;
+      else if (field.includes("note") || field.includes("description") || field.includes("reason")) map.reason = message;
+    }
+    if (Object.keys(map).length === 0) return false;
+    setClassifyFieldErrors(map);
+    return true;
+  };
+
+  const classifyIsValid = Boolean(
+    classifyBranchId.trim() &&
+      classifyCategory.trim() &&
+      classifyReason.trim() &&
+      (!classifyBelongsToCustomer || classifySelectedCustomer?.id)
+  );
+
+  const handleClassify = async () => {
+    if (!classifyEntry || !classifyIsValid) return;
+    setClassifyLoading(true);
+    setError(null);
+    setClassifyFieldErrors({});
+    try {
+      const body: Record<string, unknown> = {
+        branch_id: classifyBranchId.trim(),
+        category: classifyCategory.trim(),
+        entry_type: classifyIncomeType.trim() || undefined,
+        customer_id: classifyBelongsToCustomer ? classifySelectedCustomer?.id : undefined,
+        classification_notes: classifyReason.trim(),
+      };
+      const res = await fetch(
+        `/api/financial-entries/${encodeURIComponent(classifyEntry.id)}/classification`,
+        {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }
+      );
+      const { data } = await parseJsonResponse<Record<string, unknown>>(res);
+      if (!res.ok) {
+        if (res.status === 401) {
+          setError("Your session expired. Please sign in again and retry.");
+          return;
+        }
+        if (res.status === 404) {
+          setError("This receipt no longer exists — refreshing the list.");
+          setClassifyEntry(null);
+          await load();
+          return;
+        }
+        if (res.status === 422 && applyClassifyFieldErrors((data as { details?: unknown })?.details)) {
+          setClassifyConfirming(false);
+          return;
+        }
+        setError(formatApiResponseError(data, "Failed to classify the entry"));
+        return;
+      }
+      setClassifyEntry(null);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to classify the entry");
+    } finally {
+      setClassifyLoading(false);
+    }
+  };
+
+  // Debounced customer search for the classify dialog's "belongs to a customer" combobox,
+  // scoped to the branch selected for this classification (per the handoff spec).
+  useEffect(() => {
+    if (!classifyBelongsToCustomer || !classifyCustomerComboOpen) return;
+    const token = ++classifySearchToken.current;
+    const timer = window.setTimeout(async () => {
+      setClassifyCustomerSearching(true);
+      try {
+        const loadCustomers = async (branchId?: string) => {
+          const params = new URLSearchParams();
+          if (classifyCustomerQuery.trim()) params.set("q", classifyCustomerQuery.trim());
+          if (branchId?.trim()) params.set("branch_id", branchId.trim());
+          params.set("page_size", "20");
+          const res = await fetch(`/api/customers?${params.toString()}`, { credentials: "include" });
+          const { data } = await parseJsonResponse<unknown>(res);
+          if (!res.ok) return [] as Customer[];
+          return extractCustomersList(data);
+        };
+
+        const scopedResults = await loadCustomers(classifyBranchId);
+        if (classifySearchToken.current !== token) return;
+        if (scopedResults.length > 0 || !classifyBranchId.trim()) {
+          setClassifyCustomerResults(scopedResults);
+          setClassifyCustomerUsedGlobalFallback(false);
+          return;
+        }
+
+        // Fallback: backend data can be linked to a different/missing branch id.
+        const globalResults = await loadCustomers();
+        if (classifySearchToken.current !== token) return;
+        setClassifyCustomerResults(globalResults);
+        setClassifyCustomerUsedGlobalFallback(globalResults.length > 0);
+      } catch {
+        if (classifySearchToken.current === token) {
+          setClassifyCustomerResults([]);
+          setClassifyCustomerUsedGlobalFallback(false);
+        }
+      } finally {
+        if (classifySearchToken.current === token) setClassifyCustomerSearching(false);
+      }
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [classifyBelongsToCustomer, classifyCustomerComboOpen, classifyCustomerQuery, classifyBranchId]);
+
+  const handleReverse = async () => {
+    if (!reverseEntry || !reverseReason.trim()) return;
+    setReverseLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/financial-entries/${encodeURIComponent(reverseEntry.id)}/reverse`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: reverseReason.trim() }),
+      });
+      const { data } = await parseJsonResponse<Record<string, unknown>>(res);
+      if (!res.ok) {
+        if (res.status === 401) {
+          setError("Your session expired. Please sign in again and retry.");
+          return;
+        }
+        if (res.status === 404) {
+          setError("This entry no longer exists — refreshing the list.");
+          setReverseEntry(null);
+          await load();
+          return;
+        }
+        setError(formatApiResponseError(data, "Failed to reverse the entry"));
+        return;
+      }
+      setReverseEntry(null);
+      setReverseReason("");
+      await load();
+    } finally {
+      setReverseLoading(false);
+    }
+  };
+
+  if (!sessionLoaded) {
+    return (
+      <>
+        <DashboardHeader title="Cashbook" description="Loading…" />
+        <main className="flex-1 p-4 lg:p-6">
+          <p className="text-sm text-muted-foreground">Loading session…</p>
+        </main>
+      </>
+    );
+  }
+
+  if (!canAccess) {
+    return (
+      <>
+        <DashboardHeader title="Cashbook" description="Accountant / super admin access only." />
+        <main className="flex-1 p-4 lg:p-6">
+          <Card className="mx-auto max-w-3xl border-destructive/30 bg-destructive/5">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-destructive">
+                <ShieldAlert className="h-5 w-5" />
+                Access denied
+              </CardTitle>
+              <CardDescription>
+                Only accountants and the super admin can view and manage the branch cashbook.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        </main>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <DashboardHeader
+        title="Cashbook"
+        description="Branch cashbook: manual entries, synced repayments, fees, and disbursements."
+      />
+      <main className="flex-1 overflow-auto p-4 lg:p-6">
+        <div className="mx-auto max-w-7xl space-y-6">
+          {error && (
+            <Card className="border-destructive/50 bg-destructive/5">
+              <CardContent className="py-3 text-sm text-destructive">{error}</CardContent>
+            </Card>
+          )}
+
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Opening Balance</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{formatCurrency(cashbook?.opening_balance ?? 0)}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Cash In</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-accent">{formatCurrency(cashbook?.cash_in ?? 0)}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Cash Out</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-destructive">{formatCurrency(cashbook?.cash_out ?? 0)}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Closing Balance</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-2 text-2xl font-bold">
+                  <Wallet className="h-5 w-5 text-primary" />
+                  {formatCurrency(cashbook?.closing_balance ?? 0)}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {unclassifiedCount > 0 && !unclassifiedOnly ? (
+            <Card className="border-amber-200 bg-amber-50">
+              <CardContent className="flex flex-wrap items-center gap-2 py-3 text-sm text-amber-900">
+                <Sparkles className="h-4 w-4 shrink-0" />
+                <span className="flex-1">
+                  {unclassifiedCount} unmatched ClickPesa receipt{unclassifiedCount === 1 ? "" : "s"} need
+                  {unclassifiedCount === 1 ? "s" : ""} classification before they post to a branch/customer.
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="border-amber-300 bg-white hover:bg-amber-100"
+                  onClick={() => setUnclassifiedOnly(true)}
+                >
+                  View queue
+                </Button>
+              </CardContent>
+            </Card>
+          ) : null}
+
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-1 flex-wrap items-center gap-3">
+              <Button
+                type="button"
+                size="sm"
+                variant={unclassifiedOnly ? "default" : "outline"}
+                className="gap-1.5"
+                onClick={() => setUnclassifiedOnly((v) => !v)}
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                Unclassified receipts
+              </Button>
+              <Input
+                type="date"
+                className="w-40"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+              />
+              <Input
+                type="date"
+                className="w-40"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+              />
+              <Select
+                value={directionFilter}
+                onValueChange={(v) => setDirectionFilter(v as "all" | FinancialEntryDirection)}
+                disabled={unclassifiedOnly}
+              >
+                <SelectTrigger className="w-40">
+                  <Filter className="mr-2 h-4 w-4" />
+                  <SelectValue placeholder="Direction" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All entries</SelectItem>
+                  <SelectItem value="in">Cash in</SelectItem>
+                  <SelectItem value="out">Cash out</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select
+                value={sourceFilter}
+                onValueChange={(v) => setSourceFilter(v as "all" | FinancialEntrySource)}
+                disabled={unclassifiedOnly}
+              >
+                <SelectTrigger className="w-40">
+                  <SelectValue placeholder="Source" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All sources</SelectItem>
+                  <SelectItem value="clickpesa">ClickPesa</SelectItem>
+                  <SelectItem value="manual">Manual</SelectItem>
+                  <SelectItem value="system">System</SelectItem>
+                </SelectContent>
+              </Select>
+              {!scopedBranchId && branches.length > 0 ? (
+                <Select value={branchFilter} onValueChange={setBranchFilter}>
+                  <SelectTrigger className="w-48">
+                    <SelectValue placeholder="Branch" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All branches</SelectItem>
+                    {branches.map((b) => (
+                      <SelectItem key={b.id} value={b.id}>
+                        {b.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : null}
+            </div>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={() => forceCachedReload(load)}>
+                <RefreshCcw className="mr-2 h-4 w-4" />
+                Refresh
+              </Button>
+              {canManage ? (
+                <Button type="button" onClick={() => setIsCreateOpen(true)}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  New Entry
+                </Button>
+              ) : null}
+            </div>
+          </div>
+
+          {loading ? (
+            <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              Loading cashbook…
+            </div>
+          ) : (
+            <Card className="overflow-hidden">
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Entry #</TableHead>
+                        <TableHead>Receipt ref</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Direction</TableHead>
+                        <TableHead>Category</TableHead>
+                        <TableHead>Source</TableHead>
+                        <TableHead>Branch / Customer</TableHead>
+                        <TableHead className="text-right">Amount</TableHead>
+                        <TableHead className="text-right">Running Balance</TableHead>
+                        {canManage ? <TableHead className="text-right">Action</TableHead> : null}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {entries.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={canManage ? 10 : 9} className="py-8 text-center text-muted-foreground">
+                            {unclassifiedOnly
+                              ? "No unclassified ClickPesa receipts in this range."
+                              : "No cashbook entries in this range"}
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        entries.map((entry) => (
+                          <TableRow key={entry.id} className={entry.is_reversed ? "opacity-60" : undefined}>
+                            <TableCell className="font-mono text-sm">{entry.entry_number}</TableCell>
+                            <TableCell className="font-mono text-xs text-muted-foreground">
+                              {entry.reference ?? "—"}
+                            </TableCell>
+                            <TableCell className="text-sm text-muted-foreground">
+                              {formatDate(entry.transaction_date)}
+                            </TableCell>
+                            <TableCell>{directionBadge(entry.direction)}</TableCell>
+                            <TableCell>
+                              <div className="flex flex-col">
+                                <span>{financialEntryCategoryLabel(entry.category)}</span>
+                                {entry.account_name ? (
+                                  <span className="text-xs text-muted-foreground">{entry.account_name}</span>
+                                ) : null}
+                                {entry.is_reversed ? (
+                                  <span className="text-xs text-destructive">Reversed</span>
+                                ) : null}
+                              </div>
+                            </TableCell>
+                            <TableCell>{sourceBadge(entry)}</TableCell>
+                            <TableCell className="text-sm">
+                              <div className="flex flex-col">
+                                <span>{entry.branch_name ?? "—"}</span>
+                                {entry.customer_name ? (
+                                  <span className="text-xs text-muted-foreground">{entry.customer_name}</span>
+                                ) : null}
+                              </div>
+                            </TableCell>
+                            <TableCell
+                              className={`text-right font-semibold ${
+                                entry.direction === "in" ? "text-accent" : "text-destructive"
+                              }`}
+                            >
+                              {entry.direction === "in" ? "+" : "-"}
+                              {formatCurrency(entry.amount)}
+                            </TableCell>
+                            <TableCell className="text-right font-mono text-sm">
+                              {formatCurrency(entry.running_balance)}
+                            </TableCell>
+                            {canManage ? (
+                              <TableCell className="text-right">
+                                {financialEntryNeedsClassification(entry) ? (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => openClassify(entry)}
+                                  >
+                                    <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
+                                    Classify
+                                  </Button>
+                                ) : financialEntryIsReversible(entry) ? (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    className="text-destructive hover:bg-destructive/10"
+                                    onClick={() => {
+                                      setReverseEntry(entry);
+                                      setReverseReason("");
+                                    }}
+                                  >
+                                    <RotateCcw className="mr-1 h-3.5 w-3.5" />
+                                    Reverse
+                                  </Button>
+                                ) : null}
+                              </TableCell>
+                            ) : null}
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      </main>
+
+      <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>New manual entry</DialogTitle>
+            <DialogDescription>
+              Record cash movement that isn&apos;t captured automatically (e.g. an office expense or a
+              bank deposit).
+            </DialogDescription>
+          </DialogHeader>
+          <FieldGroup className="gap-3 py-0">
+            <Field>
+              <FieldLabel>Direction</FieldLabel>
+              <Select
+                value={createDirection}
+                onValueChange={(v) => setCreateDirection(v as FinancialEntryDirection)}
+              >
+                <SelectTrigger className="h-9 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="in">Cash in</SelectItem>
+                  <SelectItem value="out">Cash out</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field>
+              <FieldLabel>Category</FieldLabel>
+              <Select value={createCategory} onValueChange={setCreateCategory}>
+                <SelectTrigger className="h-9 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {MANUAL_CATEGORY_PRESETS.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {financialEntryCategoryLabel(c)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field>
+              <FieldLabel>Amount (TZS)</FieldLabel>
+              <Input
+                type="number"
+                className="h-9"
+                placeholder="Enter amount"
+                value={createAmount}
+                onChange={(e) => setCreateAmount(e.target.value)}
+              />
+            </Field>
+            <Field>
+              <FieldLabel>Transaction date</FieldLabel>
+              <Input
+                type="date"
+                className="h-9"
+                value={createDate}
+                onChange={(e) => setCreateDate(e.target.value)}
+              />
+            </Field>
+            {!scopedBranchId && branches.length > 0 ? (
+              <Field>
+                <FieldLabel>Branch</FieldLabel>
+                <Select value={createBranchId} onValueChange={setCreateBranchId}>
+                  <SelectTrigger className="h-9 w-full">
+                    <SelectValue placeholder="Select branch" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {branches.map((b) => (
+                      <SelectItem key={b.id} value={b.id}>
+                        {b.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            ) : null}
+            <Field>
+              <FieldLabel>Notes (optional)</FieldLabel>
+              <Textarea
+                value={createNotes}
+                onChange={(e) => setCreateNotes(e.target.value)}
+                placeholder="What is this entry for?"
+              />
+            </Field>
+          </FieldGroup>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setIsCreateOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void handleCreate()}
+              disabled={createLoading || !createAmount || !createCategory}
+            >
+              {createLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Banknote className="mr-2 h-4 w-4" />}
+              Save entry
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(classifyEntry)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setClassifyEntry(null);
+            setClassifyConfirming(false);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{classifyConfirming ? "Confirm classification" : "Classify receipt"}</DialogTitle>
+            <DialogDescription>
+              {classifyEntry
+                ? `Attach a branch, category, and evidence to ${classifyEntry.entry_number} (${formatCurrency(
+                    classifyEntry.amount
+                  )}). Verify it against ClickPesa and customer records first.`
+                : "Attach a branch, category, and evidence to this receipt."}
+            </DialogDescription>
+          </DialogHeader>
+
+          {classifyConfirming && classifyEntry ? (
+            <div className="space-y-3">
+              <div className="space-y-2 rounded-lg border bg-muted/30 p-3 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Amount</span>
+                  <span className="font-semibold">{formatCurrency(classifyEntry.amount)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Provider receipt</span>
+                  <span className="font-mono">{classifyEntry.reference ?? "—"}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Branch</span>
+                  <span>{branches.find((b) => b.id === classifyBranchId)?.name ?? classifyBranchId}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Category</span>
+                  <span>{financialEntryCategoryLabel(classifyCategory)}</span>
+                </div>
+                {classifyBelongsToCustomer ? (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Customer</span>
+                    <span>
+                      {classifySelectedCustomer
+                        ? `${classifySelectedCustomer.first_name ?? ""} ${classifySelectedCustomer.last_name ?? ""}`.trim() ||
+                          classifySelectedCustomer.id
+                        : "—"}
+                    </span>
+                  </div>
+                ) : null}
+              </div>
+              <p className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                “{classifyReason}”
+              </p>
+              <p className="text-xs text-muted-foreground">
+                This only updates the accounting classification. It does not create a payment or change
+                the loan&apos;s outstanding balance.
+              </p>
+            </div>
+          ) : (
+            <FieldGroup className="gap-3 py-0">
+              <Field>
+                <FieldLabel>Branch</FieldLabel>
+                <Select value={classifyBranchId} onValueChange={setClassifyBranchId}>
+                  <SelectTrigger className={cn("h-9 w-full", classifyFieldErrors.branch && "border-destructive")}>
+                    <SelectValue placeholder="Select branch" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {branches.map((b) => (
+                      <SelectItem key={b.id} value={b.id}>
+                        {b.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {classifyFieldErrors.branch ? (
+                  <p className="text-xs text-destructive">{classifyFieldErrors.branch}</p>
+                ) : null}
+              </Field>
+              <Field>
+                <FieldLabel>Category</FieldLabel>
+                <Input
+                  className={cn("h-9", classifyFieldErrors.category && "border-destructive")}
+                  placeholder="e.g. loan_repayment, registration_fee"
+                  value={classifyCategory}
+                  onChange={(e) => setClassifyCategory(e.target.value)}
+                />
+                {classifyFieldErrors.category ? (
+                  <p className="text-xs text-destructive">{classifyFieldErrors.category}</p>
+                ) : null}
+              </Field>
+              <Field>
+                <FieldLabel>Entry type (optional)</FieldLabel>
+                <Input
+                  className={cn("h-9", classifyFieldErrors.entry_type && "border-destructive")}
+                  placeholder="e.g. interest, fee, other_income"
+                  value={classifyIncomeType}
+                  onChange={(e) => setClassifyIncomeType(e.target.value)}
+                />
+                {classifyFieldErrors.entry_type ? (
+                  <p className="text-xs text-destructive">{classifyFieldErrors.entry_type}</p>
+                ) : null}
+              </Field>
+              <Field>
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="classify-belongs-to-customer"
+                    checked={classifyBelongsToCustomer}
+                    onCheckedChange={(v) => {
+                      setClassifyBelongsToCustomer(v === true);
+                      if (v !== true) setClassifySelectedCustomer(null);
+                    }}
+                  />
+                  <FieldLabel htmlFor="classify-belongs-to-customer" className="cursor-pointer font-normal">
+                    This receipt belongs to a customer
+                  </FieldLabel>
+                </div>
+                {classifyBelongsToCustomer ? (
+                  <div className="mt-2 space-y-1">
+                    {classifyCustomerUsedGlobalFallback ? (
+                      <p className="text-xs text-amber-700">
+                        Showing matches from all branches because none were found in the selected branch.
+                      </p>
+                    ) : null}
+                    <Popover open={classifyCustomerComboOpen} onOpenChange={setClassifyCustomerComboOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          role="combobox"
+                          className={cn(
+                            "h-9 w-full justify-between font-normal",
+                            classifyFieldErrors.customer && "border-destructive"
+                          )}
+                        >
+                          {classifySelectedCustomer ? (
+                            <span className="truncate">
+                              {`${classifySelectedCustomer.first_name ?? ""} ${classifySelectedCustomer.last_name ?? ""}`.trim() ||
+                                classifySelectedCustomer.id}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">Search customer by name or phone…</span>
+                          )}
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                        <Command shouldFilter={false}>
+                          <CommandInput
+                            placeholder={classifyBranchId ? "Search customers…" : "Select a branch first…"}
+                            value={classifyCustomerQuery}
+                            onValueChange={setClassifyCustomerQuery}
+                            disabled={!classifyBranchId}
+                          />
+                          <CommandList>
+                            {classifyCustomerSearching ? (
+                              <div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                Searching…
+                              </div>
+                            ) : (
+                              <>
+                                <CommandEmpty>
+                                  {classifyBranchId ? "No customers found." : "Choose a branch to search customers."}
+                                </CommandEmpty>
+                                <CommandGroup>
+                                  {classifyCustomerResults.map((c) => (
+                                    <CommandItem
+                                      key={c.id}
+                                      value={c.id}
+                                      onSelect={() => {
+                                        setClassifySelectedCustomer(c);
+                                      if (c.branch_id) setClassifyBranchId(c.branch_id);
+                                        setClassifyCustomerComboOpen(false);
+                                      }}
+                                    >
+                                      <Check
+                                        className={cn(
+                                          "mr-2 h-4 w-4",
+                                          classifySelectedCustomer?.id === c.id ? "opacity-100" : "opacity-0"
+                                        )}
+                                      />
+                                      <div className="flex flex-col">
+                                        <span>
+                                          {`${c.first_name ?? ""} ${c.last_name ?? ""}`.trim() || c.id}
+                                        </span>
+                                        {c.phone_primary ? (
+                                          <span className="text-xs text-muted-foreground">{c.phone_primary}</span>
+                                        ) : null}
+                                      </div>
+                                    </CommandItem>
+                                  ))}
+                                </CommandGroup>
+                              </>
+                            )}
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                    {classifySelectedCustomer ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs text-muted-foreground"
+                        onClick={() => setClassifySelectedCustomer(null)}
+                      >
+                        <X className="mr-1 h-3 w-3" />
+                        Clear customer
+                      </Button>
+                    ) : null}
+                    {classifyFieldErrors.customer ? (
+                      <p className="text-xs text-destructive">{classifyFieldErrors.customer}</p>
+                    ) : null}
+                  </div>
+                ) : null}
+              </Field>
+              <Field>
+                <FieldLabel>Evidence / reason for classification</FieldLabel>
+                <Textarea
+                  className={classifyFieldErrors.reason ? "border-destructive" : undefined}
+                  value={classifyReason}
+                  onChange={(e) => setClassifyNotes(e.target.value)}
+                  placeholder="e.g. Confirmed against ClickPesa receipt 6214506625642181."
+                />
+                {classifyFieldErrors.reason ? (
+                  <p className="text-xs text-destructive">{classifyFieldErrors.reason}</p>
+                ) : null}
+              </Field>
+            </FieldGroup>
+          )}
+
+          <DialogFooter>
+            {classifyConfirming ? (
+              <>
+                <Button type="button" variant="outline" onClick={() => setClassifyConfirming(false)}>
+                  Back
+                </Button>
+                <Button type="button" onClick={() => void handleClassify()} disabled={classifyLoading}>
+                  {classifyLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  Confirm classification
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button type="button" variant="outline" onClick={() => setClassifyEntry(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => setClassifyConfirming(true)}
+                  disabled={!classifyIsValid}
+                >
+                  Review &amp; confirm
+                </Button>
+              </>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(reverseEntry)} onOpenChange={(open) => !open && setReverseEntry(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reverse entry</DialogTitle>
+            <DialogDescription>
+              This creates a compensating entry and restores the cashbook balance.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <FieldLabel htmlFor="cashbook-reversal-reason">Reason</FieldLabel>
+            <Textarea
+              id="cashbook-reversal-reason"
+              value={reverseReason}
+              onChange={(e) => setReverseReason(e.target.value)}
+              placeholder="Why is this entry being reversed?"
+            />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setReverseEntry(null)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={reverseLoading || !reverseReason.trim()}
+              onClick={() => void handleReverse()}
+            >
+              {reverseLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Confirm reversal
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}

@@ -20,6 +20,8 @@ export async function GET(request: Request) {
  page_size: url.searchParams.get("page_size") ?? "50",
  status: url.searchParams.get("status") ?? undefined,
  branch_id: resolvedBranchIdForListQuery(auth.user, url.searchParams.get("branch_id")),
+ operational_state: url.searchParams.get("operational_state") ?? undefined,
+ aging_bucket: url.searchParams.get("aging_bucket") ?? undefined,
  },
  });
 

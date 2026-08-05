@@ -2,7 +2,7 @@ import {
   customerRegistrationDisplayName,
   customerRegistrationDisplayNameFromRow,
 } from "@/lib/customer-adapters";
-import type { LoanGroup } from "@/lib/types";
+import type { Customer, LoanGroup } from "@/lib/types";
 import { parseMeetingGeoFromNotes, stripMeetingGeoFromNotes } from "@/lib/group-meeting-location";
 
 export type GroupMemberRow = {
@@ -93,29 +93,78 @@ function adaptMemberRow(row: Record<string, unknown>): GroupMemberRow {
  row.customer && typeof row.customer === "object"
  ? (row.customer as Record<string, unknown>)
  : null;
+ const customerRef =
+ typeof row.customer === "string" || typeof row.customer === "number"
+ ? str(row.customer)
+ : "";
  const source = nested ?? row;
  const customerName =
  customerRegistrationDisplayNameFromRow(source) ||
  customerRegistrationDisplayNameFromRow(row);
 
  return {
- customerId: str(row.customer_id ?? nested?.id ?? row.id),
- customerNumber: str(row.customer_number ?? nested?.customer_number),
+ customerId: str(
+ row.customer_id ?? customerRef ?? nested?.id ?? row.id
+ ).trim(),
+ customerNumber: str(
+ row.customer_number ?? nested?.customer_number ?? source.customer_number
+ ),
  customerName,
  role: row.role ? str(row.role) : undefined,
  leftAt: row.left_at ? str(row.left_at) : null,
- riskGrade: row.risk_grade ? str(row.risk_grade) : undefined,
+ riskGrade: str(row.risk_grade ?? nested?.risk_grade ?? source.risk_grade) || undefined,
  monthlyIncome:
  row.monthly_income != null
  ? Number(row.monthly_income)
  : nested?.monthly_income != null
  ? Number(nested.monthly_income)
+ : source.monthly_income != null
+ ? Number(source.monthly_income)
  : undefined,
  phone:
- str(row.phone_number ?? row.phone_primary ?? row.phone ?? nested?.phone_primary ?? nested?.phone) ||
- undefined,
- nationalId: str(row.national_id ?? nested?.national_id) || undefined,
+ str(
+ row.phone_number ??
+ row.phone_primary ??
+ row.phone ??
+ nested?.phone_primary ??
+ nested?.phone ??
+ source.phone_primary ??
+ source.phone
+ ) || undefined,
+ nationalId: str(row.national_id ?? nested?.national_id ?? source.national_id) || undefined,
  };
+}
+
+/** Serialize enriched member rows back into API member shape for proxied responses. */
+export function groupMembersToApiRows(members: GroupMemberRow[]): Record<string, unknown>[] {
+ return members.map((member) => ({
+ customer_id: member.customerId,
+ customer_number: member.customerNumber || undefined,
+ full_name: member.customerName || undefined,
+ phone_primary: member.phone,
+ phone: member.phone,
+ national_id: member.nationalId,
+ risk_grade: member.riskGrade,
+ monthly_income: member.monthlyIncome,
+ role: member.role,
+ left_at: member.leftAt,
+ }));
+}
+
+export function attachEnrichedMembersToGroupPayload(
+ data: unknown,
+ members: GroupMemberRow[]
+): unknown {
+ if (!data || typeof data !== "object") return data;
+ const apiMembers = groupMembersToApiRows(members);
+ const o = data as Record<string, unknown>;
+ if (o.group && typeof o.group === "object") {
+ return {
+ ...o,
+ group: { ...(o.group as Record<string, unknown>), members: apiMembers },
+ };
+ }
+ return { ...o, members: apiMembers };
 }
 
 export function extractGroupDetail(json: unknown): GroupDetailView | null {
@@ -125,7 +174,11 @@ export function extractGroupDetail(json: unknown): GroupDetailView | null {
  o.group && typeof o.group === "object" ? (o.group as Record<string, unknown>) : o;
 
  const group = adaptApiGroupRowToLoanGroup(root);
- const membersRaw = Array.isArray(root.members) ? root.members : [];
+ const membersRaw = Array.isArray(root.members)
+ ? root.members
+ : Array.isArray(root.group_members)
+ ? root.group_members
+ : [];
  const members = (membersRaw as Record<string, unknown>[])
  .map(adaptMemberRow)
  .filter((m) => m.customerId && !m.leftAt);
@@ -142,4 +195,37 @@ export function extractGroupDetail(json: unknown): GroupDetailView | null {
  }
 
  return { ...group, members };
+}
+
+export function enrichGroupMembersWithCustomers(
+ group: GroupDetailView,
+ customers: Customer[]
+): GroupDetailView {
+ const byId = new Map(
+ customers.map((customer) => [String(customer.id ?? "").trim(), customer])
+ );
+ const byNumber = new Map(
+ customers
+ .filter((customer) => customer.customer_number?.trim())
+ .map((customer) => [customer.customer_number.trim(), customer])
+ );
+
+ return {
+ ...group,
+ members: group.members.map((member) => {
+ const customer =
+ byId.get(member.customerId.trim()) ??
+ (member.customerNumber ? byNumber.get(member.customerNumber.trim()) : undefined);
+ const registrationName = customer ? customerRegistrationDisplayName(customer) : "";
+ return {
+ ...member,
+ customerName: registrationName || member.customerName,
+ customerNumber: member.customerNumber || customer?.customer_number || "",
+ phone: member.phone || customer?.phone_primary || "",
+ monthlyIncome: member.monthlyIncome ?? customer?.monthly_income,
+ nationalId: member.nationalId || customer?.national_id,
+ riskGrade: member.riskGrade || customer?.risk_grade,
+ };
+ }),
+ };
 }

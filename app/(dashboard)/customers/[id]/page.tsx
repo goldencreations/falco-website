@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { toast } from "sonner";
 import {
  ArrowLeft,
  Phone,
@@ -41,6 +42,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { customerDisplayPhones } from "@/lib/customer-phones";
 import {
  Table,
  TableBody,
@@ -234,6 +236,7 @@ export default function CustomerDetailPage() {
  const [blacklistError, setBlacklistError] = useState("");
  const [activeTab, setActiveTab] = useState("analytics");
  const [mountedTabs, setMountedTabs] = useState<Set<string>>(() => new Set(["analytics"]));
+ const [removingGuarantorDocIds, setRemovingGuarantorDocIds] = useState<Set<string>>(new Set());
 
  const handleTabChange = useCallback((value: string) => {
  setActiveTab(value);
@@ -269,22 +272,42 @@ export default function CustomerDetailPage() {
   () => buildCustomerGuarantorRows(customer?.guarantors, applicationsForFiles, sourceRow),
   [customer?.guarantors, applicationsForFiles, sourceRow]
  );
- const guarantorRows = useMemo(() => {
-  const registered =
-   customer?.guarantors?.map((g) => ({
-    applicationNumber: "Customer registration",
-    name: g.full_name,
-    nationalId: g.national_id ?? "—",
-    phone: g.phone,
-    address: g.address ?? "—",
-    relationship: g.relationship,
-    collateralType: g.collateral_type,
-    collateralDescription: g.collateral_description,
-    collateralEstimatedValue: g.collateral_estimated_value,
-    documents: [] as { name: string; url: string }[],
-   })) ?? [];
-  return [...registered, ...applicationGuarantorRows];
- }, [customer?.guarantors, applicationGuarantorRows]);
+
+ const deleteGuarantorDocument = useCallback(
+  async (documentId: string) => {
+   setRemovingGuarantorDocIds((prev) => new Set(prev).add(documentId));
+   try {
+    const res = await fetch(
+     `/api/customers/${encodeURIComponent(customerId)}/documents/${encodeURIComponent(documentId)}`,
+     { method: "DELETE", credentials: "include" }
+    );
+    if (!res.ok) {
+     const json = (await res.json().catch(() => ({}))) as { message?: string };
+     toast.error(json.message ?? `Could not remove document (${res.status})`);
+     return;
+    }
+    const detailRes = await fetch(`/api/customers/${encodeURIComponent(customerId)}`, {
+     credentials: "include",
+    });
+    const detailBody = (await detailRes.json().catch(() => ({}))) as unknown;
+    const refreshed = extractCustomerDetail(detailBody);
+    if (refreshed) {
+     setSourceRow(refreshed);
+     setCachedCustomerDetail(customerId, refreshed, adaptApiCustomerRowToCustomer(refreshed));
+    }
+    toast.success("Document removed.");
+   } catch {
+    toast.error("Network error while removing document.");
+   } finally {
+    setRemovingGuarantorDocIds((prev) => {
+     const next = new Set(prev);
+     next.delete(documentId);
+     return next;
+    });
+   }
+  },
+  [customerId]
+ );
 
  const applyPortfolio = (body: CustomerPortfolioData) => {
  setCustomerLoans(body.loans ?? []);
@@ -341,7 +364,7 @@ export default function CustomerDetailPage() {
 
  const row = extractCustomerDetail(customerBody);
  if (!row) {
- setLoadError("Unexpected response from server.");
+ setLoadError("Customer details could not be loaded. Please try again.");
  setCustomer(null);
  setSourceRow(null);
  return;
@@ -631,21 +654,21 @@ export default function CustomerDetailPage() {
  title="Customer Profile"
  description={customer.customer_number}
  />
- <main className="flex min-h-0 flex-1 overflow-y-auto overflow-x-hidden scroll-smooth p-4 pb-10 lg:p-6 lg:pb-8">
- <div className="mx-auto max-w-7xl space-y-4 sm:space-y-5">
- <div className="flex items-center justify-between">
- <Button variant="ghost" size="sm" asChild>
+ <main className="flex min-h-0 flex-1 overflow-y-auto overflow-x-hidden scroll-smooth p-3 pb-10 sm:p-4 lg:p-6 lg:pb-8">
+ <div className="mx-auto w-full max-w-7xl space-y-4 sm:space-y-5">
+ <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+ <Button variant="ghost" size="sm" className="w-fit" asChild>
  <Link href={customersListPath}>
  <ArrowLeft className="mr-2 h-4 w-4" />
  Back to Customers
  </Link>
  </Button>
- <div className="flex gap-2">
- <Button variant="outline" size="sm" onClick={handleExportPdf} disabled={isExporting}>
+ <div className="grid w-full grid-cols-2 gap-2 min-[520px]:flex min-[520px]:w-auto min-[520px]:flex-wrap min-[520px]:justify-end">
+ <Button variant="outline" size="sm" className="justify-center" onClick={handleExportPdf} disabled={isExporting}>
  <Download className="mr-2 h-4 w-4" />
- {isExporting ? "Exporting..." : "Export Report"}
+ <span className="truncate">{isExporting ? "Exporting..." : "Export Report"}</span>
  </Button>
- <Button variant="outline" size="sm" asChild>
+ <Button variant="outline" size="sm" className="justify-center" asChild>
  <Link href={customerEditPath}>
  <Edit className="mr-2 h-4 w-4" />
  Edit
@@ -655,6 +678,7 @@ export default function CustomerDetailPage() {
  <Button
  variant="destructive"
  size="sm"
+ className="col-span-2 justify-center min-[520px]:col-auto"
  onClick={() => {
  setBlacklistError("");
  setBlacklistOpen(true);
@@ -670,8 +694,8 @@ export default function CustomerDetailPage() {
  {/* Customer Header Card */}
  <Card className="overflow-hidden border border-border/80 shadow-sm">
  <CardContent className="p-4 sm:p-5">
- <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
- <Avatar className="h-20 w-20 shrink-0 ring-2 ring-primary/15 sm:h-24 sm:w-24">
+ <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-start">
+ <Avatar className="h-32 w-32 shrink-0 ring-2 ring-primary/15 sm:h-40 sm:w-40">
           {passportAvatarSrc ? (
             <AvatarImage
               src={passportAvatarSrc}
@@ -680,15 +704,15 @@ export default function CustomerDetailPage() {
               loading="lazy"
             />
           ) : null}
- <AvatarFallback className="bg-primary text-primary-foreground text-3xl font-bold">
+ <AvatarFallback className="bg-primary text-primary-foreground text-4xl font-bold sm:text-5xl">
  {customer.first_name[0]}
  {customer.last_name[0]}
  </AvatarFallback>
  </Avatar>
- <div className="flex-1 min-w-0 space-y-3">
+ <div className="min-w-0 flex-1 space-y-3 text-center sm:text-left">
  <div>
- <div className="flex flex-wrap items-center gap-2">
- <h2 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+ <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
+ <h2 className="max-w-full break-words text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
  {customer.first_name} {customer.middle_name} {customer.last_name}
  </h2>
  {customer.is_blacklisted && (
@@ -698,9 +722,9 @@ export default function CustomerDetailPage() {
  </Badge>
  )}
  </div>
- <p className="text-sm text-muted-foreground font-mono">{customer.customer_number}</p>
+ <p className="break-all font-mono text-sm text-muted-foreground">{customer.customer_number}</p>
  </div>
- <div className="flex flex-wrap gap-1.5">
+ <div className="flex flex-wrap justify-center gap-1.5 sm:justify-start">
  <Badge variant="outline" className="capitalize border-primary/30">
  {customer.customer_type === "business" ? (
  <Building2 className="mr-1 h-3 w-3 text-primary" />
@@ -909,10 +933,17 @@ export default function CustomerDetailPage() {
  <Phone className="h-4 w-4 text-cyan-600" />
  </div>
  <div>
- <p className="font-medium">{customer.phone_primary}</p>
- {customer.phone_secondary && (
- <p className="text-sm text-muted-foreground">{customer.phone_secondary}</p>
- )}
+ {customerDisplayPhones(customer).map((phone, index) => (
+ <p
+ key={`${phone}-${index}`}
+ className={index === 0 ? "font-medium" : "text-sm text-muted-foreground"}
+ >
+ {phone}
+ </p>
+ ))}
+ {customerDisplayPhones(customer).length === 0 ? (
+ <p className="font-medium text-muted-foreground">—</p>
+ ) : null}
  </div>
  </div>
  {customer.email ? (
@@ -1013,7 +1044,15 @@ export default function CustomerDetailPage() {
  >
  <p className="font-medium">{reference.full_name}</p>
  <p className="text-muted-foreground">
- {formatReferenceRelationship(reference.relationship)} · {reference.phone}
+ {[
+   reference.sex
+     ? reference.sex.charAt(0).toUpperCase() + reference.sex.slice(1)
+     : null,
+   formatReferenceRelationship(reference.relationship),
+   reference.phone,
+ ]
+   .filter(Boolean)
+   .join(" · ")}
  </p>
  {reference.address ? (
  <p className="text-xs text-muted-foreground">{reference.address}</p>
@@ -1221,7 +1260,13 @@ export default function CustomerDetailPage() {
  </TabsContent>
 
  <TabsContent value="guarantors">
- {mountedTabs.has("guarantors") ? <CustomerGuarantorPanel rows={guarantorRows} /> : null}
+ {mountedTabs.has("guarantors") ? (
+                  <CustomerGuarantorPanel
+                    rows={guarantorRows}
+                    onDeleteDocument={deleteGuarantorDocument}
+                    removingDocumentIds={removingGuarantorDocIds}
+                  />
+                ) : null}
  </TabsContent>
  </Tabs>
  </div>
@@ -1241,7 +1286,7 @@ export default function CustomerDetailPage() {
  <AlertDialogHeader>
  <AlertDialogTitle>Blacklist this customer?</AlertDialogTitle>
  <AlertDialogDescription>
- This flags the customer in the LMS. You can add an internal reason below (stored with the record when supported).
+ This marks the customer as blacklisted. You can add an internal reason below.
  </AlertDialogDescription>
  </AlertDialogHeader>
  <div className="space-y-2 py-2">

@@ -107,3 +107,33 @@ export async function PATCH(
  }
  return NextResponse.json(res.data);
 }
+
+/**
+ * Only Admin/Super admin can call `DELETE /customers/{id}`. The backend returns 204 only for
+ * customers without loan-application or group-membership history; otherwise it returns 409 and
+ * the UI must offer Deactivate instead (see `/deactivate` route).
+ */
+export async function DELETE(
+ request: Request,
+ context: { params: Promise<{ id: string }> }
+) {
+ const auth = await requireApiUser(request, ["super_admin"]);
+ if ("response" in auth) return auth.response;
+ const { id } = await context.params;
+ if (!id?.trim()) {
+ return NextResponse.json({ message: "Customer id is required" }, { status: 400 });
+ }
+
+ const res = await falcoServerFetch<unknown>(`/customers/${encodeURIComponent(id)}`, {
+ method: "DELETE",
+ request,
+ });
+
+ if (!res.ok) {
+ return NextResponse.json(
+ { message: res.error.message, details: res.error.details },
+ { status: res.error.status }
+ );
+ }
+ return new NextResponse(null, { status: 204 });
+}

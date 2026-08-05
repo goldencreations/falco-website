@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { usePathname } from 'next/navigation'
 import { Slot } from '@radix-ui/react-slot'
 import { cva, VariantProps } from 'class-variance-authority'
 import { PanelLeftIcon } from 'lucide-react'
@@ -51,6 +52,26 @@ function useSidebar() {
  }
 
  return context
+}
+
+function closeMobileSidebarOnNavigate(setOpenMobile: (open: boolean) => void) {
+ setOpenMobile(false)
+}
+
+function shouldCloseMobileSidebarFromClick(target: EventTarget & Element) {
+ if (target instanceof HTMLAnchorElement && target.href) return true
+ return Boolean(target.closest('a[href]'))
+}
+
+function SidebarMobileRouteCloser() {
+ const pathname = usePathname()
+ const { setOpenMobile } = useSidebar()
+
+ React.useEffect(() => {
+ closeMobileSidebarOnNavigate(setOpenMobile)
+ }, [pathname, setOpenMobile])
+
+ return null
 }
 
 function SidebarProvider({
@@ -128,6 +149,7 @@ function SidebarProvider({
 
  return (
  <SidebarContext.Provider value={contextValue}>
+ <SidebarMobileRouteCloser />
  <TooltipProvider delayDuration={0}>
  <div
  data-slot="sidebar-wrapper"
@@ -502,6 +524,7 @@ function SidebarMenuButton({
  size = 'default',
  tooltip,
  className,
+ onClick,
  ...props
 }: React.ComponentProps<'button'> & {
  asChild?: boolean
@@ -509,7 +532,14 @@ function SidebarMenuButton({
  tooltip?: string | React.ComponentProps<typeof TooltipContent>
 } & VariantProps<typeof sidebarMenuButtonVariants>) {
  const Comp = asChild ? Slot : 'button'
- const { isMobile, state } = useSidebar()
+ const { isMobile, state, setOpenMobile } = useSidebar()
+
+ const handleClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+ onClick?.(event)
+ if (isMobile && !event.defaultPrevented && shouldCloseMobileSidebarFromClick(event.currentTarget)) {
+ closeMobileSidebarOnNavigate(setOpenMobile)
+ }
+ }
 
  const button = (
  <Comp
@@ -518,6 +548,7 @@ function SidebarMenuButton({
  data-size={size}
  data-active={isActive}
  className={cn(sidebarMenuButtonVariants({ variant, size }), className)}
+ onClick={handleClick}
  {...props}
  />
  )
@@ -671,6 +702,7 @@ function SidebarMenuSubButton({
  size = 'md',
  isActive = false,
  className,
+ onClick,
  ...props
 }: React.ComponentProps<'a'> & {
  asChild?: boolean
@@ -678,6 +710,18 @@ function SidebarMenuSubButton({
  isActive?: boolean
 }) {
  const Comp = asChild ? Slot : 'a'
+ const { isMobile, setOpenMobile } = useSidebar()
+
+ const handleClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
+ onClick?.(event)
+ if (
+ isMobile &&
+ !event.defaultPrevented &&
+ shouldCloseMobileSidebarFromClick(event.currentTarget)
+ ) {
+ closeMobileSidebarOnNavigate(setOpenMobile)
+ }
+ }
 
  return (
  <Comp
@@ -693,6 +737,7 @@ function SidebarMenuSubButton({
  'group-data-[collapsible=icon]:hidden',
  className,
  )}
+ onClick={handleClick}
  {...props}
  />
  )

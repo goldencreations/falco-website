@@ -83,6 +83,10 @@ export default function ProductsPage() {
  const [createForm, setCreateForm] = useState<CreateForm>(defaultCreateForm);
  const [createError, setCreateError] = useState("");
  const [createSaving, setCreateSaving] = useState(false);
+ const [editingProduct, setEditingProduct] = useState<LoanProduct | null>(null);
+ const [editForm, setEditForm] = useState<CreateForm>(defaultCreateForm);
+ const [editError, setEditError] = useState("");
+ const [editSaving, setEditSaving] = useState(false);
 
  const loadProducts = useCallback(async () => {
  setLoading(true);
@@ -125,6 +129,10 @@ export default function ProductsPage() {
  setCreateForm((prev) => ({ ...prev, [key]: value }));
  };
 
+ const updateEdit = <K extends keyof CreateForm>(key: K, value: CreateForm[K]) => {
+ setEditForm((prev) => ({ ...prev, [key]: value }));
+ };
+
  const toggleRisk = (grade: RiskGrade) => {
  setCreateForm((prev) => {
  const has = prev.allowed_risk_grades.includes(grade);
@@ -133,58 +141,87 @@ export default function ProductsPage() {
  });
  };
 
- const validateCreate = () => {
- if (!createForm.name.trim()) return "Name is required.";
- if (!createForm.code.trim()) return "Product code is required.";
- const minA = Number(createForm.min_amount);
- const maxA = Number(createForm.max_amount);
+ const toggleEditRisk = (grade: RiskGrade) => {
+ setEditForm((prev) => {
+ const has = prev.allowed_risk_grades.includes(grade);
+ const next = has ? prev.allowed_risk_grades.filter((g) => g !== grade) : [...prev.allowed_risk_grades, grade];
+ return { ...prev, allowed_risk_grades: next };
+ });
+ };
+
+ const productToForm = (product: LoanProduct): CreateForm => ({
+ name: product.name,
+ code: product.code,
+ min_amount: String(product.min_amount),
+ max_amount: String(product.max_amount),
+ min_term_days: String(product.min_term_days),
+ max_term_days: String(product.max_term_days),
+ interest_type: product.interest_type,
+ interest_rate_per_month: String(product.interest_rate_per_month ?? product.interest_rate / 12),
+ processing_fee_percent: String(product.processing_fee_percent),
+ insurance_fee_percent: String(product.insurance_fee_percent),
+ repayment_frequency: product.repayment_frequency,
+ grace_period_days: String(product.grace_period_days),
+ required_documents_csv: product.required_documents.join(", "),
+ allowed_risk_grades: product.allowed_risk_grades.filter((g) => RISK_TOGGLE.includes(g)),
+ is_active: product.is_active,
+ });
+
+ const validateForm = (form: CreateForm) => {
+ if (!form.name.trim()) return "Name is required.";
+ if (!form.code.trim()) return "Product code is required.";
+ const minA = Number(form.min_amount);
+ const maxA = Number(form.max_amount);
  if (!Number.isFinite(minA) || !Number.isFinite(maxA) || minA < 0 || maxA < minA) {
  return "Enter valid min/max amounts (max ≥ min).";
  }
- const minT = Number(createForm.min_term_days);
- const maxT = Number(createForm.max_term_days);
+ const minT = Number(form.min_term_days);
+ const maxT = Number(form.max_term_days);
  if (!Number.isFinite(minT) || !Number.isFinite(maxT) || minT < 0 || maxT < minT) {
  return "Enter valid term bounds (max ≥ min).";
  }
- if (createForm.allowed_risk_grades.filter((g) => RISK_TOGGLE.includes(g)).length === 0) {
+ if (form.allowed_risk_grades.filter((g) => RISK_TOGGLE.includes(g)).length === 0) {
  return "Select at least one risk grade (A–D).";
  }
  return "";
  };
 
+ const formToApiBody = (form: CreateForm) => {
+ const raw: Record<string, unknown> = {
+ name: form.name.trim(),
+ code: form.code.trim(),
+ min_amount: Number(form.min_amount),
+ max_amount: Number(form.max_amount),
+ min_term_days: Number(form.min_term_days),
+ max_term_days: Number(form.max_term_days),
+ interest_type: form.interest_type,
+ interest_rate_per_month: Number(form.interest_rate_per_month),
+ processing_fee_percent: Number(form.processing_fee_percent),
+ insurance_fee_percent: Number(form.insurance_fee_percent),
+ repayment_frequency: form.repayment_frequency,
+ grace_period_days: Number(form.grace_period_days),
+ required_documents_csv: form.required_documents_csv,
+ allowed_risk_grades: form.allowed_risk_grades.filter((g) => RISK_TOGGLE.includes(g)),
+ is_active: form.is_active,
+ };
+ return buildProductCreateApiBody(raw);
+ };
+
  const handleCreateSubmit = async (e: FormEvent) => {
  e.preventDefault();
  setCreateError("");
- const msg = validateCreate();
+ const msg = validateForm(createForm);
  if (msg) {
  setCreateError(msg);
  return;
  }
  setCreateSaving(true);
  try {
- const raw: Record<string, unknown> = {
- name: createForm.name.trim(),
- code: createForm.code.trim(),
- min_amount: Number(createForm.min_amount),
- max_amount: Number(createForm.max_amount),
- min_term_days: Number(createForm.min_term_days),
- max_term_days: Number(createForm.max_term_days),
- interest_type: createForm.interest_type,
- interest_rate_per_month: Number(createForm.interest_rate_per_month),
- processing_fee_percent: Number(createForm.processing_fee_percent),
- insurance_fee_percent: Number(createForm.insurance_fee_percent),
- repayment_frequency: createForm.repayment_frequency,
- grace_period_days: Number(createForm.grace_period_days),
- required_documents_csv: createForm.required_documents_csv,
- allowed_risk_grades: createForm.allowed_risk_grades.filter((g) => RISK_TOGGLE.includes(g)),
- is_active: createForm.is_active,
- };
- const apiBody = buildProductCreateApiBody(raw);
  const r = await fetch("/api/falco/products", {
  method: "POST",
  credentials: "include",
  headers: { "Content-Type": "application/json" },
- body: JSON.stringify(apiBody),
+ body: JSON.stringify(formToApiBody(createForm)),
  });
  const json = await r.json().catch(() => ({}));
  if (!r.ok) {
@@ -214,6 +251,57 @@ export default function ProductsPage() {
  }
  };
 
+ const openEdit = (product: LoanProduct) => {
+ setEditError("");
+ setEditingProduct(product);
+ setEditForm(productToForm(product));
+ };
+
+ const handleEditSubmit = async (e: FormEvent) => {
+ e.preventDefault();
+ if (!editingProduct) return;
+ setEditError("");
+ const msg = validateForm(editForm);
+ if (msg) {
+ setEditError(msg);
+ return;
+ }
+ setEditSaving(true);
+ try {
+ const r = await fetch(`/api/falco/products/${encodeURIComponent(editingProduct.id)}`, {
+ method: "PATCH",
+ credentials: "include",
+ headers: { "Content-Type": "application/json" },
+ body: JSON.stringify(formToApiBody(editForm)),
+ });
+ const json = await r.json().catch(() => ({}));
+ if (!r.ok) {
+ if (r.status === 401) {
+ router.replace("/login");
+ return;
+ }
+ const nested =
+ typeof json.error === "object" && json.error !== null
+ ? (json.error as { message?: string; details?: { field?: string; message?: string }[] })
+ : null;
+ const base =
+ typeof json.message === "string"
+ ? json.message
+ : nested?.message ?? `Update failed (${r.status})`;
+ const detailStr = formatValidationDetails(json.details ?? nested?.details);
+ setEditError(detailStr ? `${base} ${detailStr}` : base);
+ return;
+ }
+ void loadProducts();
+ setEditingProduct(null);
+ setEditForm(defaultCreateForm);
+ } catch {
+ setEditError("Network error");
+ } finally {
+ setEditSaving(false);
+ }
+ };
+
  const monthlyDisplay = (p: LoanProduct) =>
  p.interest_rate_per_month != null
  ? `${p.interest_rate_per_month.toFixed(2)}% / month`
@@ -223,7 +311,7 @@ export default function ProductsPage() {
  <>
  <DashboardHeader
  title="Loan Products"
- description="Catalog from GET /products — create with POST /products (LMS database)."
+ description="Manage loan products, limits, fees, and required documents."
  />
  <main className="flex-1 overflow-auto p-4 lg:p-6">
  <div className="mx-auto max-w-6xl space-y-6">
@@ -284,7 +372,7 @@ export default function ProductsPage() {
  {product.description ? ` · ${product.description}` : ""}
  </CardDescription>
  </div>
- <Button variant="ghost" size="icon" type="button" disabled title="Edit product (coming soon)">
+ <Button variant="ghost" size="icon" type="button" title="Edit product" onClick={() => openEdit(product)}>
  <Edit className="h-4 w-4" />
  </Button>
  </div>
@@ -367,7 +455,7 @@ export default function ProductsPage() {
  <Separator />
 
  <p className="text-xs text-muted-foreground rounded-lg bg-muted p-3">
- Portfolio counts per product require live loans data; this card shows the LMS product definition only.
+ Product usage appears here when loan activity is available.
  </p>
  </CardContent>
  </Card>
@@ -380,8 +468,7 @@ export default function ProductsPage() {
  <DialogHeader>
  <DialogTitle>New loan product</DialogTitle>
  <DialogDescription>
- Fields match <span className="font-mono text-xs">POST /products</span> in the loan products controller
- documentation.
+ Set the product rules officers will use when creating loan applications.
  </DialogDescription>
  </DialogHeader>
  <form onSubmit={handleCreateSubmit} className="space-y-4">
@@ -537,7 +624,7 @@ export default function ProductsPage() {
  </div>
 
  <div className="space-y-2">
- <Label>Allowed risk grades (A–D sent to API)</Label>
+ <Label>Allowed risk grades</Label>
  <div className="flex flex-wrap gap-3">
  {RISK_TOGGLE.map((g) => (
  <label key={g} className="flex items-center gap-2 text-sm">
@@ -570,7 +657,207 @@ export default function ProductsPage() {
  Saving…
  </>
  ) : (
- "Create in database"
+ "Create product"
+ )}
+ </Button>
+ </DialogFooter>
+ </form>
+ </DialogContent>
+ </Dialog>
+
+ <Dialog open={Boolean(editingProduct)} onOpenChange={(open) => !open && setEditingProduct(null)}>
+ <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
+ <DialogHeader>
+ <DialogTitle>Edit loan product</DialogTitle>
+ <DialogDescription>Update the product rules officers use when creating loan applications.</DialogDescription>
+ </DialogHeader>
+ <form onSubmit={handleEditSubmit} className="space-y-4">
+ {editError ? <p className="text-sm text-destructive">{editError}</p> : null}
+ <div className="grid gap-4 sm:grid-cols-2">
+ <div className="space-y-2 sm:col-span-2">
+ <Label htmlFor="edit-p-name">Name</Label>
+ <Input
+ id="edit-p-name"
+ value={editForm.name}
+ onChange={(e) => updateEdit("name", e.target.value)}
+ placeholder="e.g. Micro Business 30"
+ />
+ </div>
+ <div className="space-y-2 sm:col-span-2">
+ <Label htmlFor="edit-p-code">Code</Label>
+ <Input
+ id="edit-p-code"
+ value={editForm.code}
+ onChange={(e) => updateEdit("code", e.target.value)}
+ placeholder="e.g. MICRO-30"
+ />
+ </div>
+ <div className="space-y-2">
+ <Label htmlFor="edit-p-min-a">Min amount (TZS)</Label>
+ <Input
+ id="edit-p-min-a"
+ type="number"
+ min={0}
+ value={editForm.min_amount}
+ onChange={(e) => updateEdit("min_amount", e.target.value)}
+ />
+ </div>
+ <div className="space-y-2">
+ <Label htmlFor="edit-p-max-a">Max amount (TZS)</Label>
+ <Input
+ id="edit-p-max-a"
+ type="number"
+ min={0}
+ value={editForm.max_amount}
+ onChange={(e) => updateEdit("max_amount", e.target.value)}
+ />
+ </div>
+ <div className="space-y-2">
+ <Label htmlFor="edit-p-min-t">Min term (days)</Label>
+ <Input
+ id="edit-p-min-t"
+ type="number"
+ min={0}
+ value={editForm.min_term_days}
+ onChange={(e) => updateEdit("min_term_days", e.target.value)}
+ />
+ </div>
+ <div className="space-y-2">
+ <Label htmlFor="edit-p-max-t">Max term (days)</Label>
+ <Input
+ id="edit-p-max-t"
+ type="number"
+ min={0}
+ value={editForm.max_term_days}
+ onChange={(e) => updateEdit("max_term_days", e.target.value)}
+ />
+ </div>
+ <div className="space-y-2">
+ <Label>Interest type</Label>
+ <Select
+ value={editForm.interest_type}
+ onValueChange={(v) => updateEdit("interest_type", v as CreateForm["interest_type"])}
+ >
+ <SelectTrigger>
+ <SelectValue />
+ </SelectTrigger>
+ <SelectContent>
+ <SelectItem value="flat">Flat</SelectItem>
+ <SelectItem value="reducing_balance">Reducing balance</SelectItem>
+ </SelectContent>
+ </Select>
+ </div>
+ <div className="space-y-2">
+ <Label htmlFor="edit-p-ir">Interest % per month</Label>
+ <Input
+ id="edit-p-ir"
+ type="number"
+ min={0}
+ max={100}
+ step="0.01"
+ value={editForm.interest_rate_per_month}
+ onChange={(e) => updateEdit("interest_rate_per_month", e.target.value)}
+ />
+ </div>
+ <div className="space-y-2">
+ <Label htmlFor="edit-p-proc">Processing fee %</Label>
+ <Input
+ id="edit-p-proc"
+ type="number"
+ min={0}
+ max={100}
+ step="0.01"
+ value={editForm.processing_fee_percent}
+ onChange={(e) => updateEdit("processing_fee_percent", e.target.value)}
+ />
+ </div>
+ <div className="space-y-2">
+ <Label htmlFor="edit-p-ins">Insurance fee %</Label>
+ <Input
+ id="edit-p-ins"
+ type="number"
+ min={0}
+ max={100}
+ step="0.01"
+ value={editForm.insurance_fee_percent}
+ onChange={(e) => updateEdit("insurance_fee_percent", e.target.value)}
+ />
+ </div>
+ <div className="space-y-2">
+ <Label>Repayment frequency</Label>
+ <Select
+ value={editForm.repayment_frequency}
+ onValueChange={(v) => updateEdit("repayment_frequency", v as CreateForm["repayment_frequency"])}
+ >
+ <SelectTrigger>
+ <SelectValue />
+ </SelectTrigger>
+ <SelectContent>
+ <SelectItem value="daily">Daily</SelectItem>
+ <SelectItem value="weekly">Weekly</SelectItem>
+ <SelectItem value="bi_weekly">Bi-weekly</SelectItem>
+ <SelectItem value="monthly">Monthly</SelectItem>
+ </SelectContent>
+ </Select>
+ </div>
+ <div className="space-y-2">
+ <Label htmlFor="edit-p-grace">Grace period (days)</Label>
+ <Input
+ id="edit-p-grace"
+ type="number"
+ min={0}
+ value={editForm.grace_period_days}
+ onChange={(e) => updateEdit("grace_period_days", e.target.value)}
+ />
+ </div>
+ </div>
+
+ <div className="space-y-2">
+ <Label htmlFor="edit-p-docs">Required documents</Label>
+ <Textarea
+ id="edit-p-docs"
+ rows={2}
+ value={editForm.required_documents_csv}
+ onChange={(e) => updateEdit("required_documents_csv", e.target.value)}
+ placeholder="Comma-separated slugs: national_id, business_license"
+ />
+ </div>
+
+ <div className="space-y-2">
+ <Label>Allowed risk grades</Label>
+ <div className="flex flex-wrap gap-3">
+ {RISK_TOGGLE.map((g) => (
+ <label key={g} className="flex items-center gap-2 text-sm">
+ <Checkbox checked={editForm.allowed_risk_grades.includes(g)} onCheckedChange={() => toggleEditRisk(g)} />
+ {g}
+ </label>
+ ))}
+ </div>
+ </div>
+
+ <div className="flex items-center gap-2">
+ <Checkbox
+ id="edit-p-active"
+ checked={editForm.is_active}
+ onCheckedChange={(c) => updateEdit("is_active", c === true)}
+ />
+ <Label htmlFor="edit-p-active" className="cursor-pointer font-normal">
+ Product active
+ </Label>
+ </div>
+
+ <DialogFooter className="gap-2 sm:gap-0">
+ <Button type="button" variant="outline" onClick={() => setEditingProduct(null)} disabled={editSaving}>
+ Cancel
+ </Button>
+ <Button type="submit" disabled={editSaving}>
+ {editSaving ? (
+ <>
+ <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+ Saving…
+ </>
+ ) : (
+ "Save changes"
  )}
  </Button>
  </DialogFooter>

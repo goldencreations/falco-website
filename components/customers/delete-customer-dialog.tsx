@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, Loader2, Trash2 } from "lucide-react";
+import { AlertTriangle, Loader2, Trash2, UserX } from "lucide-react";
 import {
  AlertDialog,
  AlertDialogCancel,
@@ -20,7 +20,7 @@ type DeleteCustomerDialogProps = {
  customer: Customer | null;
  open: boolean;
  onOpenChange: (open: boolean) => void;
- onDeleted: () => void;
+ onDeleted: (opts?: { softOnly?: boolean; backendMessage?: string; deactivated?: boolean }) => void;
 };
 
 export function DeleteCustomerDialog({
@@ -32,7 +32,10 @@ export function DeleteCustomerDialog({
  const [step, setStep] = useState<1 | 2>(1);
  const [confirmText, setConfirmText] = useState("");
  const [deleting, setDeleting] = useState(false);
+ const [deactivating, setDeactivating] = useState(false);
  const [error, setError] = useState("");
+ /** Set when the backend returns 409 for DELETE because the customer has operational history. */
+ const [blockedByHistory, setBlockedByHistory] = useState(false);
 
  useEffect(() => {
  if (!open) {
@@ -40,6 +43,8 @@ export function DeleteCustomerDialog({
  setConfirmText("");
  setError("");
  setDeleting(false);
+ setDeactivating(false);
+ setBlockedByHistory(false);
  }
  }, [open]);
 
@@ -48,11 +53,55 @@ export function DeleteCustomerDialog({
  : "";
 
  const canConfirmDelete =
- Boolean(customer) && confirmText.trim() === customer.customer_number.trim();
+ Boolean(customer) && confirmText.trim() === customer?.customer_number.trim();
 
  const handleDelete = async () => {
  if (!customer || !canConfirmDelete) return;
  setDeleting(true);
+ setError("");
+ setBlockedByHistory(false);
+ try {
+ const res = await fetch(`/api/customers/${encodeURIComponent(customer.id)}`, {
+ method: "DELETE",
+ credentials: "include",
+ });
+ if (res.status === 204) {
+ onOpenChange(false);
+ onDeleted({ softOnly: false });
+ return;
+ }
+ const json = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
+ if (res.status === 409) {
+ // Backend rule: customers with loan-application/group-membership history cannot be
+ // hard-deleted. Offer Deactivate instead rather than silently soft-hiding.
+ setBlockedByHistory(true);
+ setError(
+ json.message ??
+ json.error ??
+ "This customer cannot be deleted because they have loan application or group history. You can deactivate them instead."
+ );
+ return;
+ }
+ // Unexpected error (network/5xx): fall back to hiding locally for this operator only.
+ onOpenChange(false);
+ onDeleted({
+ softOnly: true,
+ backendMessage: json.message ?? json.error ?? "Could not delete customer on backend",
+ });
+ } catch {
+ onOpenChange(false);
+ onDeleted({
+ softOnly: true,
+ backendMessage: "Network error while contacting backend. Customer hidden from list locally.",
+ });
+ } finally {
+ setDeleting(false);
+ }
+ };
+
+ const handleDeactivate = async () => {
+ if (!customer) return;
+ setDeactivating(true);
  setError("");
  try {
  const res = await fetch(`/api/customers/${encodeURIComponent(customer.id)}/deactivate`, {
@@ -61,15 +110,31 @@ export function DeleteCustomerDialog({
  });
  const json = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
  if (!res.ok) {
- setError(json.message ?? json.error ?? "Could not delete customer");
+ if (res.status === 409) {
+ setError(
+ json.message ??
+ json.error ??
+ "This customer cannot be deactivated because they are linked to loan applications."
+ );
  return;
  }
  onOpenChange(false);
- onDeleted();
+ onDeleted({
+ softOnly: true,
+ backendMessage: json.message ?? json.error ?? "Could not deactivate customer on backend",
+ });
+ return;
+ }
+ onOpenChange(false);
+ onDeleted({ softOnly: false, deactivated: true });
  } catch {
- setError("Network error. Please try again.");
+ onOpenChange(false);
+ onDeleted({
+ softOnly: true,
+ backendMessage: "Network error while contacting backend. Customer hidden from list locally.",
+ });
  } finally {
- setDeleting(false);
+ setDeactivating(false);
  }
  };
 
@@ -152,16 +217,37 @@ export function DeleteCustomerDialog({
  <Button
  type="button"
  variant="outline"
- disabled={deleting}
+ disabled={deleting || deactivating}
  onClick={() => {
  setStep(1);
  setConfirmText("");
  setError("");
+ setBlockedByHistory(false);
  }}
  >
  Back
  </Button>
- <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+ <AlertDialogCancel disabled={deleting || deactivating}>Cancel</AlertDialogCancel>
+ {blockedByHistory ? (
+ <Button
+ type="button"
+ variant="secondary"
+ disabled={deactivating}
+ onClick={() => void handleDeactivate()}
+ >
+ {deactivating ? (
+ <>
+ <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+ Deactivating…
+ </>
+ ) : (
+ <>
+ <UserX className="mr-2 h-4 w-4" />
+ Deactivate instead
+ </>
+ )}
+ </Button>
+ ) : (
  <Button
  type="button"
  variant="destructive"
@@ -180,6 +266,7 @@ export function DeleteCustomerDialog({
  </>
  )}
  </Button>
+ )}
  </AlertDialogFooter>
  </>
  )}

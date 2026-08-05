@@ -2,6 +2,7 @@ import { digitsOnly, TZ_PHONE_MAX_DIGITS } from "@/lib/tz-form-inputs";
 
 export type LeadStatus = "new" | "follow_up" | "contacted" | "converted";
 export type LeadLocationType = "home" | "work" | "sponsor";
+export type LeadGender = "male" | "female" | "other";
 
 export type LeadView = {
  id: string;
@@ -9,6 +10,7 @@ export type LeadView = {
  fullName: string;
  phoneNumber: string;
  alternatePhone?: string;
+ gender?: LeadGender;
  locationType: LeadLocationType;
  locationName: string;
  region?: string;
@@ -21,9 +23,25 @@ export type LeadView = {
  status: LeadStatus;
  branchId?: string;
  createdBy?: string;
+ createdByName?: string;
+ createdByRole?: string;
  createdAt: string;
  convertedAt?: string;
 };
+
+export const leadGenderLabel: Record<LeadGender, string> = {
+  male: "Male",
+  female: "Female",
+  other: "Other",
+};
+
+export function asLeadGender(v: unknown): LeadGender | undefined {
+  const s = String(v ?? "")
+    .trim()
+    .toLowerCase();
+  if (s === "male" || s === "female" || s === "other") return s;
+  return undefined;
+}
 
 const LOC_TAG_RE = /^\[LOC:(home|work|sponsor)\]\s*/i;
 
@@ -50,12 +68,38 @@ function str(v: unknown, fallback = ""): string {
  return String(v);
 }
 
+function readNestedUser(value: unknown): { id?: string; name?: string; role?: string } {
+ if (!value || typeof value !== "object") return {};
+ const row = value as Record<string, unknown>;
+ const name = row.name ?? row.full_name;
+ return {
+ id: row.id != null && String(row.id).trim() ? str(row.id) : undefined,
+ name: name != null && String(name).trim() ? str(name) : undefined,
+ role: row.role != null && String(row.role).trim() ? str(row.role) : undefined,
+ };
+}
+
+/** Some responses nest the creating staff user under `creator`/`staff` instead of `created_by`. */
+function readLeadCreator(inner: Record<string, unknown>): { id?: string; name?: string; role?: string } {
+ let result: { id?: string; name?: string; role?: string } = {};
+ for (const candidate of [inner.created_by, inner.creator, inner.staff]) {
+ const parsed = readNestedUser(candidate);
+ result = {
+ id: result.id ?? parsed.id,
+ name: result.name ?? parsed.name,
+ role: result.role ?? parsed.role,
+ };
+ }
+ return result;
+}
+
 export function adaptApiLeadRow(raw: Record<string, unknown>): LeadView {
  const inner =
  raw.lead && typeof raw.lead === "object" ? (raw.lead as Record<string, unknown>) : raw;
  const rawNotes = str(inner.notes);
  const locationType = parseLocationTypeFromNotes(rawNotes);
  const notes = stripLocationTagFromNotes(rawNotes);
+ const createdByUser = readLeadCreator(inner);
 
  return {
  id: str(inner.id),
@@ -63,6 +107,7 @@ export function adaptApiLeadRow(raw: Record<string, unknown>): LeadView {
  fullName: str(inner.full_name),
  phoneNumber: str(inner.phone_number),
  alternatePhone: inner.alternate_phone ? str(inner.alternate_phone) : undefined,
+ gender: asLeadGender(inner.gender),
  locationType,
  locationName: str(inner.location_name),
  region: inner.region ? str(inner.region) : undefined,
@@ -75,7 +120,19 @@ export function adaptApiLeadRow(raw: Record<string, unknown>): LeadView {
  followUpDate: inner.follow_up_date ? str(inner.follow_up_date) : undefined,
  status: asLeadStatus(inner.status ? str(inner.status) : undefined),
  branchId: inner.branch_id ? str(inner.branch_id) : undefined,
- createdBy: inner.created_by ? str(inner.created_by) : undefined,
+ createdBy:
+ createdByUser.id ??
+ (inner.created_by != null && typeof inner.created_by !== "object" ? str(inner.created_by) : undefined),
+ createdByName:
+ createdByUser.name ??
+ (inner.created_by_name != null && String(inner.created_by_name).trim()
+ ? str(inner.created_by_name)
+ : undefined),
+ createdByRole:
+ createdByUser.role ??
+ (inner.created_by_role != null && String(inner.created_by_role).trim()
+ ? str(inner.created_by_role)
+ : undefined),
  createdAt: str(inner.created_at ?? new Date().toISOString()),
  convertedAt: inner.converted_at ? str(inner.converted_at) : undefined,
  };
@@ -103,6 +160,7 @@ export function mapUiLeadCreateToApi(form: {
  fullName: string;
  phoneNumber: string;
  alternatePhone?: string;
+ gender?: LeadGender | "";
  locationType: LeadLocationType;
  locationName: string;
  region?: string;
@@ -132,6 +190,8 @@ export function mapUiLeadCreateToApi(form: {
 
   const alt = form.alternatePhone?.trim();
   if (alt) payload.alternate_phone = normalizePhone(alt);
+  const gender = asLeadGender(form.gender);
+  if (gender) payload.gender = gender;
   if (form.followUpDate?.trim()) payload.follow_up_date = form.followUpDate.trim();
 
   if (form.region?.trim()) payload.region = form.region.trim();

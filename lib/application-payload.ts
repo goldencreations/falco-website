@@ -1,4 +1,6 @@
-import type { LoanMode, LoanProduct } from "@/lib/types";
+import type { CustomerIdType } from "@/lib/customer-id-types";
+import { normalizeCustomerIdType } from "@/lib/customer-id-types";
+import type { LoanMode, LoanProduct, RepaymentFrequency } from "@/lib/types";
 
 export type ApplicationFormInput = {
  customer_id: string;
@@ -8,12 +10,14 @@ export type ApplicationFormInput = {
  requested_amount: number;
  term_days: number;
  purpose: string;
+ repayment_frequency: RepaymentFrequency;
  collaterals: Array<{ type: string; description: string; estimated_value: number }>;
  guarantors: Array<{
   full_name: string;
   phone: string;
   relationship: string;
   national_id?: string;
+  id_type?: CustomerIdType;
   address?: string;
   collateral_type?: string;
   collateral_description?: string;
@@ -22,6 +26,24 @@ export type ApplicationFormInput = {
  references: Array<{ full_name: string; relationship: string; phone: string }>;
  location?: { latitude: string; longitude: string; captured_at: string };
 };
+
+const APPLICATION_REPAYMENT_FREQUENCIES: RepaymentFrequency[] = [
+ "daily",
+ "weekly",
+ "monthly",
+];
+
+export function normalizeApplicationRepaymentFrequency(
+ value: unknown,
+ fallback: RepaymentFrequency = "weekly"
+): RepaymentFrequency {
+ const raw = String(value ?? "")
+  .trim()
+  .toLowerCase();
+ if (raw === "daily" || raw === "weekly" || raw === "monthly") return raw;
+ if (raw === "bi_weekly") return "weekly";
+ return fallback;
+}
 
 /** Map UI form → Falco `POST/PATCH /applications` body (`loan-applications-controller.md`). */
 export function mapApplicationFormToFalcoBody(input: ApplicationFormInput): Record<string, unknown> {
@@ -32,9 +54,10 @@ export function mapApplicationFormToFalcoBody(input: ApplicationFormInput): Reco
  requested_amount: input.requested_amount,
  term_days: input.term_days,
  purpose: input.purpose.trim() || "Working capital",
+ repayment_frequency: normalizeApplicationRepaymentFrequency(input.repayment_frequency),
  };
 
- if (input.loan_mode === "group_based" && input.group_id) {
+ if (input.group_id) {
  body.group_id = input.group_id;
  }
 
@@ -55,6 +78,7 @@ export function mapApplicationFormToFalcoBody(input: ApplicationFormInput): Reco
  relationship: g.relationship.trim(),
  };
  if (g.national_id?.trim()) row.national_id = g.national_id.trim();
+ if (g.id_type) row.id_type = normalizeCustomerIdType(g.id_type);
  if (g.address?.trim()) row.address = g.address.trim();
  if (g.collateral_type?.trim()) row.collateral_type = g.collateral_type.trim();
  if (g.collateral_description?.trim()) row.collateral_description = g.collateral_description.trim();
@@ -104,12 +128,15 @@ const ALLOWED_APPLICATION_KEYS = new Set([
  "requested_amount",
  "term_days",
  "purpose",
+ "repayment_frequency",
  "collaterals",
  "guarantors",
  "references",
  "location",
  "metadata",
 ]);
+
+export { APPLICATION_REPAYMENT_FREQUENCIES };
 
 /** Strip UI-only fields (`metadata`, `branch_id`, `is_draft`, …) before proxying to Falco. */
 export function sanitizeApplicationBodyFromClient(
