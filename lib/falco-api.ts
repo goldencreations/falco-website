@@ -1,5 +1,8 @@
 /** When `FALCO_API_BASE_URL` is unset, requests go here (see `backend-documentation/auth-controller.md`, `.env.example`). */
-export const DEFAULT_FALCO_API_BASE_URL = "https://falcobackend.habitek.co.tz";
+export const FALCO_API_BASE_URL_ENV = "FALCO_API_BASE_URL";
+
+export const FALCO_API_CONFIG_MESSAGE =
+  "FALCO_API_BASE_URL is not set. Copy .env.example to .env.local and set the backend URL.";
 
 let falcoApiBaseUrlWarned = false;
 
@@ -22,16 +25,39 @@ export class FalcoApiError extends Error {
  }
 }
 
+/** Backend API origin from `FALCO_API_BASE_URL` (.env / host env). No trailing slash. */
 export function getFalcoApiBaseUrl(): string {
  const base = process.env.FALCO_API_BASE_URL?.trim();
- const resolved = (base || DEFAULT_FALCO_API_BASE_URL).replace(/\/+$/, "");
- if (!base && !falcoApiBaseUrlWarned) {
- falcoApiBaseUrlWarned = true;
- console.warn(
- `[falco-api] FALCO_API_BASE_URL is unset; using ${resolved}. Copy .env.example to .env.local or set the variable in your host environment.`
- );
+ if (!base) {
+  throw new FalcoApiError(FALCO_API_CONFIG_MESSAGE, { status: 500, code: "CONFIG_ERROR" });
  }
- return resolved;
+ return base.replace(/\/+$/, "");
+}
+
+/** Hostname of the configured backend (for document-proxy allowlists). */
+export function getFalcoApiHostname(): string {
+ return new URL(getFalcoApiBaseUrl()).hostname;
+}
+
+/**
+ * Hostnames allowed through `/api/document-proxy`.
+ * Includes `FALCO_API_BASE_URL` host plus optional `FALCO_API_LEGACY_HOSTS` (comma-separated).
+ */
+export function getAllowedDocumentProxyHostnames(): string[] {
+ const hosts = new Set<string>();
+ hosts.add(getFalcoApiHostname());
+ const legacy = process.env.FALCO_API_LEGACY_HOSTS?.trim();
+ if (legacy) {
+  for (const part of legacy.split(",")) {
+   const host = part.trim();
+   if (host) hosts.add(host);
+  }
+ }
+ return [...hosts];
+}
+
+export function isAllowedBackendHostname(hostname: string): boolean {
+ return getAllowedDocumentProxyHostnames().includes(hostname);
 }
 
 type FalcoFetchOptions = {
@@ -151,8 +177,7 @@ export async function falcoFetch<T = unknown>(path: string, options: FalcoFetchO
  cache: "no-store",
  });
  } catch (e) {
- const hint =
- process.env.FALCO_API_BASE_URL?.trim() || DEFAULT_FALCO_API_BASE_URL;
+ const hint = process.env.FALCO_API_BASE_URL?.trim() || FALCO_API_CONFIG_MESSAGE;
  const detail = e instanceof Error ? e.message : "Network error";
  throw new FalcoApiError(
  `Cannot reach the Falco API (${hint}). Check your connection or FALCO_API_BASE_URL. (${detail})`,

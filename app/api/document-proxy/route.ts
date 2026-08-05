@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { ACCESS_TOKEN_COOKIE_NAME } from "@/lib/auth";
+import { FalcoApiError, getAllowedDocumentProxyHostnames } from "@/lib/falco-api";
+import { rewriteToConfiguredBackendUrl } from "@/lib/document-proxy";
 
 function getCookieValue(cookieHeader: string, name: string): string | null {
   const part = cookieHeader
@@ -16,7 +18,7 @@ function getCookieValue(cookieHeader: string, name: string): string | null {
  * add automatically to <img src> or <a href>. This route reads the httpOnly
  * session cookie and forwards the request.
  *
- * Usage: GET /api/document-proxy?url=https://falcobackend.habitek.co.tz/documents/129
+ * Usage: GET /api/document-proxy?url={FALCO_API_BASE_URL}/documents/129
  */
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -26,15 +28,29 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Missing url parameter" }, { status: 400 });
   }
 
-  // Security: only proxy requests to the known backend domain
+  let upstreamUrl: string;
+  try {
+    upstreamUrl = rewriteToConfiguredBackendUrl(targetUrl);
+  } catch (e) {
+    const message = e instanceof FalcoApiError ? e.message : "FALCO_API_BASE_URL is not configured";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+
   let parsed: URL;
   try {
-    parsed = new URL(targetUrl);
+    parsed = new URL(upstreamUrl);
   } catch {
     return NextResponse.json({ error: "Invalid url" }, { status: 400 });
   }
 
-  const allowed = ["falcobackend.habitek.co.tz"];
+  let allowed: string[];
+  try {
+    allowed = getAllowedDocumentProxyHostnames();
+  } catch (e) {
+    const message = e instanceof FalcoApiError ? e.message : "FALCO_API_BASE_URL is not configured";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+
   if (!allowed.includes(parsed.hostname)) {
     return NextResponse.json({ error: "URL not allowed" }, { status: 403 });
   }
@@ -46,11 +62,12 @@ export async function GET(request: Request) {
 
   let upstream: Response;
   try {
-    upstream = await fetch(targetUrl, {
+    upstream = await fetch(upstreamUrl, {
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: "*/*",
       },
+      cache: "no-store",
     });
   } catch {
     return NextResponse.json({ error: "Failed to fetch document" }, { status: 502 });

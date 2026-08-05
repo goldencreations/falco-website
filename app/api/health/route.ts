@@ -1,9 +1,19 @@
 import { NextResponse } from "next/server";
-import { getFalcoApiBaseUrl } from "@/lib/falco-api";
+import { FalcoApiError, getFalcoApiBaseUrl } from "@/lib/falco-api";
 
 /** Quick check that the Next server can reach the configured Falco API. */
 export async function GET() {
- const base = getFalcoApiBaseUrl();
+ let base: string;
+ try {
+  base = getFalcoApiBaseUrl();
+ } catch (e) {
+  const message = e instanceof FalcoApiError ? e.message : "FALCO_API_BASE_URL is not configured";
+  return NextResponse.json(
+   { ok: false, api_base_url: null, api_reachable: false, message },
+   { status: 500 }
+  );
+ }
+
  const started = Date.now();
  try {
  const res = await fetch(`${base}/api/login`, {

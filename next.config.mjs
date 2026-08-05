@@ -3,8 +3,14 @@ import { fileURLToPath } from 'url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
+const falcoApiBaseUrl = process.env.FALCO_API_BASE_URL?.trim().replace(/\/+$/, '') ?? ''
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  env: {
+    // Single source: server + client both read FALCO_API_BASE_URL from .env (see lib/falco-api.ts).
+    FALCO_API_BASE_URL: falcoApiBaseUrl,
+  },
   typescript: {
     ignoreBuildErrors: true,
   },
