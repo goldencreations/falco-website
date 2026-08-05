@@ -1,5 +1,9 @@
 [build]
   command = "pnpm run build"
 
+[build.environment]
+  # Required at build + runtime for API routes and document proxy (not a secret).
+  FALCO_API_BASE_URL = "https://falco.goldencreations.online"
+
 [[plugins]]
   package = "@netlify/plugin-nextjs"
