@@ -27,6 +27,7 @@ import {
  YAxis,
 } from "recharts";
 import { DashboardHeader } from "@/components/dashboard-header";
+import { DisbursementRetryDialog } from "@/components/disbursements/disbursement-retry-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -69,6 +70,7 @@ import { cn } from "@/lib/utils";
 import { forceCachedReload } from "@/lib/client-fetch-cache";
 import { exportDisbursementToPdf } from "@/lib/disbursement-pdf";
 import {
+ adaptApiDisbursementRow,
  type DisbursementKpis,
  type DisbursementViewRow,
 } from "@/lib/disbursement-adapters";
@@ -81,6 +83,11 @@ import {
  canApproveDisbursement as userCanApproveDisbursement,
  canPrepareDisbursement as userCanPrepareDisbursement,
 } from "@/lib/disbursement-permissions";
+import {
+ canShowRetryPayout,
+ mergeDisbursementRetryIntoList,
+ type DisbursementRetrySuccess,
+} from "@/lib/disbursement-retry";
 import { useSessionUser } from "@/lib/use-session-user";
 import { resolvePortalHref } from "@/lib/portal-paths";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/formatters";
@@ -255,6 +262,7 @@ function DisbursementRowActions({
  onApprove,
  onReject,
  onComplete,
+ onRetry,
 }: {
  row: DisbursementViewRow;
  canApprove: boolean;
@@ -263,6 +271,7 @@ function DisbursementRowActions({
  onApprove: () => void;
  onReject: () => void;
  onComplete: () => void;
+ onRetry: () => void;
 }) {
  const canApprovePending = canApprove && row.status === "pending_approval";
  const canCompleteCash =
@@ -270,6 +279,7 @@ function DisbursementRowActions({
  row.status === "approved" &&
  !isClickPesaDisbursement(row) &&
  !isAwaitingClickPesaConfirmation(row);
+ const canRetry = canApprove && canShowRetryPayout(row);
  const approveLabel = isGatewayChannel(row.method)
  ? "Approve & send"
  : "Approve & activate";
@@ -318,6 +328,12 @@ function DisbursementRowActions({
  <DropdownMenuItem onClick={onComplete}>
  <CheckCircle2 className="mr-2 h-4 w-4" />
  Complete
+ </DropdownMenuItem>
+ ) : null}
+ {canRetry ? (
+ <DropdownMenuItem onClick={onRetry} disabled={actionLoading}>
+ <RefreshCcw className="mr-2 h-4 w-4" />
+ Retry payout
  </DropdownMenuItem>
  ) : null}
  </DropdownMenuContent>
@@ -573,6 +589,8 @@ export default function DisbursementsPage() {
  const [approveRef, setApproveRef] = useState("");
  const [rejectRow, setRejectRow] = useState<DisbursementViewRow | null>(null);
  const [rejectReason, setRejectReason] = useState("");
+ const [retryRow, setRetryRow] = useState<DisbursementViewRow | null>(null);
+ const [successMessage, setSuccessMessage] = useState<string | null>(null);
  const [expandedRejectedRows, setExpandedRejectedRows] = useState<Set<string>>(new Set());
 
  const load = useCallback(async (opts?: { silent?: boolean }) => {
@@ -670,6 +688,31 @@ export default function DisbursementsPage() {
   }
 };
 
+ const handleRetrySuccess = useCallback(
+  async (result: DisbursementRetrySuccess, originalId: string) => {
+   setError(null);
+   const orderPart = result.orderReference
+    ? ` New order reference: ${result.orderReference}.`
+    : "";
+   setSuccessMessage(`${result.message}${orderPart}`);
+
+   if (result.disbursement) {
+    const adapted = adaptApiDisbursementRow(result.disbursement);
+    // Never invent completed — only use backend-adapted status.
+    setRows((prev) => mergeDisbursementRetryIntoList(prev, originalId, adapted));
+   }
+
+   await load();
+   try {
+    localStorage.setItem("falco.disbursement.updated", String(Date.now()));
+   } catch {
+    /* storage unavailable */
+   }
+   window.dispatchEvent(new CustomEvent("falco:disbursement:updated"));
+  },
+  [load]
+ );
+
  const toggleRejectedExplanation = useCallback((id: string) => {
  setExpandedRejectedRows((current) => {
  const next = new Set(current);
@@ -738,6 +781,12 @@ export default function DisbursementsPage() {
  <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
  <ShieldAlert className="h-4 w-4 shrink-0" />
  {error}
+ </div>
+ )}
+ {successMessage && (
+ <div className="flex items-center gap-2 rounded-lg border border-emerald-300/60 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+ <CheckCircle2 className="h-4 w-4 shrink-0" />
+ {successMessage}
  </div>
  )}
 
@@ -1064,6 +1113,11 @@ export default function DisbursementsPage() {
  setCompleteRow(row);
  setCompleteRef(row.transaction_reference ?? "");
  }}
+ onRetry={() => {
+ setSuccessMessage(null);
+ setError(null);
+ setRetryRow(row);
+ }}
  />
  </div>
  </TableCell>
@@ -1152,6 +1206,11 @@ export default function DisbursementsPage() {
  if (isClickPesaDisbursement(row)) return;
  setCompleteRow(row);
  setCompleteRef(row.transaction_reference ?? "");
+ }}
+ onRetry={() => {
+ setSuccessMessage(null);
+ setError(null);
+ setRetryRow(row);
  }}
  />
  </div>
@@ -1390,6 +1449,28 @@ export default function DisbursementsPage() {
  </DialogFooter>
  </DialogContent>
  </Dialog>
+
+ <DisbursementRetryDialog
+  row={retryRow}
+  open={!!retryRow}
+  loading={Boolean(retryRow && actionLoading === retryRow.id)}
+  onOpenChange={(open) => {
+   if (!open) setRetryRow(null);
+  }}
+  onLoadingChange={(loading) => {
+   if (!retryRow) return;
+   setActionLoading(loading ? retryRow.id : null);
+  }}
+  onSuccess={(result) => {
+   const originalId = retryRow?.id ?? "";
+   setRetryRow(null);
+   void handleRetrySuccess(result, originalId);
+  }}
+  onError={(message) => {
+   setError(message);
+   setSuccessMessage(null);
+  }}
+ />
  </>
  );
 }

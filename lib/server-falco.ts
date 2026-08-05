@@ -31,6 +31,7 @@ export async function falcoServerFetch<T>(
  method?: string;
  body?: unknown;
  query?: Record<string, string | undefined | null>;
+ headers?: Record<string, string>;
  /** Pass the Route Handler `request` so the bearer token is read from the same cookies as `requireApiUser`. */
  request?: Request;
  }
@@ -56,6 +57,7 @@ export async function falcoServerFetch<T>(
  method: init?.method ?? "GET",
  body: init?.body,
  token,
+ headers: init?.headers,
  });
  return { ok: true, data };
  } catch (e) {

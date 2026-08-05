@@ -43,6 +43,8 @@ export interface Disbursement {
  status: DisbursementStatus;
  gateway?: string | null;
  order_reference?: string | null;
+ /** Backend flag — show Retry payout only when true. */
+ can_retry?: boolean;
  metadata?: Record<string, unknown>;
  prepared_by: string;
  approved_by: string | null;
