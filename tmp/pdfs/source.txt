@@ -1,0 +1,331 @@
+
+===== PAGE 1 =====
+Falco Financial Services 
+1.Leads 
+a) Leads Report 
+Leads Report must show gender and staff name who added a lead for a proper 
+performance Tracking.  
+The system should automatically record the staff member who created or added 
+the lead. Since every staff has The Leads Report should therefore use the staff 
+account information 
+This would make it easier to monitor both lead volume and staff performance. 
+ 
+ 
+LEAD REPORT 
+1. Officer reports  for ranking performance of individual vs  Branch. 
+2. Lead conversion rate and percentage to measure effectiveness of marketing team 
+3. Lead Conversion Rate Report: Tracks how many field leads actually turn into active 
+loan applications or approved customers. You can break this down by status (New ➔ 
+Contacted ➔ Applied ➔ Approved). 
+4.  Officer Productivity & Sourcing Report: A leaderboard showing which loan officers 
+are capturing the most high-quality leads in the field, helping management reward top 
+performers. 
+5. Geographical Concentration Report: A map-overlay or density report showing where 
+most of your leads are located (e.g., Kichemchem vs. Kizuiani). This helps you decide 
+where to deploy teams for maximum efficiency. 
+6. Lead Age & Stagnation Report: Highlights leads flagged as "New" or "Follow Up" that 
+haven't been touched in over 48 hours, ensuring no potential customer falls through the 
+cracks. 
+NB: 
+===== PAGE 2 =====
+Metric Card What It Tracks Why It Matters 
+Total Leads 
+Captured 
+Total count of all rows added to 
+the hub. 
+Measures the total volume 
+of fieldwork being done. 
+Contact Rate 
+(%) 
+Percentage of leads moved from 
+New to Contacted or Follow Up. 
+Shows if officers are 
+actually reaching out 
+quickly. 
+Application 
+Rate (%) 
+Percentage of leads who fill out a 
+formal loan application. 
+Measures the quality of 
+the leads being brought in. 
+Final 
+Conversion 
+Rate 
+Percentage of total field leads that 
+successfully reach Disbursed 
+status. 
+The ultimate ROI metric for 
+field operations. 
+Reason for Drop-off" Chart 
+To fix leaks in your sales funnel, you need to know why leads don't convert. When an officer 
+changes a lead's status to "Lost" or "Archived", require a reason selection. Display this as a small 
+bar chart: 
+•   Not interested / Changed mind 
+•   Failed initial credit screening (Over-indebted) 
+•   Incorrect/Unreachable phone number 
+•   Requested loan amount too high for product limits 
+2.Customers 
+      a)       COSTOMER REPORTS FOR THE PERIOD 
+1. By sex 
+2. By age group 18-35 and 35 to 60.  
+3. By economic activities. 
+4. Customer by regional and  district  
+ 
+b) Passport picture size. 
+===== PAGE 3 =====
+Would you Please increase Passport Picture size. The current size can’t be seen 
+easily and it found difficult in knowing the customers business until zoom in. 
+ 
+c) Alternative Phone Number, 
+Customers some time may attend to have more than two phone numbers, 
+Maybe 4 maybe 5. So lets adjust our system so we can enable the system to 
+have pick more Aleternative numbers. 
+ 
+ 
+d) ID type & Number 
+There is a choice in choosing the type of ID to be used while assigning a 
+customer, which is good. But also, there is a limitation of using only National ID 
+number, and that is a Problem we need to solve. 
+
+===== PAGE 4 =====
+ 
+ 
+e) Browse Location 
+Let’s give our staff option to add client’s location Manually, and by browse 
+location area.  
+ 
+f) Where the Customer lives 
+Put option to show and hide  these map images on the system.  Here it will be 
+very clean and neat if we have three buttons.  
+
+===== PAGE 5 =====
+NB: Manager & Admin only should have Permission to reset and approve  
+customers location changes. 
+ 
+a) Guarantors 
+These are some of details to be added to guarantor area. 
+• Guarantor Passport Photo 
+• Guarantor Sex 
+ 
+ 
+b) Guarantor Collateral. 
+Here, lets add Guarantor collateral photos. Currently there is no guarantor 
+collateral phots in this section. Here. And please Let’s be no limitation of 
+collateral photos in this area. 
+
+===== PAGE 6 =====
+ 
+\ 
+ 
+c) Guarantor Photo 
+We need to have an option of adding more guarantor as much as we can. 
+Currently there is an option of adding only one Guarantor photo which is not 
+good thing. We need to have add more Guarantors photos as much as We can. 
+ 
+ 
+d) Photo loading. 
+Photos are taking more time to loading while opening. Let’s fix this and have a 
+precise view of photos. 
+
+===== PAGE 7 =====
+ 
+ 
+3. Loan Application 
+a) Application Type 
+There are two type of application which appear when applying for a loan. 
+Individual and Group application types.  
+Because Groupe application type doesn’t work and unrealistic.  
+Make it possible to assing groupmember into the group application Because in a 
+group every member may attend to apply for different amount of loan as the 
+other members. 
+ 
+ 
+
+===== PAGE 8 =====
+BRANCH  
+• Disbursement vs. Collection Timeline: A running monthly line graph showing funds 
+out versus funds in for that specific branch to monitor its liquidity. 
+• Officer Portfolio Leaderboard: A breakdown ranking that branch's 3 officers (as seen 
+on the Mbagala card) by their individual active client counts and repayment rates. 
+• Target vs. Actual Matrix: A simple table comparing the monthly goals set for that 
+branch (e.g., Target: Disburse TSh 5M, Actual: TSh 0) so management knows who is 
+hitting their KPIs. 
+Branch Cash Flow Summary: A log tracking the physical vault or digital account balance for the branch to 
+ensure they have enough cash on hand for tomorrow's approved loans 
+ 
+APPLICATION CONTROL CENTER 
+Crucial Reports to Add 
+• Disbursement Bottleneck & TAT (Turnaround Time) Report: Since you have 4 
+applications marked as Pending disbursement out of 8 total, you need a report that tracks 
+how long a loan sits between "Approved" and actual cash out the door. This helps 
+identify delays in your treasury or finance department. 
+• Application Rejection Analytics: A breakdown of why loans are being rejected (e.g., 
+low credit score, insufficient collateral, unverified income). This helps adjust your credit 
+policy over time. 
+• Pipeline Drop-off/Abandonment Rate: Tracks applicants who start a draft or submit 
+initially but drop out before final review, helping you see if your process is too tedious 
+for clients. 
+2. Recommended UI Improvements & Upgrades 
+• Visual Urgency Indicators (Aging Badges): An application submitted on 2026-07-13 
+that is still Pending disbursement on 2026-07-20 has been waiting for a week. Add an 
+aging badge (e.g., Red text or an exclamation icon) for any approved loan that hasn't been 
+disbursed within 24–48 hours. 
+• Advanced Status Filters: Expand your top filtering dropdown beyond All Status. It 
+would be highly practical to have quick-clickable filter tabs right above the table for 
+"Awaiting Treasury Approval" and "Ready for Disbursement" to clear out the 
+operational queue faster. 
+• Total Value Counter in Summary Cards: Your summary cards currently show the 
+count of applications (e.g., "Approved: 1"). It would be much more useful for capital 
+planning if they showed both count and total value: 
+o Example: Pending Disbursement: 4 (TSh 800,000 total exposure) 
+===== PAGE 9 =====
+ 
+ACTIVE LOANS 
+1. Fix Critical Data Bugs (UI & Backend Improvements) 
+• Fix the Negative Recovery Rate: Your dashboard shows a Recovery Rate of -32.4%. 
+A recovery rate should mathematically sit between 0% and 100%. A negative number 
+implies you are losing principal that hasn't even been disbursed, or your calculation 
+formula is subtracting outstanding interest incorrectly. 
+• Fix the Epoch/Default Maturity Dates: Four of your pending loans show a maturity 
+date of 01 Jan 1970. This is a classic Unix timestamp bug (0). The system should either 
+hide the maturity date until the loan is active/disbursed, or calculate the expected maturity 
+date dynamically based on the loan product terms once a start date is proposed. 
+2. UI Layout & Action Elements 
+• Dynamic Progress Bars: Your "Progress" column currently shows 0% paid in plain text 
+for every single loan (even the active ones like Rosemary's and Mohamed's). Replacing 
+this with a visual percentage progress bar (e.g., green for principal paid, gray for 
+remaining) makes tracking loan lifecycles instant. 
+• Principal vs. Total Outstanding Breakdown: For LN-APP-20260717-227180, the 
+principal is TSh 200,000, but outstanding shows TSh 268,000. It would be helpful to split 
+the "Outstanding" column into [Principal Remaining | Interest/Fees Accrued] so 
+officers know exactly what makes up the balance. 
+• Quick-Filter Tabs: Instead of just a single "All Status" dropdown, add quick-click 
+metric tabs at the top for Active, Pending, and Overdue/Arrears so managers can filter 
+the list with one click. 
+ 
+3. Essential Reports to Launch From This Page 
+• Expected Collections Calendar / Repayment Report: A forward-looking report 
+showing exactly which loans are due for a payment today, this week, or this month. This 
+is essential for your loan officers to plan their collection routes. 
+• Portfolio at Risk (PAR) Aging Report: Even though you currently show 0 in 
+arrears, as you scale past 7 loans, you will need a report that automatically buckets 
+loans by how many days they are past due (1–30 days, 31–60 days, etc.). 
+• Loan Product Performance Report: Compares your GROUP LOANS against INDIVIDUAL 
+LOANS to see which product has a higher volume and better recovery rate. 
+GROUP  
+1. Essential UI & Dashboard Improvements 
+===== PAGE 10 =====
+• Meeting Attendance & Collection Tracker: Your table currently captures the meeting 
+day and location (e.g., Monday at Charambe or Thursday at Zakhem Kanisani), but lacks 
+real-time visibility. Adding an "Attendance & Collection Status" visual indicator right 
+on this table would show if a group successfully completed their center meeting and 
+collection for the current week. 
+• Group Risk Grading / Portfolio Health: Since all 3 groups are marked as active, it 
+would be incredibly helpful to replace the plain text status with color-coded risk health 
+tags. If a single member of Mkombozi defaults, the entire group's risk profile drops. 
+Adding a Group PAR (Portfolio at Risk) percentage badge next to the status would 
+warn officers instantly. 
+• Consolidated Group Portfolio Metrics: The card labeled Group records / Current 
+saved groups is currently acting as a static text label. You should convert this card into 
+a useful financial summary metric like "Total Group Portfolio Outstanding (TSh)" or 
+"Joint Savings/Collateral Balance" so you can see the financial weight of your groups 
+at a glance. 
+ 
+2. Group Lending Reports to Add 
+• Center Meeting Attendance & Repayment Report: A weekly operational report 
+tracking attendance rates and collection efficiency per group during their physical field 
+meetings. High attendance heavily correlates with a healthy repayment rate. 
+• Group vs. Member Exposure Matrix: A drill-down report showing a breakdown of 
+individual member balances within a group. This ensures that a single borrower isn't 
+taking up 80% of a group's total loan capacity, which breaks the dynamic of collective 
+responsibility. 
+• Loan Officer Group Rotation/Productivity Leaderboard: Since Nasfath Burhan is 
+currently handling all 3 active groups, a tracking report will help branch managers see 
+when an officer's group capacity is saturated and when to reassign new Vikundi to other 
+field officers. 
+Reports 
+General report section 
+a Reports section would be highly beneficial. Here are the key types of reports that are typically 
+essential  
+• Financial & Disbursement Reports: Tracking total disbursed amounts vs. principal 
+collected, interest earned, and processing fees across different branches. 
+• Portfolio at Risk (PAR) / Non-Performing Loans (NPL): Crucial for tracking late 
+payments, defaulting loans, and aging analysis (e.g., 1–30 days late, 31–60 days late, 
+etc.). 
+===== PAGE 11 =====
+• Loan Officer Performance Reports: Since you track the number of officers per branch, 
+a report monitoring individual officer portfolios, collection rates, and new customer 
+acquisitions would help measure productivity. 
+• Branch Comparison Reports: A high-level dashboard or downloadable report 
+comparing active customers, loan volumes, and collection efficiencies between the Head 
+Office, Mbagala, and Iringa branches. 
+ 
+b) Status 
+Let’s have color distinguisher in this criterion that distinguishes each Status of a 
+costumer Loan application progress 
+ 
+ 
+4.Loan Calculator 
+Let’s add a downloadable and printable calculation result in form of PDF and 
+Excell 
+A photo bellow shows a brief component of a disbursement for every user to 
+have. 
+ 
+
+===== PAGE 12 =====
+a) Disbursement Report For a management. 
+Photo bellow shows Component Disbursement report that only management 
+should have.  
+Not this is a sample of a component. But as a Developer you can Recreate more 
+as you can to give a best result. 
+ 
+ 
+ 
+PAYMENT SECTION 
+• ALL PAYMENT RECEIVED IN CLICK PESSA SHOULD REFRECT IN THE 
+SYSTEM WETHER FOR CUSTOMER APPLICATION FEES OR OTHER INCOME 
+THEY MUST BE REFRECTED IN THE  LOAN SYSTEM. 
+ 
+• Allocation Abbreviation Clarity: Labels like P: TSh 0, I: TSh 2,000, and F: TSh 
+20,000 are concise, but uninitiated users or new staff might struggle to identify them 
+immediately. 
+o Suggestion: Add tooltips or explicit labels (e.g., Principal, Interest, Fees) on 
+hover/tap. 
+ 
+2. Reconciliation & Status Visuals 
+• Status Badge Hierarchy: In the table, both status columns (Completed and Manual 
+Review) visually blend together. 
+
+===== PAGE 13 =====
+o Suggestion: Use distinct visual color codes—e.g., green badge for Completed, 
+orange badge for Manual Review / Pending Reconciliation, and red for 
+Unmatched / Reversed—so status is discernible at a glance. 
+• Reconciliation Summary vs. Detailed Table Alignment:  
+POSIBILITY OF IMPORTING DATA FROM CLICK PESA AND BANK 
+STATEMENT FOR RECONCILLIATION 
+ 
+3. Workflow & Operational Features 
+• Batch Reconciliation: Currently, manual collections captured by loan officers require 
+bank reconciliation individually. 
+o Suggestion: Add multi-select checkboxes in the table to allow bulk actions (e.g., 
+Bulk Approve/Reconcile, Export Selected). 
+• Action Safety Measures: The only primary action visible per row is [Reverse]. 
+o Suggestion: Ensure a confirmation modal pops up upon clicking Reverse to 
+require a reason entry (e.g., duplicate entry, wrong loan ID), preventing accidental 
+payment reversals. 
+• Filter Quick-Tabs: Adding tab filters at the top of the table (e.g., All, Requires 
+Review, Matched, Unmatched) would let staff quickly filter actionable payments without 
+having to scroll through all records. 
+ ADDITIONAL FEAUTURES 
+• OTHER NON-INTEREST INCOME- CREATION, RECORD AND 
+REPORT. 
+ 
+• EXPENSES – CREATION, RECORD AND REPORTS. 
+ 
+ 
+• OTHER NON-CLIENT PAYMENT WINDOWS-CREATION ,RECORD, 
+AND REPORTS 
+ 
+ 
+ 
+ 

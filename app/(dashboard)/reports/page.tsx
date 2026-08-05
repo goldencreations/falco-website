@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
  AlertTriangle,
  ArrowDownRight,
@@ -64,6 +65,18 @@ import {
 } from "@/lib/reports-timeseries";
 import { isBranchScopedStaffRole } from "@/lib/role-portal";
 import { useSessionUser } from "@/lib/use-session-user";
+import { ReportDetailView } from "@/components/reports/report-detail-view";
+
+const DETAIL_REPORT_VIEWS = new Set([
+ "leads-performance",
+ "customer-demographics",
+ "applications",
+ "expected-collections",
+ "portfolio-aging",
+ "disbursements",
+ "groups-performance",
+ "financial-ledger",
+]);
 
 function formatYAxis(value: number) {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(0)}M`;
@@ -141,6 +154,8 @@ async function fetchJson<T>(url: string): Promise<{ ok: true; data: T } | { ok: 
 }
 
 export default function ReportsPage() {
+ const router = useRouter();
+ const searchParams = useSearchParams();
  const { user, loaded: sessionLoaded } = useSessionUser();
  const branchCtx = useOptionalBranchAssignment();
  const branches = branchCtx?.branches ?? [];
@@ -151,9 +166,9 @@ export default function ReportsPage() {
  const scopedBranchId = isScopedRole && user?.branch_id?.trim() ? user.branch_id.trim() : null;
 
  const [period, setPeriod] = useState("6m");
- const [startDateFilter, setStartDateFilter] = useState("");
- const [endDateFilter, setEndDateFilter] = useState("");
- const [branchFilter, setBranchFilter] = useState("all");
+ const [startDateFilter, setStartDateFilter] = useState(() => searchParams.get("from") ?? "");
+ const [endDateFilter, setEndDateFilter] = useState(() => searchParams.get("to") ?? "");
+ const [branchFilter, setBranchFilter] = useState(() => searchParams.get("branch_id") ?? "all");
  const [exportOption, setExportOption] = useState<"pdf" | "csv" | "json">("pdf");
 
  const [portfolio, setPortfolio] = useState<PortfolioSummaryView | null>(null);
@@ -168,6 +183,24 @@ export default function ReportsPage() {
  () => getPeriodRange(period, startDateFilter || undefined, endDateFilter || undefined),
  [period, startDateFilter, endDateFilter]
  );
+ const requestedView = searchParams.get("view") ?? "";
+ const detailView = DETAIL_REPORT_VIEWS.has(requestedView)
+ ? (requestedView as Parameters<typeof ReportDetailView>[0]["view"])
+ : null;
+
+ const updateUrlFilter = useCallback((key: string, value: string) => {
+ const next = new URLSearchParams(searchParams.toString());
+ if (value && value !== "all") next.set(key, value);
+ else next.delete(key);
+ router.replace(`/reports?${next.toString()}`, { scroll: false });
+ }, [router, searchParams]);
+ const updateUrlFilters = useCallback((values: Record<string, string>) => {
+ const next = new URLSearchParams(searchParams.toString());
+ Object.entries(values).forEach(([key, value]) => {
+ if (value && value !== "all") next.set(key, value); else next.delete(key);
+ });
+ router.replace(`/reports?${next.toString()}`, { scroll: false });
+ }, [router, searchParams]);
 
  const scopeLabel = useMemo(() => {
  if (isOfficerView) {
@@ -380,6 +413,48 @@ export default function ReportsPage() {
  setExporting(false);
  }
  };
+
+ if (detailView) {
+ return (
+ <>
+ <DashboardHeader title="Reports" description="Live operational and management reports" />
+ <main className="flex-1 overflow-auto p-4 lg:p-6">
+ <div className="mx-auto max-w-7xl space-y-6">
+ <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-card p-4">
+ <Select value={period} onValueChange={(value) => {
+ setPeriod(value);
+ const selected = getPeriodRange(value);
+ setStartDateFilter(selected.from); setEndDateFilter(selected.to);
+ updateUrlFilters({ from: selected.from, to: selected.to });
+ }}>
+ <SelectTrigger className="w-40"><Calendar className="mr-2 h-4 w-4" /><SelectValue /></SelectTrigger>
+ <SelectContent>
+ <SelectItem value="1m">Last Month</SelectItem><SelectItem value="3m">Last 3 Months</SelectItem>
+ <SelectItem value="6m">Last 6 Months</SelectItem><SelectItem value="1y">Last Year</SelectItem>
+ </SelectContent>
+ </Select>
+ <Input type="date" value={startDateFilter || range.from} onChange={(event) => { setStartDateFilter(event.target.value); updateUrlFilter("from", event.target.value); }} className="w-[170px]" />
+ <Input type="date" value={endDateFilter || range.to} onChange={(event) => { setEndDateFilter(event.target.value); updateUrlFilter("to", event.target.value); }} className="w-[170px]" />
+ {isSuperAdmin ? (
+ <Select value={branchFilter} onValueChange={(value) => { setBranchFilter(value); updateUrlFilter("branch_id", value); }}>
+ <SelectTrigger className="w-[190px]"><SelectValue placeholder="All branches" /></SelectTrigger>
+ <SelectContent><SelectItem value="all">All branches</SelectItem>{branches.map((branch) => <SelectItem key={branch.id} value={branch.id}>{branch.name}</SelectItem>)}</SelectContent>
+ </Select>
+ ) : null}
+ </div>
+ <ReportDetailView
+ view={detailView}
+ from={startDateFilter || range.from}
+ to={endDateFilter || range.to}
+ asOf={endDateFilter || range.to}
+ branchId={effectiveBranchId}
+ scopeLabel={scopeLabel}
+ />
+ </div>
+ </main>
+ </>
+ );
+ }
 
  return (
  <>
