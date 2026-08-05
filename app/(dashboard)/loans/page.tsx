@@ -23,6 +23,7 @@ import {
 import { toast } from "sonner";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { DashboardHeader } from "@/components/dashboard-header";
+import { ListPaginationBar, paginateItems } from "@/components/list-pagination-bar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -215,6 +216,8 @@ function RepaymentInstructionsCard({ repaymentDetails }: { repaymentDetails: Rep
  );
 }
 
+const PAGE_SIZE = 8;
+
 export default function LoansPage() {
  const { user } = useSessionUser();
  const isOfficerView = user?.role === "loan_officer";
@@ -232,6 +235,7 @@ export default function LoansPage() {
 
  const [searchQuery, setSearchQuery] = useState("");
  const [statusFilter, setStatusFilter] = useState<string>("all");
+ const [page, setPage] = useState(1);
  const [viewLoan, setViewLoan] = useState<LoanListRow | null>(null);
 
  const [detailLoan, setDetailLoan] = useState<LoanListRow | null>(null);
@@ -310,6 +314,20 @@ export default function LoansPage() {
 
  return matchesSearch && matchesStatus;
  });
+
+ useEffect(() => {
+  setPage(1);
+ }, [searchQuery, statusFilter, scopeBranchId]);
+
+ const pagedLoans = useMemo(
+  () => paginateItems(filteredLoans, page, PAGE_SIZE),
+  [filteredLoans, page]
+ );
+
+ useEffect(() => {
+  const totalPages = Math.max(1, Math.ceil(filteredLoans.length / PAGE_SIZE));
+  if (page > totalPages) setPage(totalPages);
+ }, [page, filteredLoans.length]);
 
  const totalOutstanding = visibleLoans.reduce((sum, l) => sum + l.total_outstanding, 0);
  const totalPenaltyOutstanding = visibleLoans.reduce(
@@ -598,7 +616,7 @@ export default function LoansPage() {
  No loans found
  </p>
  ) : (
- filteredLoans.map((loan) => {
+ pagedLoans.map((loan) => {
  const status = statusConfig[loan.status];
  const riskRow = riskConfig[loan.risk_classification] ?? riskConfig.current;
  const StatusIcon = status.icon;
@@ -722,7 +740,7 @@ export default function LoansPage() {
  </TableCell>
  </TableRow>
  ) : (
- filteredLoans.map((loan) => {
+ pagedLoans.map((loan) => {
  const status = statusConfig[loan.status];
  const riskRow = riskConfig[loan.risk_classification] ?? riskConfig.current;
  const StatusIcon = status.icon;
@@ -818,6 +836,13 @@ export default function LoansPage() {
  </TableBody>
  </Table>
  </div>
+ <ListPaginationBar
+  page={page}
+  pageSize={PAGE_SIZE}
+  total={filteredLoans.length}
+  loading={listLoading}
+  onPageChange={setPage}
+ />
  </CardContent>
  </Card>
  </div>

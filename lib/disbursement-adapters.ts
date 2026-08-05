@@ -9,11 +9,18 @@ const STATUSES: DisbursementStatus[] = [
  "rejected",
 ];
 
-function asStatus(v: string | undefined): DisbursementStatus {
+function asStatus(v: string | undefined, gateway?: string | null): DisbursementStatus {
  const s = (v ?? "pending_approval").toLowerCase().replace(/-/g, "_").replace(/\s+/g, "_");
- if (s === "awaiting_approval") return "pending_approval";
- // Gateway payout in flight — keep distinct from console "pending_approval".
- if (s === "pending" || s === "processing" || s === "submitted") return "processing";
+ // Terminal gateway failures map to rejected in the console.
+ if (s === "reversed" || s === "cancelled" || s === "canceled" || s === "failed" || s === "refunded") {
+  return "rejected";
+ }
+ // In-flight ClickPesa payout — only after approve submits to the gateway.
+ if (s === "processing" || s === "submitted" || s === "payout_authorized") return "processing";
+ // Gateway rows still reported as "pending" after submit are awaiting ClickPesa, not staff approval.
+ if ((s === "pending" || s === "awaiting_approval") && gateway) return "processing";
+ // Console prepare / no gateway yet.
+ if (s === "pending" || s === "awaiting_approval") return "pending_approval";
  return STATUSES.includes(s as DisbursementStatus) ? (s as DisbursementStatus) : "pending_approval";
 }
 
@@ -160,6 +167,8 @@ export function adaptApiDisbursementRow(raw: Record<string, unknown>): Disbursem
  const bankName =
  firstNonEmptyStr(row.bank_name, row.bank, payout?.bank_name, row.bank_bic) || null;
 
+ const gateway = row.gateway != null ? str(row.gateway) : null;
+
  return {
  id: str(row.id),
  loan_id: str(row.loan_id ?? loan?.id),
@@ -169,8 +178,8 @@ export function adaptApiDisbursementRow(raw: Record<string, unknown>): Disbursem
  account_number: accountNumber,
  bank_name: bankName,
  transaction_reference: row.transaction_reference != null ? str(row.transaction_reference) : null,
- status: asStatus(row.status ? str(row.status) : undefined),
- gateway: row.gateway != null ? str(row.gateway) : null,
+ status: asStatus(row.status ? str(row.status) : undefined, gateway),
+ gateway,
  order_reference: row.order_reference != null ? str(row.order_reference) : null,
  metadata:
  row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
@@ -737,6 +746,9 @@ export function mapUiDisbursementCreateToFalco(body: Record<string, unknown>): R
 
  const txRef = body.transaction_reference != null ? String(body.transaction_reference).trim() : "";
  if (txRef) payload.transaction_reference = txRef;
+
+ // Never invent or forward order_reference — backend generates a unique ClickPesa reference.
+ delete payload.order_reference;
 
  return payload;
 }

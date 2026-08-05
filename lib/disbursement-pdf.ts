@@ -159,6 +159,7 @@ export function exportDisbursementToPdf(input: {
  ["Account name", d.account_name ?? "—"],
  ["Account number", d.account_number ?? "—"],
  ["Bank / institution", d.bank_name ?? "—"],
+ ["Order reference", d.order_reference ?? "—"],
  ["Transaction reference", d.transaction_reference ?? "—"],
  ],
  didDrawCell: (data) => {

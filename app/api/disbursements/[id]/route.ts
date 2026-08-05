@@ -89,11 +89,28 @@ export async function PATCH(
  const forward: Record<string, unknown> = { action };
  if (action === "reject" && body.rejection_reason != null) forward.rejection_reason = body.rejection_reason;
  if (action === "approve" && body.transaction_reference != null) {
- forward.transaction_reference = body.transaction_reference;
+  // Optional staff note for cash only — never treat as ClickPesa order_reference.
+  forward.transaction_reference = body.transaction_reference;
  }
+ // order_reference is backend-owned; never accept client-supplied values.
+ delete forward.order_reference;
+
  if (action === "complete") {
- if (body.transaction_reference != null) forward.transaction_reference = body.transaction_reference;
- if (body.disbursed_at != null) forward.disbursed_at = body.disbursed_at;
+  const preRow = pre.ok ? adaptApiDisbursementRow(pre.data as Record<string, unknown>) : null;
+  const isGateway =
+   Boolean(preRow?.gateway) ||
+   ["mpesa", "airtel_money", "yas", "halopesa", "crdb", "nmb"].includes(preRow?.method ?? "");
+  if (isGateway || preRow?.status === "processing") {
+   return NextResponse.json(
+    {
+     error:
+      "ClickPesa disbursements cannot be completed manually. Wait for gateway confirmation or reconciliation.",
+    },
+    { status: 422 }
+   );
+  }
+  if (body.transaction_reference != null) forward.transaction_reference = body.transaction_reference;
+  if (body.disbursed_at != null) forward.disbursed_at = body.disbursed_at;
  }
 
  const res = await falcoServerFetch<unknown>(`/disbursements/${encodeURIComponent(id)}`, {

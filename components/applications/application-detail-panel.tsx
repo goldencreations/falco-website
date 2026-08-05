@@ -892,8 +892,14 @@ export function ApplicationDetailPanel({
               <Link
                 href={
                   application.loan_id
-                    ? `/disbursements?loanId=${encodeURIComponent(application.loan_id)}`
-                    : "/disbursements"
+                    ? `${resolvePortalPath(
+                        effectiveRole as Parameters<typeof resolvePortalPath>[0],
+                        "/disbursements/new"
+                      )}?loanId=${encodeURIComponent(application.loan_id)}`
+                    : resolvePortalPath(
+                        effectiveRole as Parameters<typeof resolvePortalPath>[0],
+                        "/disbursements/new"
+                      )
                 }
               >
                 Create disbursement

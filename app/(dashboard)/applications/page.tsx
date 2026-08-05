@@ -19,6 +19,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard-header";
+import { ListPaginationBar, paginateItems } from "@/components/list-pagination-bar";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -115,6 +116,8 @@ const statusConfig: Record<
  cancelled: { label: "Cancelled", variant: "outline", icon: XCircle },
 };
 
+const PAGE_SIZE = 8;
+
 export default function ApplicationsPage() {
  const router = useRouter();
  const { user } = useSessionUser();
@@ -135,6 +138,7 @@ export default function ApplicationsPage() {
  const applicationDetailPath = (id: string) => resolvePortalPath(user?.role, `/applications/${id}`);
  const [searchQuery, setSearchQuery] = useState("");
  const [statusFilter, setStatusFilter] = useState<string>("all");
+ const [page, setPage] = useState(1);
  const [applications, setApplications] = useState<ApplicationViewRow[]>([]);
  const [listLoading, setListLoading] = useState(true);
  const [actionError, setActionError] = useState<string | null>(null);
@@ -264,6 +268,21 @@ export default function ApplicationsPage() {
 
  return matchesSearch && matchesStatus;
  });
+
+ useEffect(() => {
+  setPage(1);
+ }, [searchQuery, statusFilter, scopeBranchId]);
+
+ const pagedApplications = useMemo(
+  () => paginateItems(filteredApplications, page, PAGE_SIZE),
+  [filteredApplications, page]
+ );
+
+ useEffect(() => {
+  const totalPages = Math.max(1, Math.ceil(filteredApplications.length / PAGE_SIZE));
+  if (page > totalPages) setPage(totalPages);
+ }, [page, filteredApplications.length]);
+
  const deletableApplications = useMemo(
  () =>
   filteredApplications.filter((app) => canDeleteApplication(effectiveRole, app, user?.id)),
@@ -761,12 +780,12 @@ export default function ApplicationsPage() {
  </div>
  ) : null}
  <div className="grid gap-3 p-4 sm:hidden">
- {filteredApplications.length === 0 ? (
+ {pagedApplications.length === 0 ? (
  <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
  No applications found
  </p>
  ) : (
- filteredApplications.map((app) => {
+ pagedApplications.map((app) => {
  const status = statusConfig[app.status];
  const StatusIcon = status.icon;
  const statusLabel = applicationOperationalStatusLabel(
@@ -858,7 +877,7 @@ export default function ApplicationsPage() {
  </TableRow>
  </TableHeader>
  <TableBody>
- {filteredApplications.length === 0 ? (
+ {pagedApplications.length === 0 ? (
  <TableRow>
  <TableCell
  colSpan={isTopAdminView ? 10 : 9}
@@ -868,7 +887,7 @@ export default function ApplicationsPage() {
  </TableCell>
  </TableRow>
  ) : (
- filteredApplications.map((app) => {
+ pagedApplications.map((app) => {
  const status = statusConfig[app.status];
  const StatusIcon = status.icon;
  const statusLabel = applicationOperationalStatusLabel(
@@ -1022,6 +1041,13 @@ export default function ApplicationsPage() {
 </Table>
 </div>
 </div>
+<ListPaginationBar
+  page={page}
+  pageSize={PAGE_SIZE}
+  total={filteredApplications.length}
+  loading={listLoading}
+  onPageChange={setPage}
+/>
 </CardContent>
 </Card>
 </div>
