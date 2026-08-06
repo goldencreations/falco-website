@@ -41,30 +41,17 @@ function fullName(obj: Record<string, unknown> | undefined): string | undefined 
   return combined || undefined;
 }
 
-function normalizedCategoryForUi(params: {
-  source: FinancialEntrySource;
-  category: string;
-  direction: FinancialEntryDirection;
-  customerId?: string;
-  customerName?: string;
-}): string {
-  const raw = (params.category ?? "").trim();
-  const key = raw.toLowerCase();
-  if (params.source !== "clickpesa") return raw;
-  if (params.direction !== "in") return raw;
-  if (!UNCLASSIFIED_CATEGORIES.has(key)) return raw;
-  // Backend occasionally posts already-matched customer repayments as unclassified queue items.
-  // For UI consistency, treat customer-linked ClickPesa cash-ins as loan repayments.
-  if (params.customerId?.trim() || params.customerName?.trim()) return "loan_repayment";
-  return raw;
+function normalizedCategoryForUi(params: { category: string }): string {
+  return (params.category ?? "").trim();
 }
 
 /** Category sentinels meaning "an accountant still needs to classify this receipt". */
 const UNCLASSIFIED_CATEGORIES = new Set(["", "unclassified", "unclassified_gateway_income"]);
 
 /** True when this entry is an unclassified ClickPesa receipt that still needs an accountant to classify it. */
-export function financialEntryNeedsClassification(entry: Pick<FinancialEntry, "source" | "category">): boolean {
+export function financialEntryNeedsClassification(entry: Pick<FinancialEntry, "source" | "category" | "status" | "is_reversed">): boolean {
   if (entry.source !== "clickpesa") return false;
+  if (entry.is_reversed || String(entry.status ?? "").toLowerCase() === "reversed") return false;
   const category = (entry.category ?? "").trim().toLowerCase();
   return UNCLASSIFIED_CATEGORIES.has(category);
 }
@@ -99,6 +86,34 @@ export function financialEntrySourceLabel(source: FinancialEntrySource): string 
   return "System";
 }
 
+/**
+ * UI label for auto/manual/system classification.
+ * - System + gateway + loan_repayment => Loan repayment · Gateway (Auto)
+ * - System + gateway + registration_fee => Registration fee · Gateway (Auto)
+ * - Reversed legacy clickpesa => Superseded by automatic payment
+ * - Historical clickpesa unclassified => Needs investigation
+ */
+export function financialEntryDisplayLabel(entry: Pick<FinancialEntry, "source" | "category" | "status" | "payment_method" | "reversal_reason">): string {
+  const category = (entry.category ?? "").trim().toLowerCase();
+  const status = (entry.status ?? "").trim().toLowerCase();
+  const method = String(entry.payment_method ?? "").trim().toLowerCase();
+  const reversedSuperseded =
+    entry.source === "clickpesa" &&
+    status === "reversed" &&
+    /superseded by an automatically allocated clickpesa payment/i.test(entry.reversal_reason ?? "");
+  if (reversedSuperseded) return "Superseded by automatic payment";
+  if (entry.source === "clickpesa" && status === "posted" && UNCLASSIFIED_CATEGORIES.has(category)) {
+    return "Needs investigation";
+  }
+  if (entry.source === "system" && category === "loan_repayment" && method === "gateway") {
+    return "Loan repayment · Gateway (Auto)";
+  }
+  if (entry.source === "system" && category === "registration_fee" && method === "gateway") {
+    return "Registration fee · Gateway (Auto)";
+  }
+  return financialEntryCategoryLabel(entry.category);
+}
+
 export function adaptApiFinancialEntryRow(raw: Record<string, unknown>): FinancialEntry {
   const inner = readNested(raw, "financial_entry") ?? readNested(raw, "entry") ?? raw;
 
@@ -109,14 +124,11 @@ export function adaptApiFinancialEntryRow(raw: Record<string, unknown>): Financi
   const id = str(inner.id);
   const source = asSource(inner.source);
   const direction = asDirection(inner.direction ?? inner.type);
+  const md = readNested(inner, "metadata");
   const customerId =
     inner.customer_id != null ? str(inner.customer_id) : customer?.id != null ? str(customer.id) : undefined;
   const category = normalizedCategoryForUi({
-    source,
     category: str(inner.category ?? (source === "clickpesa" ? "unclassified" : "")),
-    direction,
-    customerId,
-    customerName: fullName(customer) ?? (inner.customer_name != null ? str(inner.customer_name) : undefined),
   });
 
   return {
@@ -135,6 +147,9 @@ export function adaptApiFinancialEntryRow(raw: Record<string, unknown>): Financi
     income_type: str(inner.income_type) || undefined,
     notes: str(inner.notes ?? inner.description) || undefined,
     reference: str(inner.reference_number ?? inner.reference ?? inner.external_reference) || undefined,
+    status: str(inner.status) || undefined,
+    payment_method: str(inner.payment_method) || undefined,
+    metadata: md,
     account_name: str(inner.account_name ?? readNested(inner, "account")?.name) || undefined,
     is_reversed: Boolean(inner.is_reversed ?? inner.reversed ?? (str(inner.status).toLowerCase() === "reversed")),
     reversal_reason: str(inner.reversal_reason) || undefined,

@@ -67,6 +67,7 @@ import { formatApiResponseError } from "@/lib/falco-api";
 import { forceCachedReload } from "@/lib/client-fetch-cache";
 import { formatCurrency, formatDateTime } from "@/lib/formatters";
 import { parseJsonResponse } from "@/lib/parse-json-response";
+import { paymentMethodLabel, paymentSourceLabel } from "@/lib/payment-method-display";
 import { isBranchScopedStaffRole, rolePortalBase } from "@/lib/role-portal";
 import { useSessionUser } from "@/lib/use-session-user";
 
@@ -75,7 +76,7 @@ const methodConfig: Record<PaymentMethod, { label: string; icon: typeof CreditCa
  mobile_money: { label: "Mobile Money", icon: Smartphone },
  bank_transfer: { label: "Bank Transfer", icon: Building2 },
  cheque: { label: "Cheque", icon: CreditCard },
- gateway: { label: "Gateway (Auto)", icon: Smartphone },
+ gateway: { label: "Gateway", icon: Smartphone },
 };
 
 const statusConfig: Record<
@@ -131,6 +132,13 @@ function AllocationAbbrev({
   );
 }
 
+const MANUAL_DUPLICATE_WARNING =
+  "Confirm that this payment has not already been automatically recorded by ClickPesa. Recording it twice will incorrectly reduce the customer's loan balance.";
+
+function isManualExceptionMethod(method: PaymentMethod): boolean {
+  return method === "mobile_money" || method === "gateway" || method === "bank_transfer";
+}
+
 export default function PaymentsPage() {
  const { user } = useSessionUser();
  const isOfficerView = user?.role === "loan_officer";
@@ -164,6 +172,11 @@ export default function PaymentsPage() {
  const [reversePayment, setReversePayment] = useState<PaymentViewRow | null>(null);
  const [reverseReason, setReverseReason] = useState("");
  const [reverseLoading, setReverseLoading] = useState(false);
+ const [manualExceptionConfirmed, setManualExceptionConfirmed] = useState(false);
+ const canCreatePayment =
+ user?.role === "super_admin" ||
+ user?.role === "accountant" ||
+ Boolean(user?.permissions?.includes("payments.create"));
  const canReverse =
  user?.role === "super_admin" ||
  user?.role === "accountant" ||
@@ -222,6 +235,26 @@ export default function PaymentsPage() {
 
  useEffect(() => {
  void load();
+ }, [load]);
+
+ useEffect(() => {
+ const onFocus = () => void load();
+ const onVisible = () => {
+  if (document.visibilityState === "visible") void load();
+ };
+ window.addEventListener("focus", onFocus);
+ document.addEventListener("visibilitychange", onVisible);
+ return () => {
+  window.removeEventListener("focus", onFocus);
+  document.removeEventListener("visibilitychange", onVisible);
+ };
+ }, [load]);
+
+ useEffect(() => {
+ const timer = window.setInterval(() => {
+  void load();
+ }, 45_000);
+ return () => window.clearInterval(timer);
  }, [load]);
 
  const visibleLoans = useMemo(() => {
@@ -332,7 +365,21 @@ useEffect(() => {
  if (openPaymentForm === "1") setIsDialogOpen(true);
  }, [preselectedLoan, openPaymentForm, paymentAmount]);
 
+ useEffect(() => {
+  if (!isDialogOpen) {
+   setManualExceptionConfirmed(false);
+  }
+ }, [isDialogOpen]);
+
+ useEffect(() => {
+  if (!isManualExceptionMethod(paymentMethod)) setManualExceptionConfirmed(false);
+ }, [paymentMethod]);
+
  const handleRecordPayment = async () => {
+ if (!canCreatePayment) {
+ setError("You do not have permission to record payments.");
+ return;
+ }
  if (!selectedLoan || !paymentAmount) return;
  const amount = Number(paymentAmount);
  if (!Number.isFinite(amount) || amount <= 0) return;
@@ -344,6 +391,10 @@ useEffect(() => {
  if (selectedLoanBlocked) {
  setError(PAYMENT_BLOCKED_HELP_TEXT);
  return;
+ }
+ if (isManualExceptionMethod(paymentMethod) && !manualExceptionConfirmed) {
+  setError(MANUAL_DUPLICATE_WARNING);
+  return;
  }
 
  setActionLoading(true);
@@ -381,7 +432,12 @@ useEffect(() => {
  setCollectionChannel("system");
  await load();
  } catch (e) {
- setError(e instanceof Error ? e.message : "Failed to record payment");
+ const raw = e instanceof Error ? e.message : "Failed to record payment";
+ setError(
+  /timeout|network/i.test(raw)
+   ? `Request timed out. Search the payments list by reference before submitting again to avoid duplicate posting.`
+   : raw
+ );
  } finally {
  setActionLoading(false);
  }
@@ -503,6 +559,7 @@ useEffect(() => {
  </Card>
 
  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+ <div className="flex flex-1 flex-col gap-2">
  <div className="flex flex-1 gap-3">
  <div className="relative max-w-sm flex-1">
  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -524,9 +581,14 @@ useEffect(() => {
  <SelectItem value="mobile_money">Mobile Money</SelectItem>
  <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
  <SelectItem value="cheque">Cheque</SelectItem>
- <SelectItem value="gateway">Gateway (Auto)</SelectItem>
+ <SelectItem value="gateway">Gateway</SelectItem>
  </SelectContent>
  </Select>
+ </div>
+ <p className="text-xs text-muted-foreground">
+ ClickPesa BillPay repayments should appear here automatically after webhook confirmation.
+ Use Record payment only for cash/officer collections or verified fallbacks.
+ </p>
  </div>
  <div className="flex gap-2">
  <Button type="button" variant="outline" onClick={() => forceCachedReload(load)}>
@@ -538,21 +600,22 @@ useEffect(() => {
  Export
  </Button>
  <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+ {canCreatePayment ? (
  <DialogTrigger asChild>
- <Button type="button">
+ <Button type="button" variant="outline">
  <Plus className="mr-2 h-4 w-4" />
- Record Payment
+ Record payment
  </Button>
  </DialogTrigger>
+ ) : null}
  <DialogContent
  className="flex w-[calc(100%-1.5rem)] max-h-[calc(100dvh-1.5rem)] max-w-md scale-100 flex-col gap-0 overflow-hidden p-0 top-[max(0.5rem,env(safe-area-inset-top,0px))] left-[50%] translate-x-[-50%] translate-y-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 sm:max-w-md [&>button]:right-3 [&>button]:top-3 [&>button]:z-10"
  >
  <DialogHeader className="shrink-0 space-y-1 border-b px-4 py-3 pr-10 text-left">
- <DialogTitle className="text-base">Record New Payment</DialogTitle>
+ <DialogTitle className="text-base">Record payment (manual)</DialogTitle>
  <DialogDescription className="text-xs leading-relaxed">
- {selectedLoanDetails
- ? `Record repayment for ${selectedLoanDetails.customerDisplayName} (${selectedLoanDetails.loan_number}).`
- : "Record a payment received from a customer"}
+ Manual fallback for cash / officer collections. ClickPesa BillPay should post
+ automatically via webhook — do not use this for unsettled gateway payments.
  </DialogDescription>
  </DialogHeader>
  <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3">
@@ -670,6 +733,21 @@ useEffect(() => {
  onChange={(e) => setReferenceNumber(e.target.value)}
  />
  </Field>
+ {isManualExceptionMethod(paymentMethod) ? (
+ <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+ <p className="font-medium">Manual duplicate-payment warning</p>
+ <p className="mt-1">{MANUAL_DUPLICATE_WARNING}</p>
+ <label className="mt-2 flex cursor-pointer items-start gap-2">
+ <input
+ type="checkbox"
+ className="mt-0.5"
+ checked={manualExceptionConfirmed}
+ onChange={(event) => setManualExceptionConfirmed(event.target.checked)}
+ />
+ <span>I confirmed this is not already auto-recorded from ClickPesa.</span>
+ </label>
+ </div>
+ ) : null}
  </FieldGroup>
  </div>
  <DialogFooter className="shrink-0 gap-2 border-t bg-background px-4 py-3 sm:justify-end">
@@ -684,6 +762,7 @@ useEffect(() => {
  !selectedLoan ||
  !paymentAmount ||
  selectedLoanBlocked ||
+ (isManualExceptionMethod(paymentMethod) && !manualExceptionConfirmed) ||
  (paymentMethod === "mobile_money" && !mobileNumber.trim())
  }
  >
@@ -693,7 +772,7 @@ useEffect(() => {
  Saving…
  </>
  ) : (
- "Record Payment"
+ "Save manual payment"
  )}
  </Button>
  </DialogFooter>
@@ -757,14 +836,14 @@ useEffect(() => {
  <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
  <div className="flex items-center gap-1.5">
  <MethodIcon className="h-3.5 w-3.5 text-muted-foreground" />
- <span>{method.label}</span>
- {payment.metadata?.gateway ? (
- <span className="text-xs text-muted-foreground">(auto)</span>
- ) : null}
+ <span>{paymentMethodLabel(payment)}</span>
  </div>
- {payment.reference_number ? (
+ <Badge variant={paymentSourceLabel(payment) === "Automatic" ? "default" : "secondary"}>
+ {paymentSourceLabel(payment)}
+ </Badge>
+ {(payment.reference_number || payment.metadata?.gateway_payment_reference) ? (
  <span className="font-mono text-xs text-muted-foreground">
- Ref: {payment.reference_number}
+ Ref: {payment.reference_number ?? String(payment.metadata?.gateway_payment_reference ?? "")}
  </span>
  ) : null}
  </div>
@@ -805,6 +884,7 @@ useEffect(() => {
  <TableHead>Loan</TableHead>
  <TableHead className="text-right">Amount</TableHead>
  <TableHead>Method</TableHead>
+ <TableHead>Source</TableHead>
  <TableHead>Reference</TableHead>
  <TableHead>Allocation</TableHead>
  <TableHead>Status</TableHead>
@@ -816,7 +896,7 @@ useEffect(() => {
  <TableBody>
  {filteredPayments.length === 0 ? (
  <TableRow>
- <TableCell colSpan={canReverse ? 11 : 10} className="py-8 text-center text-muted-foreground">
+ <TableCell colSpan={canReverse ? 12 : 11} className="py-8 text-center text-muted-foreground">
  No payments found
  </TableCell>
  </TableRow>
@@ -851,13 +931,17 @@ useEffect(() => {
  <TableCell>
  <div className="flex items-center gap-2">
  <MethodIcon className="h-4 w-4 text-muted-foreground" />
- <span>{method.label}</span>
- {payment.metadata?.gateway ? (
- <span className="text-xs text-muted-foreground">(auto)</span>
- ) : null}
+ <span>{paymentMethodLabel(payment)}</span>
  </div>
  </TableCell>
- <TableCell className="font-mono text-xs">{payment.reference_number || "—"}</TableCell>
+ <TableCell>
+ <Badge variant={paymentSourceLabel(payment) === "Automatic" ? "default" : "secondary"}>
+ {paymentSourceLabel(payment)}
+ </Badge>
+ </TableCell>
+ <TableCell className="font-mono text-xs">
+ {(payment.reference_number ?? String(payment.metadata?.gateway_payment_reference ?? "")) || "—"}
+ </TableCell>
  <TableCell>
  <div className="space-y-0.5 text-xs">
  <p>Penalty: {formatCurrency(payment.penalty_allocated)}</p>
@@ -929,6 +1013,18 @@ useEffect(() => {
  This creates a compensating entry and restores the loan and schedule balances.
  </DialogDescription>
  </DialogHeader>
+ {reversePayment ? (
+ <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
+ <p>
+ <span className="text-muted-foreground">Method: </span>
+ {paymentMethodLabel(reversePayment)}
+ </p>
+ <p>
+ <span className="text-muted-foreground">Source: </span>
+ {paymentSourceLabel(reversePayment)}
+ </p>
+ </div>
+ ) : null}
  <div className="space-y-2">
  <Label htmlFor="reversal-reason">Reason</Label>
  <Textarea

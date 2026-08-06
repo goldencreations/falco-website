@@ -481,6 +481,7 @@ export function adaptApiPaymentRow(raw: Record<string, unknown>): Payment {
 
  mobile_money_provider: inner.mobile_money_provider ? str(inner.mobile_money_provider) : undefined,
  mobile_money_number: inner.mobile_money_number ? str(inner.mobile_money_number) : undefined,
+ source: inner.source ? str(inner.source) : undefined,
 
  notes: inner.notes ? str(inner.notes) : undefined,
  received_by: str(inner.received_by ?? inner.recorded_by ?? ""),

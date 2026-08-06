@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDownCircle,
@@ -62,6 +63,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { extractCustomersList } from "@/lib/customer-adapters";
 import {
   financialEntryCategoryLabel,
+  financialEntryDisplayLabel,
   financialEntryIsReversible,
   financialEntryNeedsClassification,
   financialEntrySourceLabel,
@@ -77,6 +79,23 @@ import { useSessionUser } from "@/lib/use-session-user";
 
 const MANUAL_CATEGORY_PRESETS = ["office_expense", "bank_deposit", "cash_transfer", "other"];
 const UNCLASSIFIED_QUEUE_CATEGORY = "unclassified_gateway_income";
+
+type CashbookSavedView =
+  | "all"
+  | "auto_loan_repayments"
+  | "auto_registration_fees"
+  | "needs_investigation"
+  | "superseded_legacy"
+  | "unclassified_receipts";
+
+const CASHBOOK_SAVED_VIEWS: { value: CashbookSavedView; label: string }[] = [
+  { value: "all", label: "All entries" },
+  { value: "auto_loan_repayments", label: "Automatic loan repayments" },
+  { value: "auto_registration_fees", label: "Automatic registration fees" },
+  { value: "needs_investigation", label: "Needs investigation" },
+  { value: "superseded_legacy", label: "Superseded legacy receipts" },
+  { value: "unclassified_receipts", label: "Unclassified receipts" },
+];
 
 function todayInputDate(): string {
   return new Date().toISOString().slice(0, 10);
@@ -126,7 +145,12 @@ export default function CashbookPage() {
   const [branchFilter, setBranchFilter] = useState("all");
   const [directionFilter, setDirectionFilter] = useState<"all" | FinancialEntryDirection>("all");
   const [sourceFilter, setSourceFilter] = useState<"all" | FinancialEntrySource>("all");
+  const [categoryFilter, setCategoryFilter] = useState<
+    "all" | "loan_repayment" | "registration_fee" | "unclassified_gateway_income"
+  >("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "posted" | "reversed">("all");
   const [unclassifiedOnly, setUnclassifiedOnly] = useState(false);
+  const [savedView, setSavedView] = useState<CashbookSavedView>("all");
   const [fromDate, setFromDate] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() - 30);
@@ -166,8 +190,16 @@ export default function CashbookPage() {
   const [reverseReason, setReverseReason] = useState("");
   const [reverseLoading, setReverseLoading] = useState(false);
 
-  const canAccess = user?.role === "super_admin" || user?.role === "accountant";
-  const canManage = canAccess;
+  const canAccess =
+    user?.role === "super_admin" ||
+    user?.role === "accountant" ||
+    user?.role === "branch_manager";
+  const canManage = user?.role === "super_admin" || user?.role === "accountant";
+  const canViewPayments =
+    user?.role === "super_admin" ||
+    user?.role === "accountant" ||
+    user?.role === "branch_manager" ||
+    Boolean(user?.permissions?.includes("payments.view"));
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -188,6 +220,8 @@ export default function CashbookPage() {
       } else {
         if (directionFilter !== "all") params.set("direction", directionFilter);
         if (sourceFilter !== "all") params.set("source", sourceFilter);
+        if (categoryFilter !== "all") params.set("category", categoryFilter);
+        if (statusFilter !== "all") params.set("status", statusFilter);
       }
 
       const res = await fetch(`/api/financial-entries?${params.toString()}`, { credentials: "include" });
@@ -219,16 +253,58 @@ export default function CashbookPage() {
     } finally {
       setLoading(false);
     }
-  }, [fromDate, toDate, directionFilter, sourceFilter, unclassifiedOnly, effectiveBranchId]);
+  }, [fromDate, toDate, directionFilter, sourceFilter, categoryFilter, statusFilter, unclassifiedOnly, effectiveBranchId]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   const unclassifiedCount = useMemo(
-    () => entries.filter(financialEntryNeedsClassification).length,
+    () => entries.filter((entry) => financialEntryNeedsClassification(entry) && (entry.status ?? "posted") === "posted").length,
     [entries]
   );
+
+  const applySavedView = (view: CashbookSavedView) => {
+    setSavedView(view);
+    switch (view) {
+      case "auto_loan_repayments":
+        setUnclassifiedOnly(false);
+        setSourceFilter("system");
+        setCategoryFilter("loan_repayment");
+        setStatusFilter("posted");
+        setDirectionFilter("all");
+        break;
+      case "auto_registration_fees":
+        setUnclassifiedOnly(false);
+        setSourceFilter("system");
+        setCategoryFilter("registration_fee");
+        setStatusFilter("posted");
+        setDirectionFilter("all");
+        break;
+      case "needs_investigation":
+      case "unclassified_receipts":
+        setUnclassifiedOnly(true);
+        setSourceFilter("clickpesa");
+        setCategoryFilter("unclassified_gateway_income");
+        setStatusFilter("posted");
+        setDirectionFilter("all");
+        break;
+      case "superseded_legacy":
+        setUnclassifiedOnly(false);
+        setSourceFilter("clickpesa");
+        setCategoryFilter("all");
+        setStatusFilter("reversed");
+        setDirectionFilter("all");
+        break;
+      default:
+        setUnclassifiedOnly(false);
+        setSourceFilter("all");
+        setCategoryFilter("all");
+        setStatusFilter("all");
+        setDirectionFilter("all");
+        break;
+    }
+  };
 
   const handleCreate = async () => {
     const amount = Number(createAmount);
@@ -460,7 +536,7 @@ export default function CashbookPage() {
   if (!canAccess) {
     return (
       <>
-        <DashboardHeader title="Cashbook" description="Accountant / super admin access only." />
+        <DashboardHeader title="Cashbook" description="Accountant, branch manager, or super admin access only." />
         <main className="flex-1 p-4 lg:p-6">
           <Card className="mx-auto max-w-3xl border-destructive/30 bg-destructive/5">
             <CardHeader>
@@ -469,7 +545,7 @@ export default function CashbookPage() {
                 Access denied
               </CardTitle>
               <CardDescription>
-                Only accountants and the super admin can view and manage the branch cashbook.
+                Branch managers can view the cashbook. Only accountants and the super admin can manage entries.
               </CardDescription>
             </CardHeader>
           </Card>
@@ -543,7 +619,7 @@ export default function CashbookPage() {
                   size="sm"
                   variant="outline"
                   className="border-amber-300 bg-white hover:bg-amber-100"
-                  onClick={() => setUnclassifiedOnly(true)}
+                  onClick={() => applySavedView("needs_investigation")}
                 >
                   View queue
                 </Button>
@@ -553,16 +629,22 @@ export default function CashbookPage() {
 
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-1 flex-wrap items-center gap-3">
-              <Button
-                type="button"
-                size="sm"
-                variant={unclassifiedOnly ? "default" : "outline"}
-                className="gap-1.5"
-                onClick={() => setUnclassifiedOnly((v) => !v)}
+              <Select
+                value={savedView}
+                onValueChange={(v) => applySavedView(v as CashbookSavedView)}
               >
-                <Sparkles className="h-3.5 w-3.5" />
-                Unclassified receipts
-              </Button>
+                <SelectTrigger className="w-[260px]">
+                  <Filter className="mr-2 h-4 w-4" />
+                  <SelectValue placeholder="Saved view" />
+                </SelectTrigger>
+                <SelectContent>
+                  {CASHBOOK_SAVED_VIEWS.map((view) => (
+                    <SelectItem key={view.value} value={view.value}>
+                      {view.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <Input
                 type="date"
                 className="w-40"
@@ -577,22 +659,27 @@ export default function CashbookPage() {
               />
               <Select
                 value={directionFilter}
-                onValueChange={(v) => setDirectionFilter(v as "all" | FinancialEntryDirection)}
+                onValueChange={(v) => {
+                  setSavedView("all");
+                  setDirectionFilter(v as "all" | FinancialEntryDirection);
+                }}
                 disabled={unclassifiedOnly}
               >
                 <SelectTrigger className="w-40">
-                  <Filter className="mr-2 h-4 w-4" />
                   <SelectValue placeholder="Direction" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All entries</SelectItem>
+                  <SelectItem value="all">Direction</SelectItem>
                   <SelectItem value="in">Cash in</SelectItem>
                   <SelectItem value="out">Cash out</SelectItem>
                 </SelectContent>
               </Select>
               <Select
                 value={sourceFilter}
-                onValueChange={(v) => setSourceFilter(v as "all" | FinancialEntrySource)}
+                onValueChange={(v) => {
+                  setSavedView("all");
+                  setSourceFilter(v as "all" | FinancialEntrySource);
+                }}
                 disabled={unclassifiedOnly}
               >
                 <SelectTrigger className="w-40">
@@ -603,6 +690,43 @@ export default function CashbookPage() {
                   <SelectItem value="clickpesa">ClickPesa</SelectItem>
                   <SelectItem value="manual">Manual</SelectItem>
                   <SelectItem value="system">System</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select
+                value={categoryFilter}
+                onValueChange={(v) => {
+                  setSavedView("all");
+                  setCategoryFilter(
+                    v as "all" | "loan_repayment" | "registration_fee" | "unclassified_gateway_income"
+                  );
+                }}
+                disabled={unclassifiedOnly}
+              >
+                <SelectTrigger className="w-52">
+                  <SelectValue placeholder="Category" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All categories</SelectItem>
+                  <SelectItem value="loan_repayment">Loan repayment</SelectItem>
+                  <SelectItem value="registration_fee">Registration fee</SelectItem>
+                  <SelectItem value="unclassified_gateway_income">Unclassified gateway income</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select
+                value={statusFilter}
+                onValueChange={(v) => {
+                  setSavedView("all");
+                  setStatusFilter(v as "all" | "posted" | "reversed");
+                }}
+                disabled={unclassifiedOnly}
+              >
+                <SelectTrigger className="w-40">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All statuses</SelectItem>
+                  <SelectItem value="posted">Posted</SelectItem>
+                  <SelectItem value="reversed">Reversed</SelectItem>
                 </SelectContent>
               </Select>
               {!scopedBranchId && branches.length > 0 ? (
@@ -656,13 +780,13 @@ export default function CashbookPage() {
                         <TableHead>Branch / Customer</TableHead>
                         <TableHead className="text-right">Amount</TableHead>
                         <TableHead className="text-right">Running Balance</TableHead>
-                        {canManage ? <TableHead className="text-right">Action</TableHead> : null}
+                        {canManage || canViewPayments ? <TableHead className="text-right">Action</TableHead> : null}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {entries.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={canManage ? 10 : 9} className="py-8 text-center text-muted-foreground">
+                          <TableCell colSpan={canManage || canViewPayments ? 10 : 9} className="py-8 text-center text-muted-foreground">
                             {unclassifiedOnly
                               ? "No unclassified ClickPesa receipts in this range."
                               : "No cashbook entries in this range"}
@@ -681,7 +805,7 @@ export default function CashbookPage() {
                             <TableCell>{directionBadge(entry.direction)}</TableCell>
                             <TableCell>
                               <div className="flex flex-col">
-                                <span>{financialEntryCategoryLabel(entry.category)}</span>
+                                <span>{financialEntryDisplayLabel(entry)}</span>
                                 {entry.account_name ? (
                                   <span className="text-xs text-muted-foreground">{entry.account_name}</span>
                                 ) : null}
@@ -710,9 +834,15 @@ export default function CashbookPage() {
                             <TableCell className="text-right font-mono text-sm">
                               {formatCurrency(entry.running_balance)}
                             </TableCell>
-                            {canManage ? (
+                            {canManage || canViewPayments ? (
                               <TableCell className="text-right">
-                                {financialEntryNeedsClassification(entry) ? (
+                                {entry.metadata?.payment_id && canViewPayments ? (
+                                  <Button type="button" size="sm" variant="outline" asChild>
+                                    <Link href={`/payments?paymentId=${encodeURIComponent(String(entry.metadata.payment_id))}`}>
+                                      View payment
+                                    </Link>
+                                  </Button>
+                                ) : financialEntryNeedsClassification(entry) && !entry.is_reversed ? (
                                   <Button
                                     type="button"
                                     size="sm"
@@ -875,6 +1005,10 @@ export default function CashbookPage() {
 
           {classifyConfirming && classifyEntry ? (
             <div className="space-y-3">
+              <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                This action classifies accounting income only. It does not credit a loan or update a
+                repayment schedule.
+              </p>
               <div className="space-y-2 rounded-lg border bg-muted/30 p-3 text-sm">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Amount</span>
@@ -914,6 +1048,10 @@ export default function CashbookPage() {
             </div>
           ) : (
             <FieldGroup className="gap-3 py-0">
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                This action classifies accounting income only. It does not credit a loan or update a
+                repayment schedule.
+              </div>
               <Field>
                 <FieldLabel>Branch</FieldLabel>
                 <Select value={classifyBranchId} onValueChange={setClassifyBranchId}>

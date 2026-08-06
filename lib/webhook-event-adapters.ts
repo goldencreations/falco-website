@@ -46,6 +46,10 @@ export function adaptApiWebhookHealth(raw: unknown): WebhookHealthSummary | null
 }
 
 export function adaptApiWebhookEventRow(raw: Record<string, unknown>): WebhookEvent {
+  const md =
+    raw.metadata && typeof raw.metadata === "object" && !Array.isArray(raw.metadata)
+      ? (raw.metadata as Record<string, unknown>)
+      : undefined;
   return {
     id: str(raw.id),
     gateway: str(raw.gateway ?? "clickpesa"),
@@ -55,6 +59,8 @@ export function adaptApiWebhookEventRow(raw: Record<string, unknown>): WebhookEv
     received_at: str(raw.received_at ?? raw.created_at),
     processed_at: str(raw.processed_at) || undefined,
     error_message: str(raw.error_message ?? raw.error) || undefined,
+    order_reference: str(md?.order_reference ?? raw.order_reference) || undefined,
+    metadata: md,
   };
 }
 

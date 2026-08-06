@@ -402,6 +402,9 @@ export interface Payment {
  // Mobile Money Details
  mobile_money_provider?: string;
  mobile_money_number?: string;
+
+ /** How the payment entered Falco (e.g. clickpesa_webhook). */
+ source?: string;
  
  notes?: string;
  received_by: string;
@@ -589,6 +592,12 @@ export interface FinancialEntry {
   notes?: string;
   /** ClickPesa `paymentReference` / provider receipt id — the number staff verify against the gateway. */
   reference?: string;
+  /** Backend posting lifecycle for this accounting row (`posted`, `reversed`, etc.). */
+  status?: string;
+  /** Present when entry came from a payment row (e.g. `gateway`, `cash`). */
+  payment_method?: PaymentMethod | string;
+  /** Optional backend metadata for diagnostics / linking (payment_id, loan_id, references). */
+  metadata?: Record<string, unknown>;
   /** Ledger/account name the entry posted against, when the backend returns one. */
   account_name?: string;
   is_reversed?: boolean;
@@ -634,6 +643,9 @@ export interface WebhookEvent {
   received_at: string;
   processed_at?: string;
   error_message?: string;
+  /** Optional derived/order refs from event metadata for diagnostics UX. */
+  order_reference?: string;
+  metadata?: Record<string, unknown>;
 }
 
 // -----------------------------------------------------------------------------
