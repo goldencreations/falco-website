@@ -10,8 +10,8 @@
     "start": "next start",
     "start:3001": "next start --port 3001",
     "lint": "eslint .",
-    "test": "npx --yes tsx --test lib/disbursement-retry.test.ts",
-    "test:watch": "npx --yes tsx --test --watch lib/disbursement-retry.test.ts"
+    "test": "npx --yes tsx --test lib/*.test.ts",
+    "test:watch": "npx --yes tsx --test --watch lib/*.test.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",

@@ -87,9 +87,17 @@ export function adaptPaymentViewRow(raw: Record<string, unknown>): PaymentViewRo
  const custFull = customer ? String(customer.full_name ?? "").trim() : "";
  const customerDisplay = custFull || `${custFn} ${custLn}`.trim();
 
+ const source =
+  inner.source != null && String(inner.source).trim()
+    ? String(inner.source).trim()
+    : md.source != null && String(md.source).trim()
+      ? String(md.source).trim()
+      : base.source;
+
  return {
  ...base,
  payment_method: normalizePaymentMethod(base.payment_method, inner),
+ source,
  loan_number: loan?.loan_number ? String(loan.loan_number) : undefined,
  customer_display_name: customerDisplay || undefined,
  customer_phone: customer

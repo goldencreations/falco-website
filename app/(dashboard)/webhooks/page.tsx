@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  ChevronDown,
   CheckCircle2,
   Clock,
   Copy,
@@ -32,7 +33,13 @@ import { formatDateTime } from "@/lib/formatters";
 import { forceCachedReload } from "@/lib/client-fetch-cache";
 import { parseJsonResponse } from "@/lib/parse-json-response";
 import type { WebhookEvent, WebhookEventStatus, WebhookHealthSummary } from "@/lib/types";
-import { webhookEventStatusLabel } from "@/lib/webhook-event-adapters";
+import type { PaymentViewRow } from "@/lib/payment-adapters";
+import {
+  groupWebhookAttempts,
+  hasAuthoritativePaymentsPage,
+  resolutionLabelText,
+  type ReceiptAttemptGroup,
+} from "@/lib/webhook-audit-history";
 import { useSessionUser } from "@/lib/use-session-user";
 
 const POLL_INTERVAL_MS = 60_000;
@@ -72,14 +79,19 @@ function statusBadge(status: WebhookEventStatus) {
 export default function WebhookHealthPage() {
   const { user, loaded: sessionLoaded } = useSessionUser();
   const canAccess = user?.role === "super_admin" || user?.role === "accountant";
+  const canManageWebhooks =
+    canAccess || Boolean(user?.permissions?.includes("webhooks.manage"));
 
   const [hours, setHours] = useState<"24" | "168">("24");
   const [health, setHealth] = useState<WebhookHealthSummary | null>(null);
   const [healthLoading, setHealthLoading] = useState(true);
 
   const [events, setEvents] = useState<WebhookEvent[]>([]);
+  const [payments, setPayments] = useState<PaymentViewRow[]>([]);
+  const [paymentsAuthoritative, setPaymentsAuthoritative] = useState(false);
   const [eventsLoading, setEventsLoading] = useState(true);
   const [retryingIds, setRetryingIds] = useState<Set<string>>(new Set());
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
 
   const loadHealth = useCallback(
@@ -110,7 +122,7 @@ export default function WebhookHealthPage() {
   const loadEvents = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setEventsLoading(true);
     try {
-      const res = await fetch(`/api/webhook-events?gateway=clickpesa&status=failed&page_size=100`, {
+      const res = await fetch(`/api/webhook-events?gateway=clickpesa&page_size=200`, {
         credentials: "include",
       });
       const { data } = await parseJsonResponse<{ events?: WebhookEvent[]; data?: WebhookEvent[]; message?: string }>(
@@ -131,12 +143,32 @@ export default function WebhookHealthPage() {
     }
   }, []);
 
+  const loadPayments = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/payments?page=1&page_size=100`, {
+        credentials: "include",
+      });
+      const { data } = await parseJsonResponse<{
+        payments?: PaymentViewRow[];
+        data?: PaymentViewRow[];
+        meta?: { total?: number };
+      }>(res);
+      if (!res.ok) return;
+      const rows = data?.payments ?? data?.data ?? [];
+      setPayments(rows);
+      setPaymentsAuthoritative(hasAuthoritativePaymentsPage(data?.meta, rows.length));
+    } catch {
+      // Keep diagnostics conservative: unresolved remains "not checked" if payments fetch fails.
+      setPaymentsAuthoritative(false);
+    }
+  }, []);
+
   const refreshAll = useCallback(
     async (opts?: { silent?: boolean }): Promise<void> => {
       setError(null);
-      await Promise.all([loadHealth(opts), loadEvents(opts)]);
+      await Promise.all([loadHealth(opts), loadEvents(opts), loadPayments()]);
     },
-    [loadHealth, loadEvents]
+    [loadHealth, loadEvents, loadPayments]
   );
 
   useEffect(() => {
@@ -154,9 +186,18 @@ export default function WebhookHealthPage() {
     return () => window.clearInterval(timer);
   }, [canAccess, refreshAll]);
 
-  const failedCount = health?.failed ?? events.length;
+  const receiptGroups = useMemo(
+    () => groupWebhookAttempts(events, payments, { paymentsAuthoritative }),
+    [events, payments, paymentsAuthoritative]
+  );
+  const failedAttemptsCount = health?.failed ?? events.filter((e) => e.status === "failed").length;
 
-  const retry = async (event: WebhookEvent) => {
+  const retry = async (group: ReceiptAttemptGroup) => {
+    const event = group.latest;
+    if (!group.can_retry || !canManageWebhooks) return;
+    const confirmText = `Retry this unresolved receipt?\n\nEvent reference: ${group.event_reference}\nOrder reference: ${group.order_reference ?? "—"}\n\nOnly retry after confirming no matching payment exists and the reference mapping issue is corrected.`;
+    if (!window.confirm(confirmText)) return;
+
     setRetryingIds((prev) => new Set(prev).add(event.id));
     try {
       const res = await fetch(`/api/webhook-events/${encodeURIComponent(event.id)}/retry`, {
@@ -206,10 +247,11 @@ export default function WebhookHealthPage() {
 
   const healthCards = useMemo(
     () => [
-      { label: "Received", value: health?.received ?? 0, icon: Inbox, tone: "text-foreground" },
-      { label: "Processed", value: health?.processed ?? 0, icon: CheckCircle2, tone: "text-accent" },
-      { label: "Failed", value: health?.failed ?? 0, icon: XCircle, tone: "text-destructive" },
-      { label: "Pending", value: health?.pending ?? 0, icon: Clock, tone: "text-amber-600" },
+      { label: "Received attempts", value: health?.received ?? 0, icon: Inbox, tone: "text-foreground" },
+      { label: "Processed attempts", value: health?.processed ?? 0, icon: CheckCircle2, tone: "text-accent" },
+      { label: "Failed attempts", value: health?.failed ?? 0, icon: XCircle, tone: "text-destructive" },
+      { label: "Pending attempts", value: health?.pending ?? 0, icon: Clock, tone: "text-amber-600" },
+      { label: "Duplicate attempts", value: health?.duplicate ?? 0, icon: Copy, tone: "text-muted-foreground" },
     ],
     [health]
   );
@@ -279,7 +321,7 @@ export default function WebhookHealthPage() {
               Loading webhook health…
             </div>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
               {healthCards.map((c) => (
                 <Card key={c.label}>
                   <CardHeader className="pb-2">
@@ -311,7 +353,7 @@ export default function WebhookHealthPage() {
           <div>
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-sm font-medium text-muted-foreground">
-                Failed events {failedCount > 0 ? `(${failedCount})` : ""}
+                Failed attempts {failedAttemptsCount > 0 ? `(${failedAttemptsCount})` : ""}
               </h2>
             </div>
             {eventsLoading ? (
@@ -326,67 +368,131 @@ export default function WebhookHealthPage() {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Event type</TableHead>
-                          <TableHead>Event reference</TableHead>
-                          <TableHead>Received</TableHead>
-                          <TableHead>Processed</TableHead>
-                          <TableHead>Status</TableHead>
+                          <TableHead>Receipt</TableHead>
+                          <TableHead>Attempts</TableHead>
+                          <TableHead>Latest attempt</TableHead>
+                          <TableHead>Order reference</TableHead>
+                          <TableHead>Resolution</TableHead>
                           <TableHead>Error</TableHead>
                           <TableHead className="text-right">Action</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {events.length === 0 ? (
+                        {receiptGroups.length === 0 ? (
                           <TableRow>
                             <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
-                              No failed ClickPesa webhook events in this range.
+                              No failed ClickPesa receipt attempts in this range.
                             </TableCell>
                           </TableRow>
                         ) : (
-                          events.map((event) => (
-                            <TableRow key={event.id}>
-                              <TableCell className="text-sm">{event.event_type || "—"}</TableCell>
-                              <TableCell className="font-mono text-xs">
-                                <button
-                                  type="button"
-                                  className="inline-flex items-center gap-1 hover:underline"
-                                  onClick={() => void copyReference(event.event_reference)}
-                                  title="Copy reference"
-                                >
-                                  {event.event_reference || "—"}
-                                  {event.event_reference ? <Copy className="h-3 w-3 opacity-50" /> : null}
-                                </button>
-                              </TableCell>
-                              <TableCell className="text-sm text-muted-foreground">
-                                {event.received_at ? formatDateTime(event.received_at) : "—"}
-                              </TableCell>
-                              <TableCell className="text-sm text-muted-foreground">
-                                {event.processed_at ? formatDateTime(event.processed_at) : "—"}
-                              </TableCell>
-                              <TableCell>{statusBadge(event.status)}</TableCell>
-                              <TableCell className="max-w-xs truncate text-xs text-muted-foreground" title={event.error_message}>
-                                {event.error_message ?? "—"}
-                              </TableCell>
-                              <TableCell className="text-right">
-                                {event.status === "failed" ? (
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="outline"
-                                    disabled={retryingIds.has(event.id)}
-                                    onClick={() => void retry(event)}
-                                  >
-                                    {retryingIds.has(event.id) ? (
-                                      <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                          receiptGroups.map((group) => {
+                            const expanded = expandedGroups.has(group.key);
+                            const latest = group.latest;
+                            return (
+                              <Fragment key={group.key}>
+                                <TableRow>
+                                  <TableCell className="font-mono text-xs">
+                                    <button
+                                      type="button"
+                                      className="inline-flex items-center gap-1 hover:underline"
+                                      onClick={() => void copyReference(group.event_reference)}
+                                      title="Copy reference"
+                                    >
+                                      {group.event_reference || "—"}
+                                      {group.event_reference ? <Copy className="h-3 w-3 opacity-50" /> : null}
+                                    </button>
+                                  </TableCell>
+                                  <TableCell className="text-sm">
+                                    <button
+                                      type="button"
+                                      className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
+                                      onClick={() =>
+                                        setExpandedGroups((prev) => {
+                                          const next = new Set(prev);
+                                          if (next.has(group.key)) next.delete(group.key);
+                                          else next.add(group.key);
+                                          return next;
+                                        })
+                                      }
+                                    >
+                                      {group.attempts.length}
+                                      <ChevronDown
+                                        className={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-180" : ""}`}
+                                      />
+                                    </button>
+                                  </TableCell>
+                                  <TableCell>{statusBadge(latest.status)}</TableCell>
+                                  <TableCell className="font-mono text-xs">{group.order_reference ?? "—"}</TableCell>
+                                  <TableCell>
+                                    <Badge
+                                      variant={
+                                        group.resolution === "resolved_after_failure"
+                                          ? "default"
+                                          : group.resolution === "unresolved"
+                                            ? "destructive"
+                                            : "outline"
+                                      }
+                                      className="gap-1"
+                                    >
+                                      {resolutionLabelText(group.resolution)}
+                                    </Badge>
+                                  </TableCell>
+                                  <TableCell className="max-w-xs truncate text-xs text-muted-foreground" title={latest.error_message}>
+                                    {latest.error_message ?? "—"}
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    {group.resolution === "resolved_after_failure" ? (
+                                      <a href="/payments" className="inline-block">
+                                        <Badge variant="outline">Resolved after failure</Badge>
+                                      </a>
+                                    ) : group.resolution === "not_checked" ? (
+                                      <Badge variant="secondary">Check payments first</Badge>
                                     ) : (
-                                      <RotateCcw className="mr-1 h-3.5 w-3.5" />
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        disabled={retryingIds.has(latest.id) || !canManageWebhooks}
+                                        onClick={() => void retry(group)}
+                                      >
+                                        {retryingIds.has(latest.id) ? (
+                                          <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                                        ) : (
+                                          <RotateCcw className="mr-1 h-3.5 w-3.5" />
+                                        )}
+                                        Retry
+                                      </Button>
                                     )}
-                                    Retry
-                                  </Button>
-                                ) : null}
-                              </TableCell>
-                            </TableRow>
-                          ))
+                                  </TableCell>
+                                </TableRow>
+                                {expanded
+                                  ? group.attempts.map((attempt) => (
+                                      <TableRow key={attempt.id} className="bg-muted/30">
+                                        <TableCell className="pl-6 text-xs text-muted-foreground">
+                                          {attempt.event_type || "—"}
+                                        </TableCell>
+                                        <TableCell className="text-xs text-muted-foreground">Attempt</TableCell>
+                                        <TableCell>{statusBadge(attempt.status)}</TableCell>
+                                        <TableCell className="font-mono text-xs">
+                                          {attempt.order_reference ||
+                                            String(attempt.metadata?.order_reference ?? "") ||
+                                            "—"}
+                                        </TableCell>
+                                        <TableCell className="text-xs text-muted-foreground">
+                                          {attempt.processed_at ? formatDateTime(attempt.processed_at) : "—"}
+                                        </TableCell>
+                                        <TableCell className="max-w-xs truncate text-xs text-muted-foreground" title={attempt.error_message}>
+                                          {attempt.error_message ?? "—"}
+                                        </TableCell>
+                                        <TableCell className="text-right text-xs text-muted-foreground">
+                                          {attempt.received_at ? formatDateTime(attempt.received_at) : "—"}
+                                        </TableCell>
+                                      </TableRow>
+                                    ))
+                                  : null}
+                              </Fragment>
+                            );
+                          })
                         )}
                       </TableBody>
                     </Table>

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
  BarChart3,
+  BookOpen,
  Calculator,
  ClipboardCheck,
  ClipboardList,
@@ -42,6 +43,7 @@ const managerNav = [
  { title: "Loan Disbursement", href: "/manager/disbursements", icon: Send },
  { title: "Payments", href: "/manager/payments", icon: CreditCard },
  { title: "Reconciliation", href: "/manager/reconciliation", icon: Scale },
+ { title: "Cashbook", href: "/manager/cashbook", icon: BookOpen },
  { title: "Team & Assignment", href: "/manager/team", icon: Users2 },
  { title: "Reports", href: "/manager/reports", icon: BarChart3 },
  { title: "Collections", href: "/manager/collections/activities", icon: ShieldCheck },

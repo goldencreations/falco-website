@@ -91,6 +91,7 @@ import {
 } from "@/lib/customer-portfolio-cache";
 import { resolveMediaViewUrl } from "@/components/media/cached-media-preview";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/formatters";
+import { paymentMethodLabel, paymentSourceLabel } from "@/lib/payment-method-display";
 import { adaptApiCustomerRowToCustomer, extractCustomerDetail } from "@/lib/customer-adapters";
 import { customerToFormPayload } from "@/lib/customer-payload";
 import type { CustomerPortfolioData } from "@/lib/customer-portfolio-detail";
@@ -1164,6 +1165,7 @@ export default function CustomerDetailPage() {
  <TableHead>Reference</TableHead>
  <TableHead className="text-right">Amount</TableHead>
  <TableHead>Method</TableHead>
+ <TableHead>Source</TableHead>
  <TableHead>Allocation</TableHead>
  <TableHead>Status</TableHead>
  <TableHead>Date</TableHead>
@@ -1172,7 +1174,7 @@ export default function CustomerDetailPage() {
  <TableBody>
  {customerPayments.length === 0 ? (
  <TableRow>
- <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+ <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
  No payments found
  </TableCell>
  </TableRow>
@@ -1184,8 +1186,13 @@ export default function CustomerDetailPage() {
  {formatCurrency(payment.amount)}
  </TableCell>
  <TableCell>
- <Badge variant="outline" className="capitalize">
- {payment.payment_method.replace("_", " ")}
+ <Badge variant="outline">
+ {paymentMethodLabel(payment)}
+ </Badge>
+ </TableCell>
+ <TableCell>
+ <Badge variant={paymentSourceLabel(payment) === "Automatic" ? "default" : "secondary"}>
+ {paymentSourceLabel(payment)}
  </Badge>
  </TableCell>
  <TableCell>
