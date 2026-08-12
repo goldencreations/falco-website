@@ -44,6 +44,8 @@ import {
  activeBranchesForAssignment,
  loanOfficersForBranch,
 } from "@/lib/customer-assignment-options";
+import { formatBranchOptionLabel, formatSessionBranchField } from "@/lib/branch-display-name";
+import { useBranchDisplayName } from "@/lib/use-branch-display-name";
 import {
  emptyCustomerAttachments,
  type CustomerAttachmentFormState,
@@ -91,7 +93,6 @@ import {
 import { uploadCustomerCollateralImages } from "@/lib/customer-collateral-uploads";
 import { uploadCustomerGuarantorIdDocuments } from "@/lib/customer-guarantor-uploads";
 import {
-  customerAttachmentFormHasLocationPhotos,
   customerAttachmentFormHasSupportingDocuments,
   uploadCustomerLocationPhotos,
   uploadCustomerSupportingDocuments,
@@ -256,6 +257,11 @@ export default function NewCustomerPageClient() {
  const isScopedRole = isManagerView || isOfficerView;
  const lockedBranchId = isScopedRole ? user?.branch_id?.trim() ?? "" : "";
  const lockedOfficerId = isOfficerView ? effectiveUserId : "";
+ const sessionBranchDisplayName = useBranchDisplayName();
+ const sessionBranchField = formatSessionBranchField({
+  branchId: lockedBranchId,
+  branchName: sessionBranchDisplayName || user?.branch_name,
+ });
  const customersBasePath = isManagerView ? "/manager/customers" : isOfficerView ? "/officer/customers" : "/customers";
  const [form, setForm] = useState<CustomerCreateForm>(() => ({
  ...defaultForm,
@@ -265,6 +271,8 @@ export default function NewCustomerPageClient() {
  const [fieldErrors, setFieldErrors] = useState<FormFieldErrors>({});
  const [submitting, setSubmitting] = useState(false);
  const [postCreateCustomerId, setPostCreateCustomerId] = useState<string | null>(null);
+ const [createdCustomerId, setCreatedCustomerId] = useState<string | null>(null);
+ const createdCustomerRowRef = useRef<Record<string, unknown> | null>(null);
  const [placeSuggestions, setPlaceSuggestions] = useState<PlaceSuggestion[]>([]);
  const [streetSuggestions, setStreetSuggestions] = useState<PlaceSuggestion[]>([]);
  const [loadingPlaceSuggestions, setLoadingPlaceSuggestions] = useState(false);
@@ -725,78 +733,111 @@ export default function NewCustomerPageClient() {
  }
 
  const payload = buildPayload();
- // Converting a lead creates the customer and marks the lead converted atomically on the
- // backend (`POST /leads/{id}/convert`) — using plain `/customers` here would leave the lead
- // stuck as unconverted and lose the backend's conversion tracking/reporting.
- const customerEndpoint = leadPrefillId
- ? `/api/leads/${encodeURIComponent(leadPrefillId)}/convert`
- : process.env.NEXT_PUBLIC_CUSTOMERS_API_URL || "/api/customers";
- const requestBody = leadPrefillId ? { customer: payload } : payload;
 
  setSubmitting(true);
  try {
- const response = await fetch(customerEndpoint, {
- method: "POST",
- credentials: "include",
- headers: { "Content-Type": "application/json" },
- body: JSON.stringify(requestBody),
- });
+ let createdId = createdCustomerId;
+ let createdRow = createdCustomerRowRef.current;
 
- const responseBody = (await response.json().catch(() => ({}))) as {
- message?: string;
- error?: string | { message?: string; details?: { field?: string; message?: string }[] };
- details?: { field?: string; message?: string }[];
- code?: string;
- customer?: unknown;
- };
- if (!response.ok) {
- const nested =
- typeof responseBody.error === "object" && responseBody.error !== null
- ? (responseBody.error as { message?: string; details?: { field?: string; message?: string }[] })
- : null;
- const baseMsg =
- typeof responseBody.message === "string"
- ? responseBody.message
- : typeof responseBody.error === "string"
- ? responseBody.error
- : nested?.message ?? `Customer create failed (${response.status})`;
- const rawDetails = responseBody.details ?? nested?.details;
- const apiFieldErrors = apiDetailsToFieldErrors(rawDetails);
- if (Object.keys(apiFieldErrors).length > 0) {
-  applyValidationErrors(apiFieldErrors);
-  if (apiFieldErrors._form) {
-   setError(apiFieldErrors._form);
-  } else {
+ if (!createdId) {
+  // Converting a lead creates the customer and marks the lead converted atomically on the
+  // backend (`POST /leads/{id}/convert`) — using plain `/customers` here would leave the lead
+  // stuck as unconverted and lose the backend's conversion tracking/reporting.
+  const customerEndpoint = leadPrefillId
+   ? `/api/leads/${encodeURIComponent(leadPrefillId)}/convert`
+   : process.env.NEXT_PUBLIC_CUSTOMERS_API_URL || "/api/customers";
+  const requestBody = leadPrefillId ? { customer: payload } : payload;
+
+  const response = await fetch(customerEndpoint, {
+   method: "POST",
+   credentials: "include",
+   headers: { "Content-Type": "application/json" },
+   body: JSON.stringify(requestBody),
+  });
+
+  const responseBody = (await response.json().catch(() => ({}))) as {
+   message?: string;
+   error?: string | { message?: string; details?: { field?: string; message?: string }[] };
+   details?: { field?: string; message?: string }[];
+   code?: string;
+   customer?: unknown;
+  };
+  if (!response.ok) {
+   const nested =
+    typeof responseBody.error === "object" && responseBody.error !== null
+     ? (responseBody.error as { message?: string; details?: { field?: string; message?: string }[] })
+     : null;
+   const baseMsg =
+    typeof responseBody.message === "string"
+     ? responseBody.message
+     : typeof responseBody.error === "string"
+       ? responseBody.error
+       : nested?.message ?? `Customer create failed (${response.status})`;
+   const rawDetails = responseBody.details ?? nested?.details;
+   const apiFieldErrors = apiDetailsToFieldErrors(rawDetails);
+   if (Object.keys(apiFieldErrors).length > 0) {
+    applyValidationErrors(apiFieldErrors);
+    if (apiFieldErrors._form) {
+     setError(apiFieldErrors._form);
+    } else {
+     setError(baseMsg);
+    }
+    return;
+   }
    setError(baseMsg);
+   return;
   }
-  return;
- }
- setError(baseMsg);
- return;
+
+  createdRow = extractCustomerDetail(responseBody);
+  createdId = createdRow?.id != null ? String(createdRow.id) : "";
+  if (createdId) {
+   setCreatedCustomerId(createdId);
+   createdCustomerRowRef.current = createdRow;
+  }
  }
 
- const createdRow = extractCustomerDetail(responseBody);
- const createdId = createdRow?.id != null ? String(createdRow.id) : "";
- if (createdId && attachments.passport_photo) {
-  const photoUpload = await uploadCustomerPassportPhoto(createdId, attachments.passport_photo);
+ let nextAttachments = attachments;
+ if (createdId && nextAttachments.passport_photo) {
+  const photoUpload = await uploadCustomerPassportPhoto(createdId, nextAttachments.passport_photo);
   if (!photoUpload.ok) {
    setError(`Customer created but passport photo upload failed: ${photoUpload.error}`);
    return;
   }
+  nextAttachments = { ...nextAttachments, passport_photo: null };
+  setAttachments(nextAttachments);
  }
- if (createdId && customerAttachmentFormHasLocationPhotos(attachments)) {
-  const locationUpload = await uploadCustomerLocationPhotos(createdId, attachments);
+ if (createdId && nextAttachments.home_location_photos.length > 0) {
+  const locationUpload = await uploadCustomerLocationPhotos(createdId, {
+   home_location_photos: nextAttachments.home_location_photos,
+   business_location_photos: [],
+  });
   if (!locationUpload.ok) {
    setError(`Customer created but location photo upload failed: ${locationUpload.error}`);
    return;
   }
+  nextAttachments = { ...nextAttachments, home_location_photos: [] };
+  setAttachments(nextAttachments);
  }
- if (createdId && customerAttachmentFormHasSupportingDocuments(attachments)) {
-  const supportingUpload = await uploadCustomerSupportingDocuments(createdId, attachments);
+ if (createdId && nextAttachments.business_location_photos.length > 0) {
+  const locationUpload = await uploadCustomerLocationPhotos(createdId, {
+   home_location_photos: [],
+   business_location_photos: nextAttachments.business_location_photos,
+  });
+  if (!locationUpload.ok) {
+   setError(`Customer created but location photo upload failed: ${locationUpload.error}`);
+   return;
+  }
+  nextAttachments = { ...nextAttachments, business_location_photos: [] };
+  setAttachments(nextAttachments);
+ }
+ if (createdId && customerAttachmentFormHasSupportingDocuments(nextAttachments)) {
+  const supportingUpload = await uploadCustomerSupportingDocuments(createdId, nextAttachments);
   if (!supportingUpload.ok) {
    setError(`Customer created but supporting document upload failed: ${supportingUpload.error}`);
    return;
   }
+  nextAttachments = { ...nextAttachments, supporting_documents: [] };
+  setAttachments(nextAttachments);
  }
  if (createdId && customerCollateralRowsWithImages(collateral).length > 0) {
   let detailRow = createdRow;
@@ -806,23 +847,56 @@ export default function NewCustomerPageClient() {
    });
    const detailBody = (await detailRes.json().catch(() => ({}))) as unknown;
    detailRow = extractCustomerDetail(detailBody) ?? detailRow;
+   createdCustomerRowRef.current = detailRow;
   }
-  const collateralUpload = await uploadCustomerCollateralImages(createdId, detailRow, collateral);
+  const collateralUpload = await uploadCustomerCollateralImages(
+   createdId,
+   detailRow,
+   collateral,
+   (uploadedRow) => {
+    setCollateral((prev) =>
+     prev.map((row) => (row === uploadedRow ? { ...row, image: null, images: [] } : row))
+    );
+   }
+  );
   if (!collateralUpload.ok) {
    setError(`Customer created but collateral image upload failed: ${collateralUpload.error}`);
    return;
   }
  }
  if (createdId && customerGuarantorRowsWithIdFiles(guarantors).length > 0) {
-  let detailRow = createdRow;
+  let detailRow = createdCustomerRowRef.current ?? createdRow;
   if (!extractCustomerGuarantorIds(detailRow).length) {
    const detailRes = await fetch(`/api/customers/${encodeURIComponent(createdId)}`, {
     credentials: "include",
    });
    const detailBody = (await detailRes.json().catch(() => ({}))) as unknown;
    detailRow = extractCustomerDetail(detailBody) ?? detailRow;
+   createdCustomerRowRef.current = detailRow;
   }
-  const guarantorUpload = await uploadCustomerGuarantorIdDocuments(createdId, detailRow, guarantors);
+  const guarantorUpload = await uploadCustomerGuarantorIdDocuments(
+   createdId,
+   detailRow,
+   guarantors,
+   (uploadedRow) => {
+    setGuarantors((prev) =>
+     prev.map((row) =>
+      row === uploadedRow
+       ? {
+          ...row,
+          photo: null,
+          photoWithCustomer: null,
+          idFront: null,
+          idBack: null,
+          wardLetter: null,
+          attachments: [],
+          collateralImages: [],
+         }
+       : row
+     )
+    );
+   }
+  );
   if (!guarantorUpload.ok) {
    setError(`Customer created but guarantor document upload failed: ${guarantorUpload.error}`);
    return;
@@ -898,6 +972,15 @@ export default function NewCustomerPageClient() {
  </Button>
  </div>
 
+ {createdCustomerId ? (
+  <div className="rounded-lg border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-900">
+   <p className="font-medium">Customer already saved</p>
+   <p className="mt-0.5 text-xs text-amber-800">
+    The customer record was created. Retrying will only upload remaining photos and documents — it will not create another customer.
+   </p>
+  </div>
+ ) : null}
+
  {leadPrefillId ? (
   <div className="rounded-lg border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-900">
    <p className="font-medium">Pre-filled from lead</p>
@@ -947,8 +1030,27 @@ export default function NewCustomerPageClient() {
  <div className="space-y-2" data-form-field="branch_id">
  <Label htmlFor="branch">Branch</Label>
  <p className="text-xs text-muted-foreground">
- Select the branch that will manage this customer. Reopen the list if a branch you expect is missing.
+ {lockedBranchId
+  ? "This customer is assigned to your session branch from /api/me."
+  : "Select the branch that will manage this customer. Reopen the list if a branch you expect is missing."}
  </p>
+ {lockedBranchId ? (
+ <div
+  id="branch"
+  className="flex min-h-9 w-full flex-col justify-center rounded-md border border-input bg-muted/40 px-3 py-1.5 text-sm"
+ >
+  <span>
+   {sessionBranchField.name ||
+    formatBranchOptionLabel(
+     selectedBranch ?? { id: lockedBranchId, name: user?.branch_name ?? "", code: lockedBranchId },
+     branchRecords
+    )}
+  </span>
+  {sessionBranchField.branchId ? (
+   <span className="text-[11px] text-muted-foreground">branch_id: {sessionBranchField.branchId}</span>
+  ) : null}
+ </div>
+ ) : (
  <Select
  value={effectiveBranchId || undefined}
  onValueChange={(value) => {
@@ -956,9 +1058,8 @@ export default function NewCustomerPageClient() {
  if (!lockedOfficerId) void loadOfficersForBranch(value);
  }}
  onOpenChange={(open) => {
- if (open && !lockedBranchId) void loadBranches();
+ if (open) void loadBranches();
  }}
- disabled={Boolean(lockedBranchId)}
  >
  <SelectTrigger
  id="branch"
@@ -973,11 +1074,12 @@ export default function NewCustomerPageClient() {
  ) : null}
  {branchOptions.map((branch) => (
  <SelectItem key={branch.id} value={branch.id}>
- {branch.name} ({branch.code})
+ {formatBranchOptionLabel(branch, branchRecords)}
  </SelectItem>
  ))}
  </SelectContent>
  </Select>
+ )}
  {branchesError ? <p className="text-xs text-destructive">{branchesError}</p> : null}
  <FormFieldMessage message={fieldErrors.branch_id} />
  </div>
@@ -1676,7 +1778,7 @@ export default function NewCustomerPageClient() {
 
  <Button className="w-full" type="submit" disabled={submitting || !sessionLoaded}>
  <UserPlus className="mr-2 h-4 w-4" />
- {submitting ? "Submitting..." : "Create Customer"}
+ {submitting ? (createdCustomerId ? "Retrying upload..." : "Submitting...") : createdCustomerId ? "Retry upload" : "Create Customer"}
  </Button>
  <Button
  type="button"
@@ -1692,6 +1794,8 @@ export default function NewCustomerPageClient() {
  setAttachments(emptyCustomerAttachments());
  setFieldErrors({});
  setError("");
+ setCreatedCustomerId(null);
+ createdCustomerRowRef.current = null;
  }}
  >
  <Save className="mr-2 h-4 w-4" />

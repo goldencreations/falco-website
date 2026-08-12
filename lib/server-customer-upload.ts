@@ -3,6 +3,7 @@ import { extractCustomerDetail } from "@/lib/customer-adapters";
 import { ensureResourceBranchAllowed, requireApiUser } from "@/lib/authorization";
 import { getFalcoApiBaseUrl } from "@/lib/falco-api";
 import { falcoServerFetch, resolveFalcoAccessToken } from "@/lib/server-falco";
+import { formatUploadHttpError } from "@/lib/upload-limits";
 
 const BRANCH_CACHE_MS = 2 * 60 * 1000;
 const branchCache = new Map<string, { branchId: string | undefined; expiresAt: number }>();
@@ -92,14 +93,15 @@ export async function proxyCustomerMultipartUpload(
     if (!res.ok) {
       const o = data && typeof data === "object" ? (data as Record<string, unknown>) : {};
       const err = o.error && typeof o.error === "object" ? (o.error as Record<string, unknown>) : o;
+      const rawMessage =
+        typeof err.message === "string"
+          ? err.message
+          : typeof o.message === "string"
+            ? o.message
+            : "Upload failed";
       return NextResponse.json(
         {
-          message:
-            typeof err.message === "string"
-              ? err.message
-              : typeof o.message === "string"
-                ? o.message
-                : "Upload failed",
+          message: formatUploadHttpError(res.status, data, rawMessage),
           details: err.details ?? o.details,
         },
         { status: res.status }

@@ -22,6 +22,8 @@ import { formControlErrorClass, formControlErrorProps } from "@/components/forms
 import { cn } from "@/lib/utils";
 import { CUSTOMER_ID_TYPE_OPTIONS } from "@/lib/customer-id-types";
 import type { CustomerIdType } from "@/lib/customer-id-types";
+import { DOCUMENT_ACCEPT_HINT, PHOTO_ACCEPT_HINT } from "@/lib/customer-attachments";
+import { largePhotoWarning } from "@/lib/upload-limits";
 
 import {
   emptyCustomerGuarantorRow,
@@ -142,7 +144,7 @@ function PassportAvatarField({
         </button>
         <div className="min-w-0 space-y-2">
           <p className="text-xs text-muted-foreground">
-            Headshot used as the guarantor passport photo. JPG, JPEG, PNG, or WEBP — max 5MB.
+            Headshot used as the guarantor passport photo. {PHOTO_ACCEPT_HINT}
           </p>
           <div className="flex flex-wrap gap-2">
             <input
@@ -176,6 +178,7 @@ function FileField({
   accept,
   file,
   error,
+  hint,
   fieldKey,
   existingUrl,
   existingPreviewUrl,
@@ -188,6 +191,7 @@ function FileField({
   accept: string;
   file: File | null;
   error?: string;
+  hint?: string;
   fieldKey?: string;
   /** Already-uploaded document carried over from the backend record (shown when no new file is picked). */
   existingUrl?: string;
@@ -217,6 +221,7 @@ function FileField({
   return (
     <Field data-invalid={Boolean(error)} data-form-field={fieldKey}>
       <FieldLabel>{label}</FieldLabel>
+      {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
       <div className="flex flex-wrap items-center gap-2">
         <Input
           ref={inputRef}
@@ -289,6 +294,9 @@ function FileField({
             ) : null}
           </div>
         </div>
+      ) : null}
+      {file && largePhotoWarning(file) ? (
+        <p className="text-xs text-amber-700">{largePhotoWarning(file)}</p>
       ) : null}
       <FieldError>{error}</FieldError>
     </Field>
@@ -839,6 +847,7 @@ export function CustomerGuarantorsFields({
               <FileField
                 label="Guarantor ID front"
                 accept="image/*,.pdf"
+                hint={DOCUMENT_ACCEPT_HINT}
                 file={row.idFront}
                 error={rowFieldError(fieldErrors, index, "idFront")}
                 fieldKey={`guarantors.${index}.idFront`}
@@ -855,6 +864,7 @@ export function CustomerGuarantorsFields({
               <FileField
                 label="Guarantor ID back"
                 accept="image/*,.pdf"
+                hint={DOCUMENT_ACCEPT_HINT}
                 file={row.idBack}
                 error={rowFieldError(fieldErrors, index, "idBack")}
                 fieldKey={`guarantors.${index}.idBack`}
@@ -876,6 +886,7 @@ export function CustomerGuarantorsFields({
               <FileField
                 label="Guarantor photo"
                 accept="image/*"
+                hint={PHOTO_ACCEPT_HINT}
                 file={row.photo}
                 error={rowFieldError(fieldErrors, index, "photo")}
                 fieldKey={`guarantors.${index}.photo`}
@@ -892,6 +903,7 @@ export function CustomerGuarantorsFields({
               <FileField
                 label="Ward letter"
                 accept="image/*,.pdf"
+                hint={DOCUMENT_ACCEPT_HINT}
                 file={row.wardLetter}
                 error={rowFieldError(fieldErrors, index, "wardLetter")}
                 fieldKey={`guarantors.${index}.wardLetter`}
@@ -916,6 +928,7 @@ export function CustomerGuarantorsFields({
               data-form-field={`guarantors.${index}.collateralImages`}
             >
               <FieldLabel>Guarantor collateral photos</FieldLabel>
+              <p className="text-xs text-muted-foreground">{PHOTO_ACCEPT_HINT}</p>
               <Input
                 type="file"
                 accept="image/*"
@@ -952,6 +965,7 @@ export function CustomerGuarantorsFields({
               data-form-field={`guarantors.${index}.attachments`}
             >
               <FieldLabel>Additional attachments</FieldLabel>
+              <p className="text-xs text-muted-foreground">{DOCUMENT_ACCEPT_HINT}</p>
               <Input
                 type="file"
                 accept="image/*,.pdf"

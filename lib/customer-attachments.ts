@@ -1,3 +1,17 @@
+import {
+  DOCUMENT_MAX_BYTES,
+  DOCUMENT_MAX_LABEL,
+  PHOTO_MAX_BYTES,
+  PHOTO_MAX_LABEL,
+} from "@/lib/upload-limits";
+
+export {
+  DOCUMENT_MAX_BYTES,
+  DOCUMENT_MAX_LABEL,
+  PHOTO_MAX_BYTES,
+  PHOTO_MAX_LABEL,
+};
+
 export type CustomerAttachmentFormState = {
   passport_photo: File | null;
   home_location_photos: File[];
@@ -25,8 +39,12 @@ export type CustomerAttachmentDisplay = {
 
 export const PHOTO_ACCEPT = ".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp";
 export const DOCUMENT_ACCEPT = ".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png";
-export const PHOTO_MAX_BYTES = 5 * 1024 * 1024;
-export const DOCUMENT_MAX_BYTES = 10 * 1024 * 1024;
+export {
+  DOCUMENT_ACCEPT_HINT,
+  PHOTO_ACCEPT_HINT,
+  PHOTO_WARN_BYTES,
+  POST_MAX_BYTES,
+} from "@/lib/upload-limits";
 
 export function emptyCustomerAttachments(): CustomerAttachmentFormState {
   return {
@@ -48,7 +66,7 @@ export function validateLocationPhoto(file: File): { ok: true } | { ok: false; e
     return { ok: false, error: "Home/Business photos must be JPG, JPEG, PNG, or WEBP." };
   }
   if (file.size > PHOTO_MAX_BYTES) {
-    return { ok: false, error: "Photo must be 5MB or smaller." };
+    return { ok: false, error: `Photo must be ${PHOTO_MAX_LABEL} or smaller.` };
   }
   return { ok: true };
 }
@@ -59,7 +77,7 @@ export function validateSupportingDocument(file: File): { ok: true } | { ok: fal
     return { ok: false, error: "Supporting documents must be PDF, JPG, JPEG, or PNG." };
   }
   if (file.size > DOCUMENT_MAX_BYTES) {
-    return { ok: false, error: "Each document must be 10MB or smaller." };
+    return { ok: false, error: `Each document must be ${DOCUMENT_MAX_LABEL} or smaller.` };
   }
   return { ok: true };
 }

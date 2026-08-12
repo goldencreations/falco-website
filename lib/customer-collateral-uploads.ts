@@ -1,5 +1,5 @@
 import { validateLocationPhoto } from "@/lib/customer-attachments";
-import { formatClientApiError } from "@/lib/application-workflow";
+import { postCustomerMultipartUpload } from "@/lib/customer-upload-request";
 import {
   resolveCustomerCollateralIdForFormRow,
   type CustomerCollateralFormRow,
@@ -18,27 +18,12 @@ async function uploadCustomerCollateralImagesBatch(
     if (!validated.ok) return validated;
   }
 
-  const form = new FormData();
-  form.append("type", "collateral_image");
-  form.append("collateral_id", collateralId);
-  form.append("name", files[0].name);
-  for (const file of files) {
-    form.append("files[]", file, file.name);
-  }
-
-  const res = await fetch(`/api/customers/${encodeURIComponent(customerId)}/documents`, {
-    method: "POST",
-    credentials: "include",
-    body: form,
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    return {
-      ok: false,
-      error: formatClientApiError(data, `${label} upload failed (${res.status})`),
-    };
-  }
-  return { ok: true };
+  return postCustomerMultipartUpload(
+    `/api/customers/${encodeURIComponent(customerId)}/documents`,
+    files,
+    { type: "collateral_image", collateral_id: collateralId, name: files[0].name },
+    label
+  );
 }
 
 /**
@@ -48,7 +33,8 @@ async function uploadCustomerCollateralImagesBatch(
 export async function uploadCustomerCollateralImages(
   customerId: string,
   sourceRow: Record<string, unknown> | null | undefined,
-  rows: CustomerCollateralFormRow[]
+  rows: CustomerCollateralFormRow[],
+  onRowUploaded?: (row: CustomerCollateralFormRow) => void
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const collateralRows = rows.filter((row) => row.collateralType.trim());
 
@@ -78,6 +64,7 @@ export async function uploadCustomerCollateralImages(
       label
     );
     if (!result.ok) return result;
+    onRowUploaded?.(collateralRow);
   }
 
   return { ok: true };
