@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   findBranchForScope,
+  formatSessionBranchField,
   hasOrphanBranchAssignment,
   isBranchIdentifierSlug,
   isPlaceholderBranchName,
@@ -85,6 +86,19 @@ describe("resolveBranchDisplayName", () => {
         branches: [mbagala],
       }),
       true
+    );
+  });
+});
+
+describe("formatSessionBranchField", () => {
+  it("shows the session name and raw branch_id without inventing a label", () => {
+    assert.deepEqual(
+      formatSessionBranchField({ branchId: "42", branchName: "FALCO MBAGALA BRANCH" }),
+      { name: "FALCO MBAGALA BRANCH", branchId: "42" }
+    );
+    assert.deepEqual(
+      formatSessionBranchField({ branchId: "branch-dom01", branchName: "branch-dom01" }),
+      { name: "", branchId: "branch-dom01" }
     );
   });
 });

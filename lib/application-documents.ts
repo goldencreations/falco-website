@@ -4,8 +4,9 @@ import { invalidateApplicationDetailCache } from "@/lib/application-detail-cache
 import { extractProductsList } from "@/lib/product-adapters";
 import { formatValidationDetails, type FalcoApiErrorDetail } from "@/lib/falco-api";
 import { APPLICATION_DOCUMENTS_OPTIONAL } from "@/lib/application-workflow-config";
+import { DOCUMENT_MAX_BYTES, DOCUMENT_MAX_LABEL } from "@/lib/upload-limits";
 
-export const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
+export const MAX_DOCUMENT_BYTES = DOCUMENT_MAX_BYTES;
 export const ALLOWED_DOCUMENT_EXTENSIONS = [".pdf", ".jpg", ".jpeg", ".png", ".webp"];
 
 export type DocumentFilesByType = Record<string, File[]>;
@@ -105,7 +106,7 @@ export function validateDocumentFile(file: File): { ok: true } | { ok: false; er
  if (file.size > MAX_DOCUMENT_BYTES) {
  return {
  ok: false,
- error: `File too large (max ${Math.round(MAX_DOCUMENT_BYTES / (1024 * 1024))}MB): ${file.name}`,
+ error: `File too large (max ${DOCUMENT_MAX_LABEL}): ${file.name}`,
  };
  }
  if (file.size <= 0) {

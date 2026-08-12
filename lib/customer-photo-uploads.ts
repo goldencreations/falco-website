@@ -1,5 +1,5 @@
 import { validateLocationPhoto } from "@/lib/customer-attachments";
-import { formatClientApiError } from "@/lib/application-workflow";
+import { postCustomerMultipartUpload } from "@/lib/customer-upload-request";
 
 export async function uploadCustomerPassportPhoto(
   customerId: string,
@@ -8,21 +8,11 @@ export async function uploadCustomerPassportPhoto(
   const validated = validateLocationPhoto(file);
   if (!validated.ok) return validated;
 
-  const form = new FormData();
-  form.append("file", file, file.name);
-  form.append("name", file.name);
-
-  const res = await fetch(`/api/customers/${encodeURIComponent(customerId)}/passport-photo`, {
-    method: "POST",
-    credentials: "include",
-    body: form,
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    return {
-      ok: false,
-      error: formatClientApiError(data, `Passport photo upload failed (${res.status})`),
-    };
-  }
-  return { ok: true };
+  return postCustomerMultipartUpload(
+    `/api/customers/${encodeURIComponent(customerId)}/passport-photo`,
+    [file],
+    { name: file.name },
+    "Passport photo",
+    { fileField: "file" }
+  );
 }

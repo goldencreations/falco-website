@@ -1,9 +1,9 @@
-import { formatClientApiError } from "@/lib/application-workflow";
 import {
   type CustomerAttachmentFormState,
   validateLocationPhoto,
   validateSupportingDocument,
 } from "@/lib/customer-attachments";
+import { postCustomerMultipartUpload } from "@/lib/customer-upload-request";
 import {
   CUSTOMER_BUSINESS_LOCATION_PHOTO_DOCUMENT_TYPE,
   CUSTOMER_HOME_LOCATION_PHOTO_DOCUMENT_TYPE,
@@ -27,28 +27,12 @@ async function uploadCustomerFiles(
   files: File[],
   label: string
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  if (files.length === 0) return { ok: true };
-
-  const form = new FormData();
-  form.append("type", type);
-  form.append("name", files[0].name);
-  for (const file of files) {
-    form.append("files[]", file, file.name);
-  }
-
-  const res = await fetch(`/api/customers/${encodeURIComponent(customerId)}/documents`, {
-    method: "POST",
-    credentials: "include",
-    body: form,
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    return {
-      ok: false,
-      error: formatClientApiError(data, `${label} upload failed (${res.status})`),
-    };
-  }
-  return { ok: true };
+  return postCustomerMultipartUpload(
+    `/api/customers/${encodeURIComponent(customerId)}/documents`,
+    files,
+    { type, name: files[0]?.name ?? "" },
+    label
+  );
 }
 
 export function customerAttachmentFormHasLocationPhotos(

@@ -13,11 +13,14 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
   DOCUMENT_ACCEPT,
+  DOCUMENT_ACCEPT_HINT,
   PHOTO_ACCEPT,
+  PHOTO_ACCEPT_HINT,
   type CustomerAttachmentFormState,
   validateLocationPhoto,
   validateSupportingDocument,
 } from "@/lib/customer-attachments";
+import { largePhotoWarning } from "@/lib/upload-limits";
 import { cn } from "@/lib/utils";
 
 type ExistingPhoto = { id?: string; name: string; url: string; previewUrl?: string | null };
@@ -130,7 +133,7 @@ function SingleImageUploadField({
             <p className="text-xs font-medium text-foreground">
               {file ? "Replace photo" : "Upload photo"}
             </p>
-            <p className="text-[11px] text-muted-foreground">JPG, JPEG, PNG, WEBP — max 5MB</p>
+            <p className="text-[11px] text-muted-foreground">{PHOTO_ACCEPT_HINT}</p>
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-center gap-2">
@@ -178,6 +181,9 @@ function SingleImageUploadField({
         <p role="alert" className="text-xs text-destructive">
           {error}
         </p>
+      ) : null}
+      {file && largePhotoWarning(file) ? (
+        <p className="text-xs text-amber-700">{largePhotoWarning(file)}</p>
       ) : null}
     </div>
   );
@@ -252,7 +258,7 @@ function MultiImageUploadField({
           <div className="space-y-0.5">
             <p className="text-xs font-medium text-foreground">Upload photos</p>
             <p className="text-[11px] text-muted-foreground">
-              Select one or more images — JPG, JPEG, PNG, WEBP — max 5MB each
+              Select one or more images — {PHOTO_ACCEPT_HINT}
             </p>
           </div>
         </div>
@@ -377,6 +383,18 @@ function MultiImageUploadField({
         <p role="alert" className="text-xs text-destructive">
           {error}
         </p>
+      ) : null}
+      {files.map((file) => largePhotoWarning(file)).filter(Boolean).length > 0 ? (
+        <div className="space-y-1">
+          {files.map((file) => {
+            const warning = largePhotoWarning(file);
+            return warning ? (
+              <p key={file.name} className="text-xs text-amber-700">
+                {warning}
+              </p>
+            ) : null;
+          })}
+        </div>
       ) : null}
     </div>
   );
@@ -564,7 +582,7 @@ export function CustomerAttachmentsFields({
           </Badge>
         </div>
         <p className="text-xs text-muted-foreground">
-          Upload ID copies, business permits, or other supporting files. PDF, JPG, JPEG, PNG — max 10MB each.
+          Upload ID copies, business permits, or other supporting files. {DOCUMENT_ACCEPT_HINT}
           You can add multiple files in one go.
         </p>
 

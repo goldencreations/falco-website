@@ -9,7 +9,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { formControlErrorClass, formControlErrorProps } from "@/components/forms/form-field-message";
 import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { CachedMediaPreview } from "@/components/media/cached-media-preview";
-import { PHOTO_ACCEPT } from "@/lib/customer-attachments";
+import { PHOTO_ACCEPT, PHOTO_ACCEPT_HINT } from "@/lib/customer-attachments";
+import { largePhotoWarning } from "@/lib/upload-limits";
 import {
   emptyCustomerCollateralRow,
   type CustomerCollateralFormRow,
@@ -279,8 +280,20 @@ export function CustomerCollateralFields({
                 onChange={(e) => updateImages(index, e.target.files)}
               />
               <p className="text-xs text-muted-foreground">
-                JPG, JPEG, PNG, or WEBP — max 5MB each. You can select multiple images.
+                {PHOTO_ACCEPT_HINT} You can select multiple images.
               </p>
+              {row.images.map((file) => largePhotoWarning(file)).filter(Boolean).length > 0 ? (
+                <div className="space-y-1">
+                  {row.images.map((file) => {
+                    const warning = largePhotoWarning(file);
+                    return warning ? (
+                      <p key={`${file.name}-${file.size}`} className="text-xs text-amber-700">
+                        {warning}
+                      </p>
+                    ) : null;
+                  })}
+                </div>
+              ) : null}
               {row.existingImageUrls.length > 0 ? (
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                   {row.existingImageUrls.map((authUrl, urlIndex) => {

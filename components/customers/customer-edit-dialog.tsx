@@ -63,7 +63,6 @@ import {
 import { uploadCustomerCollateralImages } from "@/lib/customer-collateral-uploads";
 import { uploadCustomerGuarantorIdDocuments } from "@/lib/customer-guarantor-uploads";
 import {
-  customerAttachmentFormHasLocationPhotos,
   customerAttachmentFormHasSupportingDocuments,
   uploadCustomerLocationPhotos,
   uploadCustomerSupportingDocuments,
@@ -95,7 +94,7 @@ import {
   extractPassportPhotoUrl,
 } from "@/lib/customer-profile-extras";
 import { loanOfficersForBranch } from "@/lib/customer-assignment-options";
-import { branchesForCustomerEdit, formatBranchOptionLabel } from "@/lib/branch-display-name";
+import { branchesForCustomerEdit, formatBranchOptionLabel, formatSessionBranchField } from "@/lib/branch-display-name";
 import { useBranchDisplayName } from "@/lib/use-branch-display-name";
 import { CUSTOMER_ID_TYPE_OPTIONS, normalizeCustomerIdType } from "@/lib/customer-id-types";
 import type { Branch, Customer, User } from "@/lib/types";
@@ -398,10 +397,15 @@ export function CustomerEditDialog({
  const lockedBranchId = isManagerView || isOfficerView ? user?.branch_id ?? "" : "";
  const lockedOfficerId = isOfficerView ? user?.id ?? "" : "";
  const sessionBranchDisplayName = useBranchDisplayName();
+ const sessionBranchField = formatSessionBranchField({
+  branchId: lockedBranchId,
+  branchName: sessionBranchDisplayName || user?.branch_name,
+ });
 
  const [form, setForm] = useState<EditForm | null>(null);
  const [error, setError] = useState("");
  const [saving, setSaving] = useState(false);
+ const [retryUploadsOnly, setRetryUploadsOnly] = useState(false);
  const [branchRecords, setBranchRecords] = useState<Branch[]>([]);
  const [branchesLoading, setBranchesLoading] = useState(false);
  const [branchesError, setBranchesError] = useState("");
@@ -596,6 +600,7 @@ export function CustomerEditDialog({
  if (!open) {
  setForm(null);
  setError("");
+ setRetryUploadsOnly(false);
  setAttachments(emptyCustomerAttachments());
  setGuarantors(defaultCustomerGuarantorForm());
  setCollateral(defaultCustomerCollateralForm());
@@ -653,6 +658,7 @@ export function CustomerEditDialog({
  }, [open, customerId]);
 
  const updateField = <K extends keyof EditForm>(key: K, value: EditForm[K]) => {
+ setRetryUploadsOnly(false);
  setForm((prev) => {
  if (!prev) return prev;
  if (key === "branch_id") {
@@ -757,8 +763,8 @@ export function CustomerEditDialog({
   !formPatchChanged &&
   !attachments.passport_photo;
 
- let savedRow = sourceRow;
- if (!collateralImagesOnlySave) {
+ let savedRow = liveSourceRow ?? sourceRow;
+ if (!retryUploadsOnly && !collateralImagesOnlySave) {
  const patchBody: Record<string, unknown> = {
   ...formToPatchBody(form),
   is_blacklisted: customer.is_blacklisted,
@@ -815,9 +821,11 @@ export function CustomerEditDialog({
  if (attachments.passport_photo) {
   const photoUpload = await uploadCustomerPassportPhoto(customerId, attachments.passport_photo);
   if (!photoUpload.ok) {
+   setRetryUploadsOnly(true);
    setError(`Customer saved but passport photo upload failed: ${photoUpload.error}`);
    return;
   }
+  setAttachments((prev) => ({ ...prev, passport_photo: null }));
   const detailRes = await fetch(`/api/customers/${encodeURIComponent(customerId)}`, {
    credentials: "include",
   });
@@ -826,12 +834,36 @@ export function CustomerEditDialog({
   if (refreshed) savedRow = refreshed;
  }
 
- if (customerAttachmentFormHasLocationPhotos(attachments)) {
-  const locationUpload = await uploadCustomerLocationPhotos(customerId, attachments);
+ if (attachments.home_location_photos.length > 0) {
+  const locationUpload = await uploadCustomerLocationPhotos(customerId, {
+   home_location_photos: attachments.home_location_photos,
+   business_location_photos: [],
+  });
   if (!locationUpload.ok) {
+   setRetryUploadsOnly(true);
    setError(`Customer saved but location photo upload failed: ${locationUpload.error}`);
    return;
   }
+  setAttachments((prev) => ({ ...prev, home_location_photos: [] }));
+  const detailRes = await fetch(`/api/customers/${encodeURIComponent(customerId)}`, {
+   credentials: "include",
+  });
+  const detailBody = (await detailRes.json().catch(() => ({}))) as unknown;
+  const refreshed = extractCustomerDetail(detailBody);
+  if (refreshed) savedRow = refreshed;
+ }
+
+ if (attachments.business_location_photos.length > 0) {
+  const locationUpload = await uploadCustomerLocationPhotos(customerId, {
+   home_location_photos: [],
+   business_location_photos: attachments.business_location_photos,
+  });
+  if (!locationUpload.ok) {
+   setRetryUploadsOnly(true);
+   setError(`Customer saved but location photo upload failed: ${locationUpload.error}`);
+   return;
+  }
+  setAttachments((prev) => ({ ...prev, business_location_photos: [] }));
   const detailRes = await fetch(`/api/customers/${encodeURIComponent(customerId)}`, {
    credentials: "include",
   });
@@ -843,9 +875,11 @@ export function CustomerEditDialog({
  if (customerAttachmentFormHasSupportingDocuments(attachments)) {
   const supportingUpload = await uploadCustomerSupportingDocuments(customerId, attachments);
   if (!supportingUpload.ok) {
+   setRetryUploadsOnly(true);
    setError(`Customer saved but supporting document upload failed: ${supportingUpload.error}`);
    return;
   }
+  setAttachments((prev) => ({ ...prev, supporting_documents: [] }));
   const detailRes = await fetch(`/api/customers/${encodeURIComponent(customerId)}`, {
    credentials: "include",
   });
@@ -855,8 +889,18 @@ export function CustomerEditDialog({
  }
 
  if (customerCollateralRowsWithImages(collateral).length > 0) {
-  const collateralUpload = await uploadCustomerCollateralImages(customerId, savedRow, collateral);
+  const collateralUpload = await uploadCustomerCollateralImages(
+   customerId,
+   savedRow,
+   collateral,
+   (uploadedRow) => {
+    setCollateral((prev) =>
+     prev.map((row) => (row === uploadedRow ? { ...row, image: null, images: [] } : row))
+    );
+   }
+  );
   if (!collateralUpload.ok) {
+   setRetryUploadsOnly(true);
    setError(`Customer saved but collateral image upload failed: ${collateralUpload.error}`);
    return;
   }
@@ -869,8 +913,31 @@ export function CustomerEditDialog({
  }
 
  if (customerGuarantorRowsWithIdFiles(guarantors).length > 0) {
-  const guarantorUpload = await uploadCustomerGuarantorIdDocuments(customerId, savedRow, guarantors);
+  const guarantorUpload = await uploadCustomerGuarantorIdDocuments(
+   customerId,
+   savedRow,
+   guarantors,
+   (uploadedRow) => {
+    setGuarantors((prev) =>
+     prev.map((row) =>
+      row === uploadedRow
+       ? {
+          ...row,
+          photo: null,
+          photoWithCustomer: null,
+          idFront: null,
+          idBack: null,
+          wardLetter: null,
+          attachments: [],
+          collateralImages: [],
+         }
+       : row
+     )
+    );
+   }
+  );
   if (!guarantorUpload.ok) {
+   setRetryUploadsOnly(true);
    setError(`Customer saved but guarantor document upload failed: ${guarantorUpload.error}`);
    return;
   }
@@ -929,6 +996,11 @@ export function CustomerEditDialog({
  ) : (
  <form onSubmit={handleSubmit} className="space-y-6">
  {error ? <p className="text-sm text-destructive">{error}</p> : null}
+ {retryUploadsOnly ? (
+  <p className="text-xs text-amber-800">
+   Customer details were saved. Retrying will only upload remaining photos and documents.
+  </p>
+ ) : null}
 
  <div className="grid gap-4 md:grid-cols-2">
  <div className="space-y-2">
@@ -936,9 +1008,12 @@ export function CustomerEditDialog({
  {lockedBranchId ? (
  <div
  id="edit-branch"
- className="flex h-9 w-full items-center rounded-md border border-input bg-muted/40 px-3 text-sm"
+ className="flex min-h-9 w-full flex-col justify-center rounded-md border border-input bg-muted/40 px-3 py-1.5 text-sm"
  >
- {branchesLoading && !sessionBranchDisplayName ? "Loading…" : selectedBranchLabel || "—"}
+ <span>{branchesLoading && !sessionBranchField.name && !selectedBranchLabel ? "Loading…" : selectedBranchLabel || sessionBranchField.name || "—"}</span>
+ {sessionBranchField.branchId ? (
+  <span className="text-[11px] text-muted-foreground">branch_id: {sessionBranchField.branchId}</span>
+ ) : null}
  </div>
  ) : (
  <Select
@@ -1415,8 +1490,10 @@ disabled
  {saving ? (
  <>
  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
- Saving…
+ {retryUploadsOnly ? "Retrying upload…" : "Saving…"}
  </>
+ ) : retryUploadsOnly ? (
+ "Retry upload"
  ) : (
  "Save changes"
  )}

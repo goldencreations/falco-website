@@ -1,6 +1,7 @@
 import { normalizeGuarantors, type ApplicationViewRow } from "@/lib/application-adapters";
 import type { GuarantorFileRow } from "@/lib/application-linked-uploads";
 import { validateLocationPhoto, validateSupportingDocument } from "@/lib/customer-attachments";
+import { DOCUMENT_MAX_LABEL, PHOTO_MAX_LABEL } from "@/lib/upload-limits";
 import { extractGuarantorsFromApplications } from "@/lib/customer-profile-extras";
 import type { CustomerIdType } from "@/lib/customer-id-types";
 import { normalizeCustomerIdType } from "@/lib/customer-id-types";
@@ -1271,7 +1272,7 @@ export function validateCustomerGuarantors(
       if (!check.ok) {
         return {
           ok: false,
-          error: `Guarantor ${i + 1}: ${label} must be PDF, JPG, JPEG, or PNG and 10MB or smaller.`,
+          error: `Guarantor ${i + 1}: ${label} must be PDF, JPG, JPEG, or PNG and ${DOCUMENT_MAX_LABEL} or smaller.`,
           field: `guarantors.${i}.${field}`,
         };
       }
@@ -1287,7 +1288,7 @@ export function validateCustomerGuarantors(
       if (!check.ok) {
         return {
           ok: false,
-          error: `Guarantor ${i + 1}: ${label} must be JPG, JPEG, PNG, or WEBP and 5MB or smaller.`,
+          error: `Guarantor ${i + 1}: ${label} must be JPG, JPEG, PNG, or WEBP and ${PHOTO_MAX_LABEL} or smaller.`,
           field: `guarantors.${i}.${field}`,
         };
       }
@@ -1298,7 +1299,7 @@ export function validateCustomerGuarantors(
       if (!check.ok) {
         return {
           ok: false,
-          error: `Guarantor ${i + 1}: attachment must be PDF, JPG, JPEG, or PNG and 10MB or smaller.`,
+          error: `Guarantor ${i + 1}: attachment must be PDF, JPG, JPEG, or PNG and ${DOCUMENT_MAX_LABEL} or smaller.`,
           field: `guarantors.${i}.attachments`,
         };
       }
@@ -1309,7 +1310,7 @@ export function validateCustomerGuarantors(
       if (!check.ok) {
         return {
           ok: false,
-          error: `Guarantor ${i + 1}: collateral photo must be JPG, JPEG, PNG, or WEBP and 5MB or smaller.`,
+          error: `Guarantor ${i + 1}: collateral photo must be JPG, JPEG, PNG, or WEBP and ${PHOTO_MAX_LABEL} or smaller.`,
           field: `guarantors.${i}.collateralImages`,
         };
       }

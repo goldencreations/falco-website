@@ -26,6 +26,11 @@ const nextConfig = {
   experimental: {
     workerThreads: false,
     cpus: 1,
+    // Default middleware body cap is 10MB; PHP now accepts 50M/55M uploads.
+    middlewareClientMaxBodySize: "55mb",
+  },
+  serverActions: {
+    bodySizeLimit: "55mb",
   },
 }
 

@@ -74,6 +74,18 @@ export function hasOrphanBranchAssignment(options: {
   return !resolveBranchDisplayName(options);
 }
 
+/** Read-only session branch copy: show the resolved name and the raw `/api/me` branch_id. */
+export function formatSessionBranchField(options: {
+  branchId?: string | null;
+  branchName?: string | null;
+}): { name: string; branchId: string } {
+  const branchId = options.branchId?.trim() ?? "";
+  const resolvedName = options.branchName?.trim() ?? "";
+  const name =
+    resolvedName && !isPlaceholderBranchName(resolvedName) ? resolvedName : "";
+  return { name, branchId };
+}
+
 /** Human-readable branch label for selects and read-only fields (never "Branch (branch-dom01)"). */
 export function formatBranchOptionLabel(
   branch: Pick<Branch, "id" | "name" | "code">,

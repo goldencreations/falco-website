@@ -2,7 +2,7 @@ import { extractApplicationDetail } from "@/lib/application-adapters";
 import { invalidateApplicationDetailCache } from "@/lib/application-detail-cache";
 import { debugApplicationCreate } from "@/lib/application-debug";
 import { validateDocumentFile } from "@/lib/application-documents";
-import { formatClientApiError } from "@/lib/application-workflow";
+import { formatUploadHttpError } from "@/lib/upload-limits";
 
 export type LinkedApplicationIds = {
   applicationId: string;
@@ -107,7 +107,7 @@ async function uploadLinkedFile(
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    return { ok: false, error: formatClientApiError(data, `${label} upload failed (${res.status})`) };
+    return { ok: false, error: formatUploadHttpError(res.status, data, `${label} upload failed (${res.status})`) };
   }
   return { ok: true };
 }
