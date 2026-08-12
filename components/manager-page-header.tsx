@@ -2,6 +2,8 @@
 
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Badge } from "@/components/ui/badge";
+import { useBranchDisplayName } from "@/lib/use-branch-display-name";
+import { isPlaceholderBranchName } from "@/lib/branch-display-name";
 
 export function ManagerPageHeader({
  title,
@@ -10,8 +12,14 @@ export function ManagerPageHeader({
 }: {
  title: string;
  description?: string;
- branchLabel: string;
+ /** Optional override; otherwise resolved from session + branch API. */
+ branchLabel?: string;
 }) {
+ const resolvedBranchLabel = useBranchDisplayName();
+ const override =
+  branchLabel?.trim() && !isPlaceholderBranchName(branchLabel) ? branchLabel.trim() : undefined;
+ const label = override || resolvedBranchLabel;
+
  return (
  <header className="flex h-16 shrink-0 items-center justify-between border-b border-border bg-card px-4 lg:px-6">
  <div className="flex items-center gap-4">
@@ -22,9 +30,11 @@ export function ManagerPageHeader({
  {description ? <p className="text-sm text-muted-foreground">{description}</p> : null}
  </div>
  </div>
+ {label ? (
  <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">
- {branchLabel}
+ {label}
  </Badge>
+ ) : null}
  </header>
  );
 }

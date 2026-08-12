@@ -31,12 +31,10 @@ import {
  CardTitle,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { apiFetch } from "@/lib/api-client";
 import { useTranslations } from "@/lib/i18n/use-translations";
 import { formatCurrency } from "@/lib/formatters";
-import { knownBranchNameFromCode } from "@/lib/branch-scope";
 import { loadOfficerDashboardSnapshot } from "@/lib/officer-dashboard-load";
-import type { Branch, User } from "@/lib/types";
+import { useBranchDisplayName } from "@/lib/use-branch-display-name";
 import type { OfficerDashboardSnapshot } from "@/lib/officer-dashboard-load";
 
 function MetricValue({
@@ -62,42 +60,15 @@ const OFFICER_QUICK_ACTIONS = [
  { href: "/officer/groups", label: "Vikundi groups", icon: Users, variant: "outline" as const },
 ];
 
-function usableBranchName(name: string | undefined, branchId: string): string {
- const value = name?.trim() ?? "";
- if (!value) return "";
- const id = branchId.trim().toLowerCase();
- const normalized = value.toLowerCase();
- if (normalized === id || normalized === `branch ${id}`) return "";
- return value;
-}
-
-function branchMatchesSession(branch: Branch, branchId: string): boolean {
- const normalizeBranchKey = (value: string) =>
- value.trim().toLowerCase().replace(/^branch[-_\s]*/, "").replace(/[^a-z0-9]/g, "");
- const sessionBranch = normalizeBranchKey(branchId);
- return (
- normalizeBranchKey(branch.id) === sessionBranch ||
- normalizeBranchKey(branch.code) === sessionBranch
- );
-}
-
 export default function OfficerDashboardPage() {
  const { t } = useTranslations();
  const user = useOfficerSession();
  const branchId = user.branch_id?.trim() ?? "";
+ const branchLabel = useBranchDisplayName() ?? t("common.branch");
 
  const [loading, setLoading] = useState(Boolean(branchId));
  const [dataLimited, setDataLimited] = useState(false);
- const [branchName, setBranchName] = useState("");
  const [snapshot, setSnapshot] = useState<OfficerDashboardSnapshot | null>(null);
-
- const sessionBranchName = usableBranchName(user.branch_name, branchId);
- const branchLabel =
- sessionBranchName ||
- branchName ||
- snapshot?.branchName ||
- knownBranchNameFromCode(branchId) ||
- t("common.branch");
 
  useEffect(() => {
  if (!branchId) {
@@ -121,48 +92,6 @@ export default function OfficerDashboardPage() {
  cancelled = true;
  };
  }, [branchId]);
-
- useEffect(() => {
- if (!branchId) {
- setBranchName("");
- return;
- }
-
- let cancelled = false;
- setBranchName("");
-
- void apiFetch(`/api/staff/directory?${new URLSearchParams({ role: "loan_officer", page_size: "200" }).toString()}`)
- .then(async (res) => {
- if (!res.ok) return null;
- const payload = (await res.json()) as { users?: User[] };
- const officer = (payload.users ?? []).find((item) => item.id === user.id);
- const name = usableBranchName(officer?.branch_name, branchId);
- if (!cancelled && name) {
- setBranchName(name);
- return name;
- }
- return null;
- })
- .then(async (resolvedName) => {
- if (resolvedName || cancelled) return;
- const res = await apiFetch("/api/falco/branches");
- if (!res.ok) return;
- const payload = (await res.json()) as { branches?: Branch[] };
- const branches = payload.branches ?? [];
- const branch = branches.find((item) => branchMatchesSession(item, branchId)) ?? (branches.length === 1 ? branches[0] : undefined);
- const name = usableBranchName(branch?.name, branchId);
- if (!cancelled && name) {
- setBranchName(name);
- }
- })
- .catch(() => {
- if (!cancelled) setBranchName("");
- });
-
- return () => {
- cancelled = true;
- };
- }, [branchId, user.id]);
 
  const metrics = snapshot?.metrics?.metrics ?? null;
  const customerCount = snapshot?.customerCount ?? 0;

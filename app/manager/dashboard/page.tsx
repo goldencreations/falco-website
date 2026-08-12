@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
  Activity,
@@ -16,9 +16,8 @@ import {
  Wallet,
 } from "lucide-react";
 import { ManagerPageHeader } from "@/components/manager-page-header";
-import { useOptionalBranchAssignment } from "@/components/branch-assignment-context";
 import { Badge } from "@/components/ui/badge";
-import { branchIdsMatch } from "@/lib/branch-scope";
+import { useBranchDisplayName } from "@/lib/use-branch-display-name";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -44,19 +43,13 @@ export default function ManagerDashboardPage() {
  const router = useRouter();
  const { t } = useTranslations();
  const { user, loaded } = useSessionUser();
- const branchCtx = useOptionalBranchAssignment();
  const [snapshot, setSnapshot] = useState<ManagerBranchSnapshot>(emptySnapshot);
  const [loadingEssentials, setLoadingEssentials] = useState(true);
  const [loadingDetails, setLoadingDetails] = useState(false);
  const [error, setError] = useState<string | null>(null);
 
  const branchId = user?.branch_id?.trim() ?? "";
-
- const branchLabel = useMemo(() => {
- if (!branchId) return "Branch";
- const fromCtx = branchCtx?.branches.find((b) => branchIdsMatch(b.id, branchId));
- return fromCtx?.name && fromCtx.name !== "Branch" ? fromCtx.name : `Branch ${branchId}`;
- }, [branchId, branchCtx?.branches]);
+ const branchLabel = useBranchDisplayName();
 
  const load = useCallback(async () => {
  if (!branchId) {
@@ -181,7 +174,7 @@ export default function ManagerDashboardPage() {
  {t("manager.commandDesk")}
  </p>
  <h2 className="mt-1 text-2xl font-semibold tracking-tight">
- {t("manager.operations", { branch: branchLabel })}
+ {t("manager.operations", { branch: branchLabel ?? t("common.branch") })}
  </h2>
  <p className="mt-1 text-sm text-emerald-100/90">{t("manager.liveMetrics")}</p>
  <div className="mt-4 flex flex-wrap gap-2">

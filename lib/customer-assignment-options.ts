@@ -1,14 +1,12 @@
 import type { Branch, User } from "@/lib/types";
-import { branchIdsMatch } from "@/lib/branch-scope";
+import { branchIdsMatch, branchMatchesScope } from "@/lib/branch-scope";
 
 /** Branches available for customer assignment (treat missing is_active as active). */
 export function activeBranchesForAssignment(branches: Branch[], lockedBranchId = ""): Branch[] {
  return branches.filter(
  (branch) =>
  branch.is_active !== false &&
- (!lockedBranchId ||
- branchIdsMatch(branch.id, lockedBranchId) ||
- branchIdsMatch(branch.code, lockedBranchId))
+ (!lockedBranchId || branchMatchesScope(branch, lockedBranchId))
  );
 }
 

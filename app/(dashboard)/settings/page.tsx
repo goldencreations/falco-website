@@ -38,6 +38,10 @@ import {
  canViewOrganizationSettings,
 } from "@/lib/settings-permissions";
 import { useSessionUser, type SessionUserClient } from "@/lib/use-session-user";
+import { useBranchDisplayName } from "@/lib/use-branch-display-name";
+import { hasOrphanBranchAssignment } from "@/lib/branch-display-name";
+import { useOptionalBranchAssignment } from "@/components/branch-assignment-context";
+import { useOptionalOfficerSession } from "@/components/officer-session-context";
 
 function roleLabel(role: string): string {
  if (role === "branch_manager") return "Branch manager";
@@ -66,8 +70,10 @@ export default function SettingsPage() {
  const copy = settingsCopy(language);
  const L = (text: string) => tLabel(text, language);
  const { user: sessionUser, loaded: sessionLoaded } = useSessionUser();
+ const branchDisplayName = useBranchDisplayName();
+ const branchCtx = useOptionalBranchAssignment();
+ const officerUser = useOptionalOfficerSession();
  const [profileUser, setProfileUser] = useState<SessionUserClient | null>(null);
- const [branchName, setBranchName] = useState<string>("");
  const [preferences, setPreferences] = useState<ProfilePreferences>(DEFAULT_PREFERENCES);
  const [orgSettings, setOrgSettings] = useState<OrganizationSettings | null>(null);
 
@@ -90,6 +96,15 @@ export default function SettingsPage() {
  const [confirmPassword, setConfirmPassword] = useState("");
 
  const displayUser = profileUser ?? sessionUser;
+ const orphanBranchAssignment = useMemo(() => {
+  const branchId = officerUser?.branch_id?.trim() || displayUser?.branch_id?.trim() || "";
+  if (!branchId || !displayUser) return false;
+  return hasOrphanBranchAssignment({
+   branchId,
+   branchName: officerUser?.branch_name ?? displayUser.branch_name,
+   branches: branchCtx?.branches ?? [],
+  });
+ }, [branchCtx?.branches, displayUser, officerUser?.branch_id, officerUser?.branch_name]);
  const canViewOrg = canViewOrganizationSettings(sessionUser);
  const canManageOrg = canManageOrganizationSettings(sessionUser);
 
@@ -121,35 +136,6 @@ export default function SettingsPage() {
  setPreferences(prefs);
  setLanguage(prefs.language);
  }
-
- const bid = profileJson.user?.branch_id ?? sessionUser.branch_id;
- let resolvedBranchName = bid ?? "";
-
- try {
- const branchRes = await fetch("/api/settings/branches", { credentials: "include" });
- if (branchRes.ok) {
- const branchJson = (await branchRes.json()) as { data?: { id: string; name: string }[] };
- const match = branchJson.data?.find((b) => b.id === bid);
- resolvedBranchName = match?.name ?? resolvedBranchName;
- }
- } catch {
- /* try falco branches */
- }
-
- if (!resolvedBranchName || resolvedBranchName === bid) {
- try {
- const falcoRes = await fetch("/api/falco/branches", { credentials: "include" });
- if (falcoRes.ok) {
- const falcoJson = (await falcoRes.json()) as { branches?: { id: string; name: string }[] };
- const match = falcoJson.branches?.find((b) => b.id === bid);
- if (match?.name) resolvedBranchName = match.name;
- }
- } catch {
- /* keep id */
- }
- }
-
- setBranchName(resolvedBranchName || bid || "");
 
  if (canViewOrganizationSettings(sessionUser)) {
  const orgRes = await fetch("/api/settings/organization", { credentials: "include" });
@@ -389,9 +375,19 @@ export default function SettingsPage() {
  </div>
  <div>
  <dt className="text-muted-foreground">{L("Branch")}</dt>
- <dd className="inline-flex items-center gap-1">
+ <dd className="inline-flex flex-col gap-1">
+ <span className="inline-flex items-center gap-1">
  <Building2 className="h-3.5 w-3.5 text-emerald-700" />
- {branchName || displayUser.branch_id || "—"}
+ {branchDisplayName ?? (orphanBranchAssignment ? L("Branch not linked") : displayUser.branch_id || "—")}
+ </span>
+ {orphanBranchAssignment ? (
+ <span className="text-xs text-amber-700">
+ {L(
+ "Your account references a branch key that is not in the branch list. Ask an admin to reassign you (for example to FALCO MBAGALA BRANCH)."
+ )}{" "}
+ <span className="font-mono">{displayUser.branch_id}</span>
+ </span>
+ ) : null}
  </dd>
  </div>
  <div>

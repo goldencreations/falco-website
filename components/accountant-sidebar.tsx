@@ -26,12 +26,13 @@ import {
 import { FalcoLogo } from "@/components/falco-logo";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { useOptionalBranchAssignment } from "@/components/branch-assignment-context";
 import { useLanguage } from "@/components/language-provider";
 import { tLabel } from "@/lib/i18n/labels";
 import { invalidateFetchCache } from "@/lib/client-fetch-cache";
 import { cn } from "@/lib/utils";
 import type { SessionUser } from "@/lib/auth";
+import { useBranchDisplayName } from "@/lib/use-branch-display-name";
+import { isPlaceholderBranchName } from "@/lib/branch-display-name";
 
 const accountantNav = [
  { title: "Dashboard", href: "/accountant/dashboard", icon: LayoutDashboard },
@@ -50,14 +51,16 @@ export function AccountantSidebar({
  branchLabel,
 }: {
  user: SessionUser;
- branchLabel: string;
+ branchLabel?: string;
 }) {
  const pathname = usePathname();
- const branchCtx = useOptionalBranchAssignment();
  const { language } = useLanguage();
  const L = (text: string) => tLabel(text, language);
- const resolvedBranchLabel =
- branchCtx?.branches.find((b) => b.id === user.branch_id)?.name ?? branchLabel;
+ const resolvedBranchLabel = useBranchDisplayName();
+ const sidebarBranchLabel =
+  resolvedBranchLabel && !isPlaceholderBranchName(resolvedBranchLabel)
+    ? resolvedBranchLabel
+    : branchLabel;
 
  const handleLogout = async () => {
  await fetch("/api/logout", { method: "POST" });
@@ -72,7 +75,7 @@ export function AccountantSidebar({
  <FalcoLogo size="md" />
  <div className="min-w-0">
  <p className="text-sm font-bold text-sidebar-foreground">{L("Falco Finance Portal")}</p>
- <p className="truncate text-[11px] text-sidebar-foreground/60">{resolvedBranchLabel}</p>
+ <p className="truncate text-[11px] text-sidebar-foreground/60">{sidebarBranchLabel}</p>
  </div>
  </div>
  </SidebarHeader>
