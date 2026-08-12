@@ -4,14 +4,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { AccountantDashboardView } from "@/components/accountant/accountant-dashboard-view";
-import { useOptionalBranchAssignment } from "@/components/branch-assignment-context";
 import {
  buildAccountantDashboardStats,
  loadAccountantFinanceDetails,
  loadAccountantFinanceEssentials,
  type AccountantFinanceSnapshot,
 } from "@/lib/accountant-dashboard-metrics";
-import { branchIdsMatch } from "@/lib/branch-scope";
+import { useBranchDisplayName } from "@/lib/use-branch-display-name";
 import { forceCachedReload } from "@/lib/client-fetch-cache";
 import { useTranslations } from "@/lib/i18n/use-translations";
 import { loginRedirectForRole } from "@/lib/role-portal";
@@ -21,18 +20,13 @@ export default function AccountantDashboardPage() {
  const router = useRouter();
  const { t, language } = useTranslations();
  const { user, loaded } = useSessionUser();
- const branchCtx = useOptionalBranchAssignment();
  const [snapshot, setSnapshot] = useState<AccountantFinanceSnapshot | null>(null);
  const [loadingEssentials, setLoadingEssentials] = useState(true);
  const [loadingDetails, setLoadingDetails] = useState(false);
  const [error, setError] = useState<string | null>(null);
 
  const branchId = user?.branch_id?.trim() ?? "";
- const branchLabel = useMemo(() => {
- if (!branchId) return "Branch";
- const fromCtx = branchCtx?.branches.find((b) => branchIdsMatch(b.id, branchId));
- return fromCtx?.name && fromCtx.name !== "Branch" ? fromCtx.name : `Branch ${branchId}`;
- }, [branchId, branchCtx?.branches]);
+ const branchLabel = useBranchDisplayName() ?? t("common.branch");
 
  const load = useCallback(async () => {
  if (!branchId) {

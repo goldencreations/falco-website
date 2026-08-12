@@ -1,13 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { MapPin } from "lucide-react";
 import { GlobalSearch } from "@/components/global-search";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Badge } from "@/components/ui/badge";
-import type { Branch } from "@/lib/types";
-import { branchIdsMatch, knownBranchNameFromCode } from "@/lib/branch-scope";
-import { useSessionUser } from "@/lib/use-session-user";
+import { useBranchDisplayName } from "@/lib/use-branch-display-name";
 
 interface DashboardHeaderProps {
  title: string;
@@ -15,37 +12,7 @@ interface DashboardHeaderProps {
 }
 
 export function DashboardHeader({ title, description }: DashboardHeaderProps) {
- const { user } = useSessionUser();
- const [branches, setBranches] = useState<Branch[]>([]);
- // Every role needs this (not just super_admin) to resolve their own branch's real name — the
- // backend session payload doesn't reliably include `branch_name`, and `/api/falco/branches`
- // scopes non-admins to their own branch, so it's safe and returns the actual name instead of
- // falling through to the `Branch {id}` placeholder below.
- const needsBranchLookup = Boolean(user?.branch_id?.trim());
-
- useEffect(() => {
- if (!needsBranchLookup) return;
- let cancelled = false;
- void fetch("/api/falco/branches", { credentials: "include" })
- .then((r) => {
- if (!r.ok) return null;
- return r.json() as Promise<{ branches?: Branch[] }>;
- })
- .then((d) => {
- if (!cancelled && d) setBranches(d.branches ?? []);
- })
- .catch(() => {});
- return () => {
- cancelled = true;
- };
- }, [needsBranchLookup]);
-
- const currentBranch = branches.find((b) => branchIdsMatch(b.id, user?.branch_id));
- const branchBadgeLabel =
- currentBranch?.name ??
- (user?.branch_name?.trim() ? user.branch_name.trim() : undefined) ??
- (user?.branch_id?.trim() ? knownBranchNameFromCode(user.branch_id.trim()) ?? undefined : undefined) ??
- (user?.branch_id?.trim() ? `Branch ${user.branch_id.trim()}` : undefined);
+ const branchBadgeLabel = useBranchDisplayName();
 
  return (
  <header className="flex h-16 shrink-0 items-center justify-between border-b border-border bg-card px-4 lg:px-6">

@@ -30,6 +30,8 @@ import { tLabel } from "@/lib/i18n/labels";
 import { invalidateFetchCache } from "@/lib/client-fetch-cache";
 import { cn } from "@/lib/utils";
 import type { SessionUser } from "@/lib/auth";
+import { useBranchDisplayName } from "@/lib/use-branch-display-name";
+import { isPlaceholderBranchName } from "@/lib/branch-display-name";
 
 const managerNav = [
  { title: "Dashboard", href: "/manager/dashboard", icon: LayoutDashboard },
@@ -50,10 +52,15 @@ const managerNav = [
  { title: "Settings", href: "/manager/settings", icon: Settings },
 ];
 
-export function ManagerSidebar({ user, branchLabel }: { user: SessionUser; branchLabel: string }) {
+export function ManagerSidebar({ user, branchLabel }: { user: SessionUser; branchLabel?: string }) {
  const pathname = usePathname();
  const { language } = useLanguage();
  const L = (text: string) => tLabel(text, language);
+ const resolvedBranchLabel = useBranchDisplayName();
+ const sidebarBranchLabel =
+  resolvedBranchLabel && !isPlaceholderBranchName(resolvedBranchLabel)
+    ? resolvedBranchLabel
+    : branchLabel;
 
  const handleLogout = async () => {
  await fetch("/api/logout", { method: "POST" });
@@ -68,7 +75,7 @@ export function ManagerSidebar({ user, branchLabel }: { user: SessionUser; branc
  <FalcoLogo size="md" />
  <div className="min-w-0">
  <p className="text-sm font-bold text-sidebar-foreground">{L("Falco Manager Portal")}</p>
- <p className="truncate text-[11px] text-sidebar-foreground/60">{branchLabel}</p>
+ <p className="truncate text-[11px] text-sidebar-foreground/60">{sidebarBranchLabel}</p>
  </div>
  </div>
  </SidebarHeader>

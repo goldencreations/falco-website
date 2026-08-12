@@ -30,6 +30,8 @@ import { invalidateFetchCache } from "@/lib/client-fetch-cache";
 import { cn } from "@/lib/utils";
 import { NavigationLink, useNavigationTransition } from "@/components/navigation-transition-context";
 import type { SessionUser } from "@/lib/auth";
+import { useBranchDisplayName } from "@/lib/use-branch-display-name";
+import { isPlaceholderBranchName } from "@/lib/branch-display-name";
 
 const officerNav = [
  { title: "Dashboard", href: "/officer/dashboard", icon: LayoutDashboard },
@@ -43,10 +45,15 @@ const officerNav = [
  { title: "Settings", href: "/officer/settings", icon: Settings },
 ];
 
-export function OfficerSidebar({ user, branchLabel }: { user: SessionUser; branchLabel: string }) {
+export function OfficerSidebar({ user, branchLabel }: { user: SessionUser; branchLabel?: string }) {
  const { activePath } = useNavigationTransition();
  const { language } = useLanguage();
  const L = (text: string) => tLabel(text, language);
+ const resolvedBranchLabel = useBranchDisplayName();
+ const sidebarBranchLabel =
+  resolvedBranchLabel && !isPlaceholderBranchName(resolvedBranchLabel)
+    ? resolvedBranchLabel
+    : branchLabel;
 
  const handleLogout = async () => {
  await fetch("/api/logout", { method: "POST" });
@@ -61,7 +68,7 @@ export function OfficerSidebar({ user, branchLabel }: { user: SessionUser; branc
  <FalcoLogo size="md" />
  <div className="min-w-0">
  <p className="text-sm font-bold text-sidebar-foreground">{L("Falco Officer Portal")}</p>
- <p className="truncate text-[11px] text-sidebar-foreground/60">{branchLabel}</p>
+ <p className="truncate text-[11px] text-sidebar-foreground/60">{sidebarBranchLabel}</p>
  </div>
  </div>
  </SidebarHeader>

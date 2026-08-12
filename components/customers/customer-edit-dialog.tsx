@@ -94,10 +94,9 @@ import {
   extractPassportPhotoPreviewUrl,
   extractPassportPhotoUrl,
 } from "@/lib/customer-profile-extras";
-import {
- activeBranchesForAssignment,
- loanOfficersForBranch,
-} from "@/lib/customer-assignment-options";
+import { loanOfficersForBranch } from "@/lib/customer-assignment-options";
+import { branchesForCustomerEdit, formatBranchOptionLabel } from "@/lib/branch-display-name";
+import { useBranchDisplayName } from "@/lib/use-branch-display-name";
 import { CUSTOMER_ID_TYPE_OPTIONS, normalizeCustomerIdType } from "@/lib/customer-id-types";
 import type { Branch, Customer, User } from "@/lib/types";
 import { useSessionUser } from "@/lib/use-session-user";
@@ -398,6 +397,7 @@ export function CustomerEditDialog({
  const isOfficerView = user?.role === "loan_officer";
  const lockedBranchId = isManagerView || isOfficerView ? user?.branch_id ?? "" : "";
  const lockedOfficerId = isOfficerView ? user?.id ?? "" : "";
+ const sessionBranchDisplayName = useBranchDisplayName();
 
  const [form, setForm] = useState<EditForm | null>(null);
  const [error, setError] = useState("");
@@ -663,9 +663,30 @@ export function CustomerEditDialog({
  };
 
  const branchOptions = useMemo(
- () => activeBranchesForAssignment(branchRecords, lockedBranchId),
- [branchRecords, lockedBranchId]
+  () =>
+   branchesForCustomerEdit(branchRecords, {
+    lockedBranchId,
+    customerBranchId: form?.branch_id,
+   }),
+  [branchRecords, lockedBranchId, form?.branch_id]
  );
+ const selectedBranchLabel = useMemo(() => {
+  if (lockedBranchId && sessionBranchDisplayName) return sessionBranchDisplayName;
+  if (!form?.branch_id) return "";
+  const option = branchOptions.find((b) => b.id === form.branch_id);
+  const label = formatBranchOptionLabel(
+   option ?? { id: form.branch_id, name: "", code: form.branch_id },
+   branchRecords
+  );
+  if (label && label !== "Branch") return label;
+  return sessionBranchDisplayName ?? label;
+ }, [
+  branchOptions,
+  branchRecords,
+  form?.branch_id,
+  lockedBranchId,
+  sessionBranchDisplayName,
+ ]);
  const loanOfficerOptions = useMemo(
  () => loanOfficersForBranch(loanOfficers, form?.branch_id ?? ""),
  [loanOfficers, form?.branch_id]
@@ -912,6 +933,14 @@ export function CustomerEditDialog({
  <div className="grid gap-4 md:grid-cols-2">
  <div className="space-y-2">
  <Label htmlFor="edit-branch">Branch</Label>
+ {lockedBranchId ? (
+ <div
+ id="edit-branch"
+ className="flex h-9 w-full items-center rounded-md border border-input bg-muted/40 px-3 text-sm"
+ >
+ {branchesLoading && !sessionBranchDisplayName ? "Loading…" : selectedBranchLabel || "—"}
+ </div>
+ ) : (
  <Select
  value={form.branch_id}
  onValueChange={(v) => {
@@ -919,9 +948,8 @@ export function CustomerEditDialog({
  if (!lockedOfficerId) void loadOfficersForBranch(v);
  }}
  onOpenChange={(o) => {
- if (o && !lockedBranchId) void loadBranches();
+ if (o) void loadBranches();
  }}
- disabled={Boolean(lockedBranchId)}
  >
  <SelectTrigger id="edit-branch">
  <SelectValue placeholder={branchesLoading ? "Loading…" : "Select branch"} />
@@ -929,11 +957,12 @@ export function CustomerEditDialog({
  <SelectContent>
  {branchOptions.map((b) => (
  <SelectItem key={b.id} value={b.id}>
- {b.name} ({b.code})
+ {formatBranchOptionLabel(b, branchRecords)}
  </SelectItem>
  ))}
  </SelectContent>
  </Select>
+ )}
  {branchesError ? <p className="text-xs text-destructive">{branchesError}</p> : null}
  </div>
  <div className="space-y-2">
