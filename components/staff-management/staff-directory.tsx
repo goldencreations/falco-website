@@ -47,6 +47,7 @@ import {
  roleLabel,
  STAFF_ROLE_OPTIONS,
 } from "@/components/staff-management/utils";
+import Statistic from "@/components/shadcn-space/blocks/statistics-02/statistics";
 
 interface StaffDirectoryProps {
  branches: Branch[];
@@ -94,90 +95,52 @@ export function StaffDirectory({
  const branchManagerCount = staffMembers.filter((staff) => staff.role === "branch_manager").length;
  const loanOfficerCount = staffMembers.filter((staff) => staff.role === "loan_officer").length;
  const accountantCount = staffMembers.filter((staff) => staff.role === "accountant").length;
+ const totalStaff = staffMembers.length;
+ const activeShare =
+ totalStaff > 0 ? `${Math.round((activeCount / totalStaff) * 100)}%` : "0%";
+ const onlineShare =
+ totalStaff > 0 ? `${Math.round((onlineCount / totalStaff) * 100)}%` : "0%";
+
+ const overviewStats = [
+ {
+ title: "Total Staff",
+ subtitle: String(totalStaff),
+ cardIcon: Users2,
+ badgeColor: "bg-teal-400/10",
+ statusValue: `${loanOfficerCount + accountantCount} roles`,
+ hint: "Across all branches",
+ },
+ {
+ title: "Active Staff",
+ subtitle: String(activeCount),
+ cardIcon: UserRoundCheck,
+ badgeColor: "bg-teal-400/10",
+ statusValue: activeShare,
+ hint: "Of total roster",
+ },
+ {
+ title: "Branch managers",
+ subtitle: String(branchManagerCount),
+ cardIcon: ShieldCheck,
+ badgeColor: "bg-orange-400/10",
+ statusValue: `${loanOfficerCount} officers`,
+ hint: "Leadership seats",
+ },
+ {
+ title: "Online Right Now",
+ subtitle: String(onlineCount),
+ cardIcon: Activity,
+ badgeColor: "bg-teal-400/10",
+ statusValue: onlineShare,
+ hint: "Recent sign-in",
+ },
+ ];
 
  return (
  <div className="space-y-6">
- <Card className="border-emerald-200/60 bg-gradient-to-br from-emerald-50/70 to-background shadow-sm sm:hidden ">
- <CardHeader className="pb-3">
- <CardTitle className="flex items-center gap-2 text-sm font-semibold">
- <ShieldCheck className="h-4 w-4 text-emerald-600" />
- Staff overview
- </CardTitle>
- <CardDescription>Operational snapshot for this branch network.</CardDescription>
- </CardHeader>
- <CardContent>
- <div className="grid grid-cols-2 gap-2">
- <div className="rounded-lg border border-emerald-200/70 bg-emerald-100/60 p-3 ">
- <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Total staff</p>
- <p className="mt-1 text-xl font-semibold">{staffMembers.length}</p>
- </div>
- <div className="rounded-lg border border-emerald-200/70 bg-emerald-100/60 p-3 ">
- <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Active</p>
- <p className="mt-1 text-xl font-semibold">{activeCount}</p>
- </div>
- <div className="rounded-lg border border-emerald-200/70 bg-emerald-100/60 p-3 ">
- <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Managers</p>
- <p className="mt-1 text-xl font-semibold">{branchManagerCount}</p>
- </div>
- <div className="rounded-lg border border-emerald-200/70 bg-emerald-100/60 p-3 ">
- <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Online now</p>
- <p className="mt-1 text-xl font-semibold">{onlineCount}</p>
- </div>
- </div>
- <p className="mt-3 text-xs text-muted-foreground">
- Includes {loanOfficerCount} loan officers and {accountantCount} accountants across all branches.
- </p>
- </CardContent>
- </Card>
+ <Statistic items={overviewStats} embedded />
 
- <div className="hidden gap-4 sm:grid sm:grid-cols-2 xl:grid-cols-4">
- <Card className="border border-emerald-200/50 bg-gradient-to-br from-emerald-50/70 to-background shadow-sm ">
- <CardHeader className="pb-2">
- <CardTitle className="text-sm text-muted-foreground">Total Staff</CardTitle>
- </CardHeader>
- <CardContent>
- <div className="flex items-center justify-between">
- <p className="text-2xl font-bold">{staffMembers.length}</p>
- <Users2 className="h-5 w-5 text-primary" />
- </div>
- </CardContent>
- </Card>
- <Card className="border border-emerald-200/50 bg-gradient-to-br from-emerald-50/70 to-background shadow-sm ">
- <CardHeader className="pb-2">
- <CardTitle className="text-sm text-muted-foreground">Active Staff</CardTitle>
- </CardHeader>
- <CardContent>
- <div className="flex items-center justify-between">
- <p className="text-2xl font-bold">{activeCount}</p>
- <UserRoundCheck className="h-5 w-5 text-success" />
- </div>
- </CardContent>
- </Card>
- <Card className="border border-emerald-200/50 bg-gradient-to-br from-emerald-50/70 to-background shadow-sm ">
- <CardHeader className="pb-2">
- <CardTitle className="text-sm text-muted-foreground">Branch managers</CardTitle>
- </CardHeader>
- <CardContent>
- <div className="flex items-center justify-between">
- <p className="text-2xl font-bold">{branchManagerCount}</p>
- <ShieldCheck className="h-5 w-5 text-info" />
- </div>
- </CardContent>
- </Card>
- <Card className="border border-emerald-200/50 bg-gradient-to-br from-emerald-50/70 to-background shadow-sm ">
- <CardHeader className="pb-2">
- <CardTitle className="text-sm text-muted-foreground">Online Right Now</CardTitle>
- </CardHeader>
- <CardContent>
- <div className="flex items-center justify-between">
- <p className="text-2xl font-bold">{onlineCount}</p>
- <Activity className="h-5 w-5 text-primary" />
- </div>
- </CardContent>
- </Card>
- </div>
-
- <Card className="border border-emerald-200/40 bg-gradient-to-b from-emerald-50/35 to-background shadow-sm ">
+ <Card className="border-0 bg-transparent shadow-none">
  <CardHeader>
  <CardTitle className="flex items-center gap-2 text-lg">
  <UserCog className="h-5 w-5 text-primary" />

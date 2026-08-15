@@ -2,7 +2,6 @@
 
 import { ExternalLink, MapPin, Navigation } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import {
   customerBusinessAddressQuery,
@@ -31,8 +30,8 @@ function LocationBlock({ title, address, pin, addressQuery }: LocationBlockProps
   if (!embedUrl || !searchUrl || !directionsUrl) return null;
 
   return (
-    <div className="overflow-hidden rounded-lg border bg-card">
-      <div className="flex flex-col gap-3 border-b bg-muted/30 px-3 py-3 md:flex-row md:items-start md:justify-between">
+    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <div className="flex flex-col gap-3 border-b border-border px-3 py-3 md:flex-row md:items-start md:justify-between sm:px-4">
         <div className="min-w-0 flex-1 space-y-1">
           <p className="text-sm font-semibold text-foreground">{title}</p>
           {address ? (
@@ -61,7 +60,7 @@ function LocationBlock({ title, address, pin, addressQuery }: LocationBlockProps
           </Button>
         </div>
       </div>
-      <div className="aspect-[4/3] w-full bg-muted/20 sm:aspect-[16/10] xl:aspect-[2/1]">
+      <div className="aspect-[4/3] w-full sm:aspect-[16/10] xl:aspect-[2/1]">
         <iframe
           title={`${title} map`}
           src={embedUrl}
@@ -82,7 +81,7 @@ function LocationEmptyBlock({
   businessName?: string;
 }) {
   return (
-    <div className="flex min-h-[220px] flex-col justify-center rounded-lg border border-dashed bg-muted/15 px-4 py-6 text-center sm:min-h-[260px]">
+    <div className="flex min-h-[220px] flex-col justify-center rounded-xl border border-border bg-card px-4 py-6 text-center shadow-sm sm:min-h-[260px]">
       <p className="text-sm font-semibold text-foreground">{title}</p>
       {businessName ? (
         <p className="mt-1 text-xs text-muted-foreground">{businessName}</p>
@@ -138,69 +137,64 @@ export function CustomerLocationCard({ customer }: Props) {
   const hasAny = customerHasLocationData(customer);
 
   return (
-    <div className="rounded-xl bg-gradient-to-r from-slate-200/90 via-emerald-300/60 to-[#573d3d] p-px shadow-sm">
-      <Card className="gap-0 overflow-hidden rounded-[11px] border-0 bg-gradient-to-br from-emerald-500/[0.06] via-card to-[#573d3d]/[0.04] py-0 shadow-none">
-        <CardHeader className="space-y-1 border-b border-border/50 bg-muted/25 px-4 py-3 sm:px-5">
-          <CardTitle className="flex items-center gap-2 text-sm font-semibold sm:text-base">
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-700 ring-1 ring-emerald-500/20">
-              <MapPin className="h-3.5 w-3.5" />
-            </span>
-            Customer location
-          </CardTitle>
-          <CardDescription className="text-xs sm:text-sm">
-            Registered home and business pins for field visits and navigation.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="p-3 sm:p-4">
-        {!hasAny ? (
-          <p className="rounded-md border border-dashed bg-muted/20 px-3 py-6 text-center text-sm text-muted-foreground">
-            No address or GPS location on file. Edit the customer profile to add a map pin.
-          </p>
-        ) : (
-          <div
-            className={cn(
-              "grid w-full gap-3",
-              locationCount > 1 ? "xl:grid-cols-2" : "max-w-3xl"
-            )}
-          >
-            {showHome ? (
+    <section className="space-y-3">
+      <div className="space-y-1">
+        <h2 className="flex items-center gap-2 text-sm font-semibold sm:text-base">
+          <MapPin className="h-4 w-4 text-muted-foreground" />
+          Customer location
+        </h2>
+        <p className="text-xs text-muted-foreground sm:text-sm">
+          Registered home and business pins for field visits and navigation.
+        </p>
+      </div>
+
+      {!hasAny ? (
+        <p className="py-6 text-center text-sm text-muted-foreground">
+          No address or GPS location on file. Edit the customer profile to add a map pin.
+        </p>
+      ) : (
+        <div
+          className={cn(
+            "grid w-full gap-4",
+            locationCount > 1 ? "xl:grid-cols-2" : "max-w-3xl"
+          )}
+        >
+          {showHome ? (
+            <LocationBlock
+              title="Home / residence"
+              address={homeDisplay}
+              pin={
+                hasHomePin
+                  ? {
+                      latitude: customer.home_latitude!,
+                      longitude: customer.home_longitude!,
+                    }
+                  : null
+              }
+              addressQuery={homeAddress}
+            />
+          ) : null}
+          {showBusiness ? (
+            hasBusinessMapData ? (
               <LocationBlock
-                title="Home / residence"
-                address={homeDisplay}
+                title="Business premises"
+                address={businessDisplay}
                 pin={
-                  hasHomePin
+                  hasBusinessPin
                     ? {
-                        latitude: customer.home_latitude!,
-                        longitude: customer.home_longitude!,
+                        latitude: customer.business_latitude!,
+                        longitude: customer.business_longitude!,
                       }
                     : null
                 }
-                addressQuery={homeAddress}
+                addressQuery={businessAddress}
               />
-            ) : null}
-            {showBusiness ? (
-              hasBusinessMapData ? (
-                <LocationBlock
-                  title="Business premises"
-                  address={businessDisplay}
-                  pin={
-                    hasBusinessPin
-                      ? {
-                          latitude: customer.business_latitude!,
-                          longitude: customer.business_longitude!,
-                        }
-                      : null
-                  }
-                  addressQuery={businessAddress}
-                />
-              ) : (
-                <LocationEmptyBlock title="Business premises" businessName={businessName} />
-              )
-            ) : null}
-          </div>
-        )}
-        </CardContent>
-      </Card>
-    </div>
+            ) : (
+              <LocationEmptyBlock title="Business premises" businessName={businessName} />
+            )
+          ) : null}
+        </div>
+      )}
+    </section>
   );
 }

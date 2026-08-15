@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { useOptionalBranchAssignment } from "@/components/branch-assignment-context";
+import { ListPaginationBar, paginateItems } from "@/components/list-pagination-bar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -76,6 +77,13 @@ import { parseJsonResponse } from "@/lib/parse-json-response";
 import { isBranchScopedStaffRole } from "@/lib/role-portal";
 import type { CashbookSummary, Customer, FinancialEntry, FinancialEntryDirection, FinancialEntrySource } from "@/lib/types";
 import { useSessionUser } from "@/lib/use-session-user";
+import {
+  listRowRevealClassName,
+  listRowRevealStyle,
+  useListRevealKey,
+} from "@/lib/list-row-reveal";
+
+const PAGE_SIZE = 8;
 
 const MANUAL_CATEGORY_PRESETS = ["office_expense", "bank_deposit", "cash_transfer", "other"];
 const UNCLASSIFIED_QUEUE_CATEGORY = "unclassified_gateway_income";
@@ -141,6 +149,8 @@ export default function CashbookPage() {
   const [cashbook, setCashbook] = useState<CashbookSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [listRevealKey, bumpListReveal] = useListRevealKey();
 
   const [branchFilter, setBranchFilter] = useState("all");
   const [directionFilter, setDirectionFilter] = useState<"all" | FinancialEntryDirection>("all");
@@ -246,6 +256,7 @@ export default function CashbookPage() {
       const rows = data?.entries ?? data?.data ?? [];
       setEntries(unclassifiedOnly ? rows.filter(financialEntryNeedsClassification) : rows);
       setCashbook(data?.cashbook ?? null);
+      bumpListReveal();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load the cashbook");
       setEntries([]);
@@ -253,11 +264,22 @@ export default function CashbookPage() {
     } finally {
       setLoading(false);
     }
-  }, [fromDate, toDate, directionFilter, sourceFilter, categoryFilter, statusFilter, unclassifiedOnly, effectiveBranchId]);
+  }, [fromDate, toDate, directionFilter, sourceFilter, categoryFilter, statusFilter, unclassifiedOnly, effectiveBranchId, bumpListReveal]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [fromDate, toDate, directionFilter, sourceFilter, categoryFilter, statusFilter, unclassifiedOnly, effectiveBranchId, savedView]);
+
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(entries.length / PAGE_SIZE));
+    if (page > totalPages) setPage(totalPages);
+  }, [page, entries.length]);
+
+  const pagedEntries = useMemo(() => paginateItems(entries, page, PAGE_SIZE), [entries, page]);
 
   const unclassifiedCount = useMemo(
     () => entries.filter((entry) => financialEntryNeedsClassification(entry) && (entry.status ?? "posted") === "posted").length,
@@ -793,8 +815,12 @@ export default function CashbookPage() {
                           </TableCell>
                         </TableRow>
                       ) : (
-                        entries.map((entry) => (
-                          <TableRow key={entry.id} className={entry.is_reversed ? "opacity-60" : undefined}>
+                        pagedEntries.map((entry, index) => (
+                          <TableRow
+                            key={`${listRevealKey}-${page}-${entry.id}`}
+                            className={listRowRevealClassName(entry.is_reversed ? "opacity-60" : undefined)}
+                            style={listRowRevealStyle(index)}
+                          >
                             <TableCell className="font-mono text-sm">{entry.entry_number}</TableCell>
                             <TableCell className="font-mono text-xs text-muted-foreground">
                               {entry.reference ?? "—"}
@@ -875,6 +901,13 @@ export default function CashbookPage() {
                     </TableBody>
                   </Table>
                 </div>
+                <ListPaginationBar
+                  page={page}
+                  pageSize={PAGE_SIZE}
+                  total={entries.length}
+                  loading={loading}
+                  onPageChange={setPage}
+                />
               </CardContent>
             </Card>
           )}

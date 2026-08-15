@@ -521,10 +521,7 @@ function StaffManagementPageInner() {
 
  return (
  <>
- <DashboardHeader
- title="Staff Management"
- description="Directory and live user creation for admins; pending hires and access requests from branches."
- />
+ <DashboardHeader title="Staff Management" />
  <main className="flex-1 overflow-auto p-4 lg:p-6">
  <div className="mx-auto max-w-7xl space-y-6">
  <Tabs value={adminTab} onValueChange={(v) => setAdminTab(v as AdminTab)}>

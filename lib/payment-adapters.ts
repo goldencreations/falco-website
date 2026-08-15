@@ -98,7 +98,12 @@ export function adaptPaymentViewRow(raw: Record<string, unknown>): PaymentViewRo
  ...base,
  payment_method: normalizePaymentMethod(base.payment_method, inner),
  source,
+ loan_id: base.loan_id || (loan?.id != null ? String(loan.id) : ""),
  loan_number: loan?.loan_number ? String(loan.loan_number) : undefined,
+ customer_id:
+ base.customer_id ||
+ (customer?.id != null ? String(customer.id) : "") ||
+ (loan?.customer_id != null ? String(loan.customer_id) : ""),
  customer_display_name: customerDisplay || undefined,
  customer_phone: customer
  ? String(customer.phone_number ?? customer.phone_primary ?? "")

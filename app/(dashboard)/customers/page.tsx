@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
  Plus,
@@ -12,10 +12,12 @@ import {
  MapPin,
  Building2,
  User,
+ Users,
  AlertTriangle,
  Trash2,
  ChevronLeft,
  ChevronRight,
+ Loader2,
 } from "lucide-react";
 import { DeleteCustomerDialog } from "@/components/customers/delete-customer-dialog";
 import { DashboardHeader } from "@/components/dashboard-header";
@@ -41,14 +43,21 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { resolveMediaViewUrl } from "@/components/media/cached-media-preview";
 import { addHiddenCustomerId, getHiddenCustomerIds } from "@/lib/customer-hidden-client";
-import { fetchAllCustomersFromApi, fetchCustomersPage } from "@/lib/customer-list-fetch";
+import { fetchAllCustomersFromApi } from "@/lib/customer-list-fetch";
 import { customerDisplayPhones } from "@/lib/customer-phones";
+import { extractGroupsList } from "@/lib/group-adapters";
 import { useTranslations } from "@/lib/i18n/use-translations";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import { extractLoansList, type LoanListRow } from "@/lib/loan-adapters";
 import { daysUntilDate, earliestDueDate } from "@/lib/loan-due-date";
 import type { Customer, RiskGrade } from "@/lib/types";
 import { useSessionUser } from "@/lib/use-session-user";
+import { cn } from "@/lib/utils";
+import {
+  listRowRevealClassName,
+  listRowRevealStyle,
+  useListRevealKey,
+} from "@/lib/list-row-reveal";
 
 const PAGE_SIZE = 10;
 
@@ -128,10 +137,10 @@ export default function CustomersPage() {
  const customersBasePath = isManagerView ? "/manager/customers" : isOfficerView ? "/officer/customers" : "/customers";
  const [customers, setCustomers] = useState<Customer[]>([]);
  const [loans, setLoans] = useState<LoanListRow[]>([]);
- const [loading, setLoading] = useState(true);
+ const [initialLoading, setInitialLoading] = useState(true);
+ const [tableLoading, setTableLoading] = useState(false);
  const [loadError, setLoadError] = useState<string | null>(null);
  const [page, setPage] = useState(1);
- const [totalCount, setTotalCount] = useState(0);
  const [searchQuery, setSearchQuery] = useState("");
  const [debouncedSearch, setDebouncedSearch] = useState("");
  const [typeFilter, setTypeFilter] = useState<string>("all");
@@ -141,10 +150,9 @@ export default function CustomersPage() {
  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
  const [hiddenCustomerIds, setHiddenCustomerIds] = useState<Set<string>>(new Set());
  const [softDeleteNotice, setSoftDeleteNotice] = useState<string | null>(null);
-
- // Loan-status / type filtering needs the full set; otherwise fetch one API page at a time.
- const needsFullList = typeFilter !== "all" || loanStatusFilter !== "all";
- const requestPage = needsFullList ? 1 : page;
+ const [groupsCount, setGroupsCount] = useState(0);
+ const hasLoadedOnce = useRef(false);
+ const [listRevealKey, bumpListReveal] = useListRevealKey();
 
  useEffect(() => {
   const timer = window.setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300);
@@ -156,35 +164,59 @@ export default function CustomersPage() {
  }, [debouncedSearch, typeFilter, riskFilter, loanStatusFilter, scopeBranchId]);
 
  const loadCustomers = useCallback(async () => {
- setLoading(true);
+ // Search/filters are client-side on the loaded roster — only refetch on branch change / manual refresh.
+ if (hasLoadedOnce.current) {
+  setTableLoading(true);
+ } else {
+  setInitialLoading(true);
+ }
  setLoadError(null);
  try {
  const params = new URLSearchParams();
  if (scopeBranchId) params.set("branch_id", scopeBranchId);
- if (debouncedSearch) params.set("q", debouncedSearch);
- if (riskFilter !== "all") params.set("risk_grade", riskFilter);
 
- if (needsFullList) {
-  const list = await fetchAllCustomersFromApi(params, { pageSize: 100 });
-  setCustomers(list);
-  setTotalCount(list.length);
- } else {
-  const result = await fetchCustomersPage(params, { page: requestPage, pageSize: PAGE_SIZE });
-  setCustomers(result.customers);
-  setTotalCount(result.total);
- }
+ const list = await fetchAllCustomersFromApi(params, { pageSize: 100 });
+ setCustomers(list);
+ hasLoadedOnce.current = true;
+ bumpListReveal();
  } catch (e) {
  setCustomers([]);
- setTotalCount(0);
  setLoadError(e instanceof Error ? e.message : t("customers.loadError"));
  } finally {
- setLoading(false);
+ setInitialLoading(false);
+ setTableLoading(false);
  }
- }, [scopeBranchId, debouncedSearch, riskFilter, needsFullList, requestPage, t]);
+ }, [scopeBranchId, t, bumpListReveal]);
 
  useEffect(() => {
+ hasLoadedOnce.current = false;
+ setInitialLoading(true);
  void loadCustomers();
  }, [loadCustomers]);
+
+ useEffect(() => {
+ let cancelled = false;
+ const params = new URLSearchParams();
+ params.set("page_size", "200");
+ if (scopeBranchId) params.set("branch_id", scopeBranchId);
+
+ void fetch(`/api/groups?${params.toString()}`, { credentials: "include", cache: "no-store" })
+  .then(async (res) => {
+   if (!res.ok) return null;
+   return res.json();
+  })
+  .then((json) => {
+   if (cancelled || !json) return;
+   setGroupsCount(extractGroupsList(json).length);
+  })
+  .catch(() => {
+   if (!cancelled) setGroupsCount(0);
+  });
+
+ return () => {
+  cancelled = true;
+ };
+ }, [scopeBranchId]);
 
  useEffect(() => {
  let cancelled = false;
@@ -261,12 +293,11 @@ export default function CustomersPage() {
  });
 
  const pagedCustomers = useMemo(() => {
-  if (!needsFullList) return filteredCustomers;
   const start = (page - 1) * PAGE_SIZE;
   return filteredCustomers.slice(start, start + PAGE_SIZE);
- }, [filteredCustomers, needsFullList, page]);
+ }, [filteredCustomers, page]);
 
- const listTotal = needsFullList ? filteredCustomers.length : totalCount;
+ const listTotal = filteredCustomers.length;
  const totalPages = Math.max(1, Math.ceil(listTotal / PAGE_SIZE));
  const safePage = Math.min(page, totalPages);
  const rangeStart = listTotal === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1;
@@ -276,11 +307,9 @@ export default function CustomersPage() {
   if (page > totalPages) setPage(totalPages);
  }, [page, totalPages]);
 
- const totalCustomers = needsFullList ? visibleCustomers.length : totalCount;
- const individualCount = visibleCustomers.filter((c) => c.customer_type === "individual").length;
- const businessCount = visibleCustomers.filter((c) => c.customer_type === "business").length;
+ const totalCustomers = visibleCustomers.length;
+ const individualCount = visibleCustomers.filter((c) => c.customer_type !== "business").length;
  const blacklistedCount = visibleCustomers.filter((c) => c.is_blacklisted).length;
- const showTypeBreakdown = needsFullList;
 
  return (
  <>
@@ -316,9 +345,6 @@ export default function CustomersPage() {
  </div>
  </div>
 
- {loading ? (
- <p className="py-12 text-center text-sm text-muted-foreground">{t("customers.loading")}</p>
- ) : (
  <>
  {/* Summary Cards */}
  <Card className="border-emerald-100 bg-emerald-50/60 sm:hidden">
@@ -331,15 +357,15 @@ export default function CustomersPage() {
  </div>
  <div className="rounded-lg border bg-background p-3">
  <p className="text-xs text-muted-foreground">Individual</p>
- <p className="text-lg font-semibold">{showTypeBreakdown ? individualCount : "—"}</p>
+ <p className="text-lg font-semibold">{individualCount}</p>
  </div>
  <div className="rounded-lg border bg-background p-3">
- <p className="text-xs text-muted-foreground">Business</p>
- <p className="text-lg font-semibold">{showTypeBreakdown ? businessCount : "—"}</p>
+ <p className="text-xs text-muted-foreground">Groups</p>
+ <p className="text-lg font-semibold">{groupsCount}</p>
  </div>
  <div className="rounded-lg border border-destructive/20 bg-background p-3">
  <p className="text-xs text-muted-foreground">Blacklisted</p>
- <p className="text-lg font-semibold text-destructive">{showTypeBreakdown ? blacklistedCount : "—"}</p>
+ <p className="text-lg font-semibold text-destructive">{blacklistedCount}</p>
  </div>
  </div>
  </CardContent>
@@ -364,18 +390,18 @@ export default function CustomersPage() {
  </CardTitle>
  </CardHeader>
  <CardContent>
- <div className="text-xl font-bold lg:text-2xl">{showTypeBreakdown ? individualCount : "—"}</div>
+ <div className="text-xl font-bold lg:text-2xl">{individualCount}</div>
  </CardContent>
  </Card>
  <Card className="border-emerald-100 bg-emerald-50/30">
  <CardHeader className="min-h-16 pb-2">
  <CardTitle className="flex items-center gap-2 text-sm font-medium leading-snug text-muted-foreground">
- <Building2 className="h-4 w-4 text-emerald-700" />
- Business
+ <Users className="h-4 w-4 text-emerald-700" />
+ Groups
  </CardTitle>
  </CardHeader>
  <CardContent>
- <div className="text-xl font-bold lg:text-2xl">{showTypeBreakdown ? businessCount : "—"}</div>
+ <div className="text-xl font-bold lg:text-2xl">{groupsCount}</div>
  </CardContent>
  </Card>
  <Card className="border-destructive/20 bg-destructive/5">
@@ -386,7 +412,7 @@ export default function CustomersPage() {
  </CardTitle>
  </CardHeader>
  <CardContent>
- <div className="text-xl font-bold text-destructive lg:text-2xl">{showTypeBreakdown ? blacklistedCount : "—"}</div>
+ <div className="text-xl font-bold text-destructive lg:text-2xl">{blacklistedCount}</div>
  </CardContent>
  </Card>
  </div>
@@ -453,13 +479,22 @@ export default function CustomersPage() {
  {/* Customers Table */}
  <Card className="overflow-hidden border-emerald-100">
  <CardContent className="space-y-4 p-0">
+ {initialLoading || tableLoading ? (
+ <div className="flex min-h-[220px] items-center justify-center p-8">
+ <p className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+ <Loader2 className="h-4 w-4 animate-spin" />
+ {t("customers.loading")}
+ </p>
+ </div>
+ ) : (
+ <>
  <div className="grid gap-3 p-4 sm:hidden">
  {pagedCustomers.length === 0 ? (
  <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
  {isOfficerView ? t("customers.noCustomersOfficer") : t("customers.noCustomers")}
  </p>
  ) : (
- pagedCustomers.map((customer) => {
+ pagedCustomers.map((customer, index) => {
  const risk = riskGradeConfig[customer.risk_grade];
  const loanStatus = activeLoansForCustomer(customer.id);
  const avatarSrc = resolveMediaViewUrl(
@@ -469,8 +504,14 @@ export default function CustomersPage() {
 
  return (
  <div
- key={customer.id}
- className={`rounded-xl border border-emerald-100 bg-emerald-50/30 p-3 ${statusClasses(loanStatus.tone)}`}
+ key={`${listRevealKey}-${page}-${customer.id}`}
+ className={cn(
+  listRowRevealClassName(
+   "rounded-xl border border-emerald-100 bg-emerald-50/30 p-3"
+  ),
+  statusClasses(loanStatus.tone)
+ )}
+ style={listRowRevealStyle(index)}
  >
  <div className="flex items-start gap-3">
  <Avatar className="h-14 w-14 shrink-0">
@@ -627,7 +668,7 @@ export default function CustomersPage() {
  </TableCell>
  </TableRow>
  ) : (
- pagedCustomers.map((customer) => {
+ pagedCustomers.map((customer, index) => {
  const risk = riskGradeConfig[customer.risk_grade];
  const loanStatus = activeLoansForCustomer(customer.id);
  const avatarSrc = resolveMediaViewUrl(
@@ -636,7 +677,14 @@ export default function CustomersPage() {
  );
 
  return (
- <TableRow key={customer.id} className={statusClasses(loanStatus.tone)}>
+ <TableRow
+  key={`${listRevealKey}-${page}-${customer.id}`}
+  className={cn(
+   statusClasses(loanStatus.tone),
+   listRowRevealClassName()
+  )}
+  style={listRowRevealStyle(index)}
+ >
  <TableCell>
  <div className="flex items-center gap-3">
  <Avatar className="h-12 w-12">
@@ -782,7 +830,7 @@ export default function CustomersPage() {
  type="button"
  variant="outline"
  size="sm"
- disabled={safePage <= 1 || loading}
+ disabled={safePage <= 1 || tableLoading}
  onClick={() => setPage((p) => Math.max(1, p - 1))}
  >
  <ChevronLeft className="mr-1 h-4 w-4" />
@@ -795,7 +843,7 @@ export default function CustomersPage() {
  type="button"
  variant="outline"
  size="sm"
- disabled={safePage >= totalPages || loading}
+ disabled={safePage >= totalPages || tableLoading}
  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
  >
  Next
@@ -804,10 +852,11 @@ export default function CustomersPage() {
  </div>
  </div>
  ) : null}
+ </>
+ )}
  </CardContent>
  </Card>
  </>
- )}
 
  {isSuperAdmin ? (
  <DeleteCustomerDialog

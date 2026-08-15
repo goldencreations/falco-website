@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { ACCESS_TOKEN_COOKIE_NAME } from "@/lib/auth";
 import { FalcoApiError, getAllowedDocumentProxyHostnames } from "@/lib/falco-api";
 import { rewriteToConfiguredBackendUrl } from "@/lib/document-proxy";
+import { resolveImageContentType } from "@/lib/media-content-type";
 
 function getCookieValue(cookieHeader: string, name: string): string | null {
   const part = cookieHeader
@@ -65,7 +66,7 @@ export async function GET(request: Request) {
     upstream = await fetch(upstreamUrl, {
       headers: {
         Authorization: `Bearer ${token}`,
-        Accept: "*/*",
+        Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
       },
       cache: "no-store",
     });
@@ -80,16 +81,41 @@ export async function GET(request: Request) {
     );
   }
 
+  const declaredType = upstream.headers.get("content-type");
+  const buffer = new Uint8Array(await upstream.arrayBuffer());
+  const filenameHint =
+    searchParams.get("name")?.trim() ||
+    (() => {
+      try {
+        return decodeURIComponent(parsed.pathname.split("/").pop() ?? "");
+      } catch {
+        return parsed.pathname.split("/").pop() ?? "";
+      }
+    })() ||
+    (() => {
+      const disposition = upstream.headers.get("content-disposition") ?? "";
+      const match = /filename\*?=(?:UTF-8''|")?([^\";]+)/i.exec(disposition);
+      return match?.[1]?.replace(/"/g, "").trim() ?? "";
+    })();
+  const contentType = resolveImageContentType(declaredType, buffer, filenameHint);
+
   const headers = new Headers({
-    "Content-Type": upstream.headers.get("content-type") ?? "application/octet-stream",
+    "Content-Type": contentType,
     "Cache-Control": "private, max-age=3600, stale-while-revalidate=86400",
   });
+  // Inline display for <img> / View; keep filename if upstream provided one.
   const contentDisposition = upstream.headers.get("content-disposition");
   if (contentDisposition) {
-    headers.set("Content-Disposition", contentDisposition);
+    const filenameMatch = /filename\*?=(?:UTF-8''|")?([^\";]+)/i.exec(contentDisposition);
+    const filename = filenameMatch?.[1]?.replace(/"/g, "").trim();
+    headers.set(
+      "Content-Disposition",
+      filename ? `inline; filename="${filename}"` : "inline"
+    );
+  } else if (contentType.startsWith("image/")) {
+    headers.set("Content-Disposition", "inline");
   }
-  const contentLength = upstream.headers.get("content-length");
-  if (contentLength) headers.set("Content-Length", contentLength);
+  headers.set("Content-Length", String(buffer.byteLength));
 
-  return new NextResponse(upstream.body, { status: 200, headers });
+  return new NextResponse(buffer, { status: 200, headers });
 }

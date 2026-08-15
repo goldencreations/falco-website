@@ -7,6 +7,7 @@ import {
   isBranchIdentifierSlug,
   isPlaceholderBranchName,
   resolveBranchDisplayName,
+  resolveReportBranchFields,
 } from "./branch-display-name";
 import type { Branch } from "./types";
 
@@ -100,5 +101,38 @@ describe("formatSessionBranchField", () => {
       formatSessionBranchField({ branchId: "branch-dom01", branchName: "branch-dom01" }),
       { name: "", branchId: "branch-dom01" }
     );
+  });
+});
+
+describe("resolveReportBranchFields", () => {
+  it("maps catalog branches to real names", () => {
+    const resolved = resolveReportBranchFields({
+      branchId: "BRANCH-MBAGALA",
+      branchName: "Branch",
+      branches: [mbagala],
+    });
+    assert.deepEqual(resolved, { branch_id: "BRANCH-MBAGALA", branch_name: "Mbagala" });
+  });
+
+  it("drops orphan branch-dom01 when no fallback exists", () => {
+    assert.equal(
+      resolveReportBranchFields({
+        branchId: "branch-dom01",
+        branchName: "branch-dom01",
+        branches: [mbagala],
+      }),
+      null
+    );
+  });
+
+  it("remaps orphan keys onto the scoped branch fallback", () => {
+    const resolved = resolveReportBranchFields({
+      branchId: "branch-dom01",
+      branchName: "branch-dom01",
+      branches: [mbagala],
+      fallbackBranchId: "42",
+      fallbackBranchName: "Mbagala",
+    });
+    assert.deepEqual(resolved, { branch_id: "BRANCH-MBAGALA", branch_name: "Mbagala" });
   });
 });

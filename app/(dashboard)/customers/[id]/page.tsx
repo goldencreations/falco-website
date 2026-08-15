@@ -67,7 +67,10 @@ import { CustomerCollateralPanel } from "@/components/customers/customer-collate
 import { CustomerGuarantorPanel } from "@/components/customers/customer-guarantor-panel";
 import { CustomerLocationCard } from "@/components/customers/customer-location-card";
 import { CustomerLocationPhotosGrid } from "@/components/customers/customer-location-photos-grid";
-import { CustomerSupportingDocumentsList } from "@/components/customers/customer-supporting-documents-list";
+import {
+  countSupportingImageDocuments,
+  CustomerSupportingDocumentsList,
+} from "@/components/customers/customer-supporting-documents-list";
 import { CustomerProfileStatCard } from "@/components/customers/customer-profile-stat-card";
 import { enrichCustomerApplicationsForMedia } from "@/lib/enrich-customer-applications";
 import {
@@ -87,6 +90,7 @@ import {
 } from "@/lib/customer-detail-cache";
 import {
  getCachedCustomerPortfolio,
+ invalidateCustomerPortfolioCache,
  setCachedCustomerPortfolio,
 } from "@/lib/customer-portfolio-cache";
 import { resolveMediaViewUrl } from "@/components/media/cached-media-preview";
@@ -97,6 +101,7 @@ import { customerToFormPayload } from "@/lib/customer-payload";
 import type { CustomerPortfolioData } from "@/lib/customer-portfolio-detail";
 import { formatReferenceRelationship } from "@/lib/customer-references";
 import type { LoanListRow } from "@/lib/loan-adapters";
+import { effectiveCustomerTotalPaid, effectivePaidPercent } from "@/lib/loan-display";
 import { useSessionUser } from "@/lib/use-session-user";
 import type { Customer, Payment, RiskGrade, LoanStatus } from "@/lib/types";
 
@@ -326,6 +331,9 @@ export default function CustomerDetailPage() {
  let cancelled = false;
  const id = customerId;
 
+ // Drop stale portfolio cache so Total repaid uses live Automatic payments.
+ invalidateCustomerPortfolioCache(id);
+
  const cachedCustomer = getCachedCustomerDetail(id);
  const cachedPortfolio = getCachedCustomerPortfolio(id);
 
@@ -478,7 +486,7 @@ export default function CustomerDetailPage() {
  const risk = riskGradeConfig[customer.risk_grade];
  const totalBorrowed = customerLoans.reduce((sum, l) => sum + l.principal_amount, 0);
  const totalOutstanding = customerLoans.reduce((sum, l) => sum + l.total_outstanding, 0);
- const totalPaid = customerLoans.reduce((sum, l) => sum + l.total_paid, 0);
+ const totalPaid = effectiveCustomerTotalPaid(customerLoans, customerPayments);
  const activeLoans = customerLoans.filter((l) => l.status === "active" || l.status === "in_arrears");
  const completedLoans = customerLoans.filter((l) => l.status === "paid_off");
  const onTimePayments = customerPayments.filter((p) => p.status === "completed").length;
@@ -694,7 +702,7 @@ export default function CustomerDetailPage() {
 
  {/* Customer Header Card */}
  <Card className="overflow-hidden border border-border/80 shadow-sm">
- <CardContent className="p-4 sm:p-5">
+ <CardContent className="space-y-4 p-4 sm:p-5">
  <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-start">
  <Avatar className="h-32 w-32 shrink-0 ring-2 ring-primary/15 sm:h-40 sm:w-40">
           {passportAvatarSrc ? (
@@ -747,18 +755,6 @@ export default function CustomerDetailPage() {
  </div>
  </div>
  </div>
- </CardContent>
- </Card>
-
- {portfolioError ? (
- <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
- {portfolioError}
- </div>
- ) : null}
-
- {portfolioLoading ? (
- <p className="text-sm text-muted-foreground">Loading loans and payment history…</p>
- ) : null}
 
  {/* Key Metrics */}
  <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
@@ -805,6 +801,18 @@ export default function CustomerDetailPage() {
  tone="teal"
  />
  </div>
+ </CardContent>
+ </Card>
+
+ {portfolioError ? (
+ <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+ {portfolioError}
+ </div>
+ ) : null}
+
+ {portfolioLoading ? (
+ <p className="text-sm text-muted-foreground">Loading loans and payment history…</p>
+ ) : null}
 
  <CustomerLocationCard customer={customer} />
 
@@ -892,9 +900,18 @@ export default function CustomerDetailPage() {
  {/* Personal Details Tab */}
  <TabsContent value="details" className="space-y-6">
  {mountedTabs.has("details") ? (
- <div className="grid gap-6 md:grid-cols-2">
- {/* Home Information */}
- <Card>
+ (() => {
+  const homePhotoCount = customerAttachments.homeLocationPhotos.length;
+  const businessPhotoCount = customerAttachments.businessLocationPhotos.length;
+  const supportingImageCount = countSupportingImageDocuments(
+   customerAttachments.supportingDocuments
+  );
+  const homeHasMedia = homePhotoCount > 0;
+  const businessHasMedia = businessPhotoCount > 0;
+  const personalHasMedia = supportingImageCount > 0;
+
+  const homeCard = (
+ <Card className={homeHasMedia ? "w-full" : undefined}>
  <CardHeader className="bg-slate-50 rounded-t-lg">
  <CardTitle className="text-base flex items-center gap-2">
  <Home className="h-4 w-4 text-primary" />
@@ -916,12 +933,14 @@ export default function CustomerDetailPage() {
  <CustomerLocationPhotosGrid
  photos={customerAttachments.homeLocationPhotos}
  label="Home location photos"
+ large={homeHasMedia}
  />
  </CardContent>
  </Card>
+  );
 
- {/* Personal Information */}
- <Card>
+  const personalCard = (
+ <Card className={personalHasMedia ? "w-full" : undefined}>
  <CardHeader className="bg-slate-50 rounded-t-lg">
  <CardTitle className="text-base flex items-center gap-2">
  <User className="h-4 w-4 text-primary" />
@@ -971,12 +990,16 @@ export default function CustomerDetailPage() {
  <span className="text-muted-foreground">Customer Since</span>
  <span>{formatDate(customer.created_at)}</span>
  </div>
- <CustomerSupportingDocumentsList documents={customerAttachments.supportingDocuments} />
+ <CustomerSupportingDocumentsList
+ documents={customerAttachments.supportingDocuments}
+ wide={personalHasMedia}
+ />
  </CardContent>
  </Card>
+  );
 
- {/* Employment/Business Information */}
- <Card>
+  const businessCard = (
+ <Card className={businessHasMedia ? "w-full" : undefined}>
  <CardHeader className="bg-slate-50 rounded-t-lg">
  <CardTitle className="text-base flex items-center gap-2">
  <Briefcase className="h-4 w-4 text-primary" />
@@ -1025,12 +1048,15 @@ export default function CustomerDetailPage() {
  <CustomerLocationPhotosGrid
  photos={customerAttachments.businessLocationPhotos}
  label="Business location photos"
+ large={businessHasMedia}
  />
  </CardContent>
  </Card>
+  );
 
- {customer.references && customer.references.length > 0 ? (
- <Card className="md:col-span-2">
+  const referencesCard =
+   customer.references && customer.references.length > 0 ? (
+ <Card>
  <CardHeader className="bg-slate-50 rounded-t-lg">
  <CardTitle className="text-base flex items-center gap-2">
  <Users className="h-4 w-4 text-primary" />
@@ -1062,9 +1088,9 @@ export default function CustomerDetailPage() {
  ))}
  </CardContent>
  </Card>
- ) : null}
+   ) : null;
 
- {/* Next of Kin */}
+  const nextOfKinCard = (
  <Card>
  <CardHeader className="bg-slate-50 rounded-t-lg">
  <CardTitle className="text-base flex items-center gap-2">
@@ -1091,7 +1117,43 @@ export default function CustomerDetailPage() {
  </div>
  </CardContent>
  </Card>
- </div>
+  );
+
+  const mediaCards = [
+   homeHasMedia ? homeCard : null,
+   personalHasMedia ? personalCard : null,
+   businessHasMedia ? businessCard : null,
+  ].filter(Boolean);
+
+  const textCards = [
+   !homeHasMedia ? homeCard : null,
+   !personalHasMedia ? personalCard : null,
+   !businessHasMedia ? businessCard : null,
+   referencesCard,
+   nextOfKinCard,
+  ].filter(Boolean);
+
+  return (
+   <div className="space-y-6">
+    {mediaCards.length > 0 ? (
+     <div className="space-y-6">
+      {mediaCards.map((card, index) => (
+       <div key={`media-card-${index}`}>{card}</div>
+      ))}
+     </div>
+    ) : null}
+    {textCards.length > 0 ? (
+     <div className="grid items-start gap-6 md:grid-cols-2">
+      {textCards.map((card, index) => (
+       <div key={`text-card-${index}`} className="min-w-0">
+        {card}
+       </div>
+      ))}
+     </div>
+    ) : null}
+   </div>
+  );
+ })()
  ) : null}
  </TabsContent>
 
@@ -1123,8 +1185,7 @@ export default function CustomerDetailPage() {
  customerLoans.map((loan) => {
  const productLabel = loan.productName || loan.product_id || "—";
  const status = loanStatusConfig[loan.status];
- const progress =
- loan.total_amount > 0 ? Math.min(100, (loan.total_paid / loan.total_amount) * 100) : 0;
+ const progress = effectivePaidPercent(loan);
  return (
  <TableRow key={loan.id} className="hover:bg-slate-50">
  <TableCell className="font-mono text-sm">{loan.loan_number}</TableCell>

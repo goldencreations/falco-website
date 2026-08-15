@@ -104,6 +104,69 @@ export function formatBranchOptionLabel(
   return branch.id?.trim() || "Unknown branch";
 }
 
+/** Resolve branch columns in report rows; return null to drop orphan slug rows with no catalog match. */
+export function resolveReportBranchFields(options: {
+  branchId?: string | null;
+  branchName?: string | null;
+  branches: Branch[];
+  /** When the API returns an orphan key like `branch-dom01`, remap onto the viewer's scoped branch. */
+  fallbackBranchId?: string | null;
+  fallbackBranchName?: string | null;
+}): { branch_id: string; branch_name: string } | null {
+  const branchId = options.branchId?.trim() ?? "";
+  const branchName = options.branchName?.trim() ?? "";
+  if (!branchId && !branchName) return { branch_id: "—", branch_name: "—" };
+
+  const matched = findBranchForScope(options.branches, branchId || branchName);
+  const resolved = resolveBranchDisplayName({
+    branchId: branchId || matched?.id,
+    branchName: branchName || matched?.name,
+    branches: options.branches,
+  });
+
+  if (matched || resolved) {
+    return {
+      branch_id: matched?.code?.trim() || matched?.id?.trim() || branchId || "—",
+      branch_name: resolved || matched?.name?.trim() || branchName || "—",
+    };
+  }
+
+  const orphan =
+    isBranchIdentifierSlug(branchId) ||
+    isBranchIdentifierSlug(branchName) ||
+    isPlaceholderBranchName(branchName);
+
+  if (orphan && options.fallbackBranchId?.trim()) {
+    const fallbackMatched = findBranchForScope(options.branches, options.fallbackBranchId);
+    const fallbackName = resolveBranchDisplayName({
+      branchId: options.fallbackBranchId,
+      branchName: options.fallbackBranchName,
+      branches: options.branches,
+    });
+    if (fallbackMatched || fallbackName) {
+      return {
+        branch_id:
+          fallbackMatched?.code?.trim() ||
+          fallbackMatched?.id?.trim() ||
+          options.fallbackBranchId.trim(),
+        branch_name:
+          fallbackName ||
+          options.fallbackBranchName?.trim() ||
+          fallbackMatched?.name?.trim() ||
+          "—",
+      };
+    }
+  }
+
+  // Do not surface non-existent catalog keys such as `branch-dom01`.
+  if (orphan) return null;
+
+  return {
+    branch_id: branchId || "—",
+    branch_name: branchName || "—",
+  };
+}
+
 /** Options for customer create/edit — includes the customer's stored branch even when the id is a legacy slug. */
 export function branchesForCustomerEdit(
   branches: Branch[],

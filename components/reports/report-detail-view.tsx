@@ -8,6 +8,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatCurrency } from "@/lib/formatters";
+import {
+  exportExpectedCollectionsPdf,
+  extractExpectedCollectionRows,
+} from "@/lib/expected-collections-pdf";
+import { useOptionalBranchAssignment } from "@/components/branch-assignment-context";
+import { extractBranchesList } from "@/lib/branch-adapters";
+import { resolveReportBranchFields } from "@/lib/branch-display-name";
+import type { Branch } from "@/lib/types";
 
 type ReportView =
   | "leads-performance"
@@ -92,30 +100,108 @@ function displayValue(key: string, value: unknown): string {
 }
 
 function flattenScalarCards(root: Record<string, unknown>) {
-  return Object.entries(root).filter(([, value]) =>
-    value === null || ["string", "number", "boolean"].includes(typeof value)
+  return Object.entries(root).filter(([key, value]) => {
+    // Null/empty fields (e.g. branch_id on an all-branches aggregate) are not useful KPI cards.
+    if (value === null || value === undefined || value === "") return false;
+    if (!(typeof value === "string" || typeof value === "number" || typeof value === "boolean")) {
+      return false;
+    }
+    if (typeof value === "string" && /^branch[-_][a-z0-9-]+$/i.test(value.trim())) {
+      // Orphan catalog keys should not appear as "Branch Id" metrics.
+      if (/branch(_?id|_?name)?$/i.test(key) || key === "branch") return false;
+    }
+    return true;
+  });
+}
+
+function isScalar(value: unknown): boolean {
+  return value === null || ["string", "number", "boolean"].includes(typeof value);
+}
+
+/**
+ * Turn API lists/maps into table rows.
+ * Do not mix scalar map entries (`as_of: "..."`) with nested metric objects in the same
+ * table — that produces Category/Value columns plus empty loan_count/etc. cells.
+ */
+function normalizeRows(value: unknown): Record<string, unknown>[] {
+  if (Array.isArray(value)) return value.filter(isRecord);
+  if (!isRecord(value)) return [];
+
+  const objectRows: Record<string, unknown>[] = [];
+  const scalarRows: Record<string, unknown>[] = [];
+
+  for (const [key, item] of Object.entries(value)) {
+    if (Array.isArray(item)) continue;
+    if (isRecord(item)) {
+      objectRows.push({ category: key, ...item });
+    } else if (isScalar(item)) {
+      scalarRows.push({ category: key, value: item });
+    }
+  }
+
+  if (objectRows.length > 0) return objectRows;
+  return scalarRows;
+}
+
+function rowLooksLikeBranchBreakdown(row: Record<string, unknown>): boolean {
+  return (
+    "branch_id" in row ||
+    "branch_name" in row ||
+    "branchId" in row ||
+    "branchName" in row
   );
 }
 
-function normalizeRows(value: unknown): Record<string, unknown>[] {
-  if (Array.isArray(value)) return value.filter(isRecord);
-  if (isRecord(value)) {
-    return Object.entries(value).map(([key, item]) =>
-      isRecord(item) ? { category: key, ...item } : { category: key, value: item }
-    );
+function enrichReportRows(
+  rows: Record<string, unknown>[],
+  branches: Branch[],
+  fallback?: { branchId?: string; branchName?: string }
+): Record<string, unknown>[] {
+  if (!rows.length) return rows;
+  const out: Record<string, unknown>[] = [];
+  for (const row of rows) {
+    if (!rowLooksLikeBranchBreakdown(row)) {
+      out.push(row);
+      continue;
+    }
+    const resolved = resolveReportBranchFields({
+      branchId: String(row.branch_id ?? row.branchId ?? ""),
+      branchName: String(row.branch_name ?? row.branchName ?? row.name ?? ""),
+      branches,
+      fallbackBranchId: fallback?.branchId,
+      fallbackBranchName: fallback?.branchName,
+    });
+    if (!resolved) continue;
+    out.push({
+      ...row,
+      branch_id: resolved.branch_id,
+      branch_name: resolved.branch_name,
+    });
   }
-  return [];
+  return out;
+}
+
+function columnHasDisplayableValue(rows: Record<string, unknown>[], column: string): boolean {
+  return rows.some((row) => {
+    const value = row[column];
+    if (value === null || value === undefined || value === "") return false;
+    if (Array.isArray(value) || isRecord(value)) return false;
+    return true;
+  });
 }
 
 function DataTable({ title, rows }: { title: string; rows: Record<string, unknown>[] }) {
   const columns = useMemo(() => {
     const keys: string[] = [];
-    rows.slice(0, 25).forEach((row) => {
+    rows.slice(0, 50).forEach((row) => {
       Object.entries(row).forEach(([key, value]) => {
         if (!keys.includes(key) && !Array.isArray(value) && !isRecord(value)) keys.push(key);
       });
     });
-    return keys.slice(0, 9);
+    // Drop sparse columns that are empty for every row (avoids "Loan Count — — —" noise
+    // when Category/Value rows were previously mixed with metric objects).
+    const populated = keys.filter((key) => columnHasDisplayableValue(rows, key));
+    return (populated.length > 0 ? populated : keys).slice(0, 9);
   }, [rows]);
 
   return (
@@ -184,11 +270,39 @@ function exportTypeFor(view: ReportView): string | null {
 
 export function ReportDetailView({ view, from, to, asOf, branchId, scopeLabel }: Props) {
   const meta = VIEW_META[view];
+  const branchCtx = useOptionalBranchAssignment();
   const [payloads, setPayloads] = useState<Array<{ name: string; data: unknown }>>([]);
   const [loading, setLoading] = useState(view !== "leads-performance");
   const [error, setError] = useState<string | null>(null);
   const [exportFormat, setExportFormat] = useState<"csv" | "xlsx" | "pdf">("pdf");
   const [exporting, setExporting] = useState(false);
+  const [fetchedBranches, setFetchedBranches] = useState<Branch[]>([]);
+
+  const branches = useMemo(() => {
+    const merged = new Map<string, Branch>();
+    for (const branch of [...(branchCtx?.branches ?? []), ...fetchedBranches]) {
+      const id = branch.id?.trim();
+      if (!id) continue;
+      merged.set(id, branch);
+    }
+    return Array.from(merged.values());
+  }, [branchCtx?.branches, fetchedBranches]);
+
+  useEffect(() => {
+    if (branchCtx?.branches?.length) return;
+    let cancelled = false;
+    void fetch("/api/falco/branches", { credentials: "include" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload) => {
+        if (cancelled || !payload) return;
+        const list = extractBranchesList(payload);
+        if (list.length > 0) setFetchedBranches(list);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [branchCtx?.branches?.length]);
 
   useEffect(() => {
     if (view === "leads-performance") return;
@@ -241,25 +355,68 @@ export function ReportDetailView({ view, from, to, asOf, branchId, scopeLabel }:
   const exportReport = async () => {
     const type = exportTypeFor(view);
     if (!type) return;
-    const params = new URLSearchParams({ from, to, as_of: asOf, format: exportFormat });
-    if (branchId) params.set("branch_id", branchId);
     setExporting(true);
     setError(null);
     try {
-      const response = await fetch(`/api/reports/${type}/export?${params.toString()}`, { credentials: "include" });
+      // Backend PDF for expected-collections is a plain-text dump — build a proper table PDF client-side.
+      if (exportFormat === "pdf" && view === "expected-collections") {
+        const params = new URLSearchParams({
+          from,
+          to,
+          as_of: asOf,
+          page: "1",
+          page_size: "500",
+        });
+        if (branchId) params.set("branch_id", branchId);
+        const response = await fetch(`/api/reports/expected-collections?${params.toString()}`, {
+          credentials: "include",
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(
+            isRecord(data) && typeof data.message === "string" ? data.message : "Export failed."
+          );
+        }
+        const loadedRows = payloads.flatMap(({ data: payload }) =>
+          extractExpectedCollectionRows(payload)
+        );
+        const freshRows = extractExpectedCollectionRows(data);
+        const rows = freshRows.length >= loadedRows.length ? freshRows : loadedRows;
+        exportExpectedCollectionsPdf({
+          rows,
+          scopeLabel,
+          from,
+          to,
+        });
+        return;
+      }
+
+      const params = new URLSearchParams({ from, to, as_of: asOf, format: exportFormat });
+      if (branchId) params.set("branch_id", branchId);
+      const response = await fetch(`/api/reports/${type}/export?${params.toString()}`, {
+        credentials: "include",
+      });
       if (!response.ok) {
         const result = await response.json().catch(() => ({}));
-        throw new Error(isRecord(result) && typeof result.message === "string" ? result.message : "Export failed.");
+        throw new Error(
+          isRecord(result) && typeof result.message === "string" ? result.message : "Export failed."
+        );
       }
       const blob = await response.blob();
       const disposition = response.headers.get("content-disposition") ?? "";
-      const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] ?? `${type}.${exportFormat}`;
+      const filename =
+        disposition.match(/filename="?([^";]+)"?/i)?.[1] ?? `${type}.${exportFormat}`;
       const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a"); anchor.href = url; anchor.download = filename; anchor.click();
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      anchor.click();
       URL.revokeObjectURL(url);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Export failed.");
-    } finally { setExporting(false); }
+    } finally {
+      setExporting(false);
+    }
   };
 
   const sections = payloads.flatMap(({ name, data }) => {
@@ -267,7 +424,13 @@ export function ReportDetailView({ view, from, to, asOf, branchId, scopeLabel }:
     const scalarCards = flattenScalarCards(root);
     const grouped = Object.entries(root)
       .filter(([, value]) => Array.isArray(value) || isRecord(value))
-      .map(([key, value]) => ({ key: name === "report" ? key : `${name} - ${key}`, rows: normalizeRows(value) }))
+      .map(([key, value]) => ({
+        key: name === "report" ? key : `${name} - ${key}`,
+        rows: enrichReportRows(normalizeRows(value), branches, {
+          branchId,
+          branchName: scopeLabel,
+        }),
+      }))
       .filter((section) => section.rows.length);
     return [{ name, scalarCards, grouped, root }];
   });

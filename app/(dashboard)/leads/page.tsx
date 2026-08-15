@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import {
   ExternalLink,
   FileSpreadsheet,
+  ChevronLeft,
+  ChevronRight,
   Loader2,
   LocateFixed,
   MapPin,
@@ -95,6 +97,11 @@ import {
 } from "@/lib/lead-to-customer-prefill";
 import { useSessionUser } from "@/lib/use-session-user";
 import { cn } from "@/lib/utils";
+import {
+  listRowRevealClassName,
+  listRowRevealStyle,
+  useListRevealKey,
+} from "@/lib/list-row-reveal";
 
 const statusLabel: Record<LeadStatus, string> = {
  new: "New",
@@ -110,6 +117,8 @@ const locationTypeLabel: Record<LeadLocationType, string> = {
 };
 
 const GENDER_NONE = "none";
+
+const LEADS_PAGE_SIZE = 10;
 
 function genderDisplay(gender?: LeadGender): string {
   return gender ? leadGenderLabel[gender] : "—";
@@ -308,6 +317,8 @@ export default function LeadsPage() {
   const scopeBranchId =
     user?.role === "branch_manager" || user?.role === "loan_officer" ? user.branch_id : null;
   const [leads, setLeads] = useState<LeadView[]>([]);
+  const [page, setPage] = useState(1);
+  const [listRevealKey, bumpListReveal] = useListRevealKey();
   const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -345,6 +356,15 @@ export default function LeadsPage() {
   const [formData, setFormData] = useState(initialLeadFormData);
 
   const visibleLeads = leads;
+  const totalPages = Math.max(1, Math.ceil(visibleLeads.length / LEADS_PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const rangeStart = visibleLeads.length === 0 ? 0 : (safePage - 1) * LEADS_PAGE_SIZE + 1;
+  const rangeEnd = Math.min(safePage * LEADS_PAGE_SIZE, visibleLeads.length);
+  const pagedLeads = visibleLeads.slice((safePage - 1) * LEADS_PAGE_SIZE, safePage * LEADS_PAGE_SIZE);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
 
   const updateLeadField = <K extends keyof typeof initialLeadFormData>(
     key: K,
@@ -429,14 +449,17 @@ export default function LeadsPage() {
 
       const list = extractLeadsList(leadsJson);
       setLeads(list);
+      setPage(1);
+      bumpListReveal();
       setSelectedLeadId((prev) => prev || list[0]?.id || "");
  } catch (e) {
  setError(e instanceof Error ? e.message : "Failed to load leads");
  setLeads([]);
+ setPage(1);
  } finally {
  setLoading(false);
  }
- }, [scopeBranchId, user?.role, sessionLoaded]);
+ }, [scopeBranchId, user?.role, sessionLoaded, bumpListReveal]);
 
  useEffect(() => {
  void load();
@@ -856,10 +879,18 @@ export default function LeadsPage() {
               </CardHeader>
  <CardContent className="space-y-4 p-0">
  <div className="grid gap-3 p-4 sm:hidden">
- {visibleLeads.map((lead) => (
+ {pagedLeads.length === 0 ? (
+ <p className="py-6 text-center text-sm text-muted-foreground">
+ No leads yet. Add a field lead to get started.
+ </p>
+ ) : (
+ pagedLeads.map((lead, index) => (
  <div
- key={lead.id}
- className="space-y-2 rounded-xl border border-emerald-100 bg-emerald-50/30 p-3"
+ key={`${listRevealKey}-${page}-${lead.id}`}
+ className={listRowRevealClassName(
+  "space-y-2 rounded-xl border border-emerald-100 bg-emerald-50/30 p-3"
+ )}
+ style={listRowRevealStyle(index)}
  onClick={() => focusLeadOnMap(lead)}
  >
  <div className="flex items-start justify-between gap-2">
@@ -930,7 +961,8 @@ export default function LeadsPage() {
                 </DropdownMenu>
               </div>
             </div>
-          ))}
+          ))
+ )}
         </div>
 
             <div className="hidden w-full overflow-x-auto sm:block">
@@ -950,19 +982,20 @@ export default function LeadsPage() {
  </TableRow>
  </TableHeader>
  <TableBody>
- {visibleLeads.length === 0 ? (
+ {pagedLeads.length === 0 ? (
  <TableRow>
  <TableCell colSpan={10} className="py-8 text-center text-muted-foreground">
  No leads yet. Add a field lead to get started.
  </TableCell>
  </TableRow>
  ) : (
- visibleLeads.map((lead) => {
+ pagedLeads.map((lead, index) => {
  const coords = parseLeadCoordinates(lead);
  return (
  <TableRow
- key={lead.id}
- className="cursor-pointer"
+ key={`${listRevealKey}-${page}-${lead.id}`}
+ className={listRowRevealClassName("cursor-pointer")}
+ style={listRowRevealStyle(index)}
  onClick={() => focusLeadOnMap(lead)}
  >
  <TableCell className="font-medium">{lead.fullName}</TableCell>
@@ -1065,6 +1098,39 @@ export default function LeadsPage() {
  </TableBody>
  </Table>
  </div>
+
+ {visibleLeads.length > 0 ? (
+ <div className="flex flex-col gap-3 border-t border-emerald-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+ <p className="text-sm text-muted-foreground">
+ Showing {rangeStart}–{rangeEnd} of {visibleLeads.length}
+ </p>
+ <div className="flex items-center gap-2">
+ <Button
+ type="button"
+ variant="outline"
+ size="sm"
+ disabled={safePage <= 1 || loading}
+ onClick={() => setPage((p) => Math.max(1, p - 1))}
+ >
+ <ChevronLeft className="mr-1 h-4 w-4" />
+ Previous
+ </Button>
+ <span className="min-w-[5.5rem] text-center text-sm tabular-nums text-muted-foreground">
+ Page {safePage} of {totalPages}
+ </span>
+ <Button
+ type="button"
+ variant="outline"
+ size="sm"
+ disabled={safePage >= totalPages || loading}
+ onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+ >
+ Next
+ <ChevronRight className="ml-1 h-4 w-4" />
+ </Button>
+ </div>
+ </div>
+ ) : null}
  </CardContent>
  </Card>
 

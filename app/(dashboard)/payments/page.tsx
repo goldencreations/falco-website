@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
  Plus,
  Search,
@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { DashboardHeader } from "@/components/dashboard-header";
+import { ListPaginationBar, paginateItems } from "@/components/list-pagination-bar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -70,6 +71,13 @@ import { parseJsonResponse } from "@/lib/parse-json-response";
 import { paymentMethodLabel, paymentSourceLabel } from "@/lib/payment-method-display";
 import { isBranchScopedStaffRole, rolePortalBase } from "@/lib/role-portal";
 import { useSessionUser } from "@/lib/use-session-user";
+import {
+  listRowRevealClassName,
+  listRowRevealStyle,
+  useListRevealKey,
+} from "@/lib/list-row-reveal";
+
+const PAGE_SIZE = 8;
 
 const methodConfig: Record<PaymentMethod, { label: string; icon: typeof CreditCard }> = {
  cash: { label: "Cash", icon: Banknote },
@@ -153,9 +161,12 @@ export default function PaymentsPage() {
  const [loading, setLoading] = useState(true);
  const [error, setError] = useState<string | null>(null);
  const [actionLoading, setActionLoading] = useState(false);
+ const hasLoadedOnce = useRef(false);
 
  const [searchQuery, setSearchQuery] = useState("");
  const [methodFilter, setMethodFilter] = useState<string>("all");
+ const [page, setPage] = useState(1);
+ const [listRevealKey, bumpListReveal] = useListRevealKey();
  const [isDialogOpen, setIsDialogOpen] = useState(false);
  const [selectedLoan, setSelectedLoan] = useState("");
  const [paymentAmount, setPaymentAmount] = useState("");
@@ -182,9 +193,14 @@ export default function PaymentsPage() {
  user?.role === "accountant" ||
  Boolean(user?.permissions?.includes("payments.reverse"));
 
- const load = useCallback(async () => {
+ const load = useCallback(async (opts?: { silent?: boolean }) => {
+ // After the first paint, keep the table mounted — focus / tab / poll refreshes
+ // were blanking the whole page with the loading spinner.
+ const silent = opts?.silent ?? hasLoadedOnce.current;
+ if (!silent) {
  setLoading(true);
  setError(null);
+ }
  try {
  const params = new URLSearchParams();
  params.set("page_size", "200");
@@ -225,22 +241,28 @@ export default function PaymentsPage() {
 
  setPayments(payJson?.payments ?? payJson?.data ?? []);
  setLoans(extractLoansList(loanJson));
+ hasLoadedOnce.current = true;
+ // Don't remount rows on silent poll/focus refreshes.
+ if (!silent) bumpListReveal();
  } catch (e) {
+ if (!silent) {
  setError(e instanceof Error ? e.message : "Failed to load payments");
  setPayments([]);
- } finally {
- setLoading(false);
  }
- }, [scopeBranchId]);
+ } finally {
+ if (!silent) setLoading(false);
+ }
+ }, [scopeBranchId, bumpListReveal]);
 
  useEffect(() => {
- void load();
+ hasLoadedOnce.current = false;
+ void load({ silent: false });
  }, [load]);
 
  useEffect(() => {
- const onFocus = () => void load();
+ const onFocus = () => void load({ silent: true });
  const onVisible = () => {
-  if (document.visibilityState === "visible") void load();
+  if (document.visibilityState === "visible") void load({ silent: true });
  };
  window.addEventListener("focus", onFocus);
  document.addEventListener("visibilitychange", onVisible);
@@ -252,7 +274,7 @@ export default function PaymentsPage() {
 
  useEffect(() => {
  const timer = window.setInterval(() => {
-  void load();
+  void load({ silent: true });
  }, 45_000);
  return () => window.clearInterval(timer);
  }, [load]);
@@ -286,6 +308,20 @@ export default function PaymentsPage() {
  return matchesSearch && matchesMethod;
  });
  }, [payments, searchQuery, methodFilter, loanById]);
+
+ useEffect(() => {
+  setPage(1);
+ }, [searchQuery, methodFilter, scopeBranchId]);
+
+ useEffect(() => {
+  const totalPages = Math.max(1, Math.ceil(filteredPayments.length / PAGE_SIZE));
+  if (page > totalPages) setPage(totalPages);
+ }, [page, filteredPayments.length]);
+
+ const pagedPayments = useMemo(
+  () => paginateItems(filteredPayments, page, PAGE_SIZE),
+  [filteredPayments, page]
+ );
 
  const totalCollected = payments
  .filter((p) => p.status === "completed")
@@ -484,7 +520,7 @@ useEffect(() => {
  </Card>
  )}
 
- {loading ? (
+ {loading && payments.length === 0 ? (
  <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
  <Loader2 className="h-5 w-5 animate-spin" />
  Loading payments…
@@ -789,7 +825,7 @@ useEffect(() => {
  No payments found
  </p>
  ) : (
- filteredPayments.map((payment) => {
+ pagedPayments.map((payment, index) => {
  const loan = loanById.get(payment.loan_id);
  const method = methodConfig[payment.payment_method] ?? methodConfig.cash;
  const status = statusConfig[payment.status] ?? statusConfig.completed;
@@ -803,8 +839,11 @@ useEffect(() => {
 
  return (
  <div
- key={payment.id}
- className="rounded-xl border border-emerald-100 bg-emerald-50/30 p-3"
+  key={`${listRevealKey}-${page}-${payment.id}`}
+  className={listRowRevealClassName(
+   "rounded-xl border border-emerald-100 bg-emerald-50/30 p-3"
+  )}
+  style={listRowRevealStyle(index)}
  >
  <div className="flex items-start justify-between gap-2">
  <p className="font-mono text-xs font-medium">{payment.payment_number}</p>
@@ -901,7 +940,7 @@ useEffect(() => {
  </TableCell>
  </TableRow>
  ) : (
- filteredPayments.map((payment) => {
+ pagedPayments.map((payment, index) => {
  const loan = loanById.get(payment.loan_id);
  const method = methodConfig[payment.payment_method] ?? methodConfig.cash;
  const status = statusConfig[payment.status] ?? statusConfig.completed;
@@ -914,7 +953,11 @@ useEffect(() => {
  payment.customer_display_name ?? loan?.customerDisplayName ?? "—";
 
  return (
- <TableRow key={payment.id}>
+ <TableRow
+  key={`${listRevealKey}-${page}-${payment.id}`}
+  className={listRowRevealClassName()}
+  style={listRowRevealStyle(index)}
+ >
  <TableCell className="font-mono text-sm">{payment.payment_number}</TableCell>
  <TableCell>
  <div>
@@ -998,6 +1041,13 @@ useEffect(() => {
  </TableBody>
  </Table>
  </div>
+ <ListPaginationBar
+  page={page}
+  pageSize={PAGE_SIZE}
+  total={filteredPayments.length}
+  loading={loading}
+  onPageChange={setPage}
+ />
  </CardContent>
  </Card>
  </>

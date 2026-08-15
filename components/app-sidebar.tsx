@@ -170,7 +170,7 @@ const navigation: { title: string; items: SidebarNavItem[] }[] = [
  subItems: [
  { title: "Reports Overview", href: "/reports" },
  { title: "Lead Performance", href: "/reports?view=leads-performance" },
- { title: "Customer Demographics", href: "/reports?view=customer-demographics" },
+ { title: "Customer D.G", href: "/reports?view=customer-demographics" },
  { title: "Application Analytics", href: "/reports?view=applications" },
  { title: "Expected Collections", href: "/reports?view=expected-collections" },
  { title: "Portfolio & Aging", href: "/reports?view=portfolio-aging" },
