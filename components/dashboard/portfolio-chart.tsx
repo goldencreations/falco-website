@@ -75,6 +75,11 @@ export function PortfolioChart({ branchScope }: { branchScope: DashboardBranchSc
  [branchScope, branches]
  );
 
+ const hideXAxisLabels = useMemo(
+ () => rows.length > 5 || rows.some((row) => row.name.trim().length > 14),
+ [rows]
+ );
+
  return (
  <Card className="flex h-full min-h-[22rem] flex-col overflow-hidden border border-border/70 shadow-sm xl:col-span-2">
  <CardHeader className="shrink-0 space-y-2 pb-3">
@@ -90,19 +95,17 @@ export function PortfolioChart({ branchScope }: { branchScope: DashboardBranchSc
  <BarChart
  data={rows}
  barGap={4}
- margin={{ top: 16, right: 8, left: 4, bottom: 8 }}
+ margin={{ top: 16, right: 8, left: 4, bottom: hideXAxisLabels ? 4 : 8 }}
  >
  <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border" />
  <XAxis
  dataKey="name"
- tick={{ fontSize: 10 }}
+ tick={hideXAxisLabels ? false : { fontSize: 10 }}
  tickLine={false}
  axisLine={false}
  className="text-muted-foreground"
- interval={0}
- angle={-18}
- textAnchor="end"
- height={56}
+ interval="preserveStartEnd"
+ height={hideXAxisLabels ? 8 : 28}
  />
  <YAxis
  tickFormatter={formatYAxis}
@@ -112,7 +115,11 @@ export function PortfolioChart({ branchScope }: { branchScope: DashboardBranchSc
  className="text-muted-foreground"
  width={48}
  />
- <Tooltip formatter={(value: number) => tzs(value)} contentStyle={tipStyle} />
+ <Tooltip
+ labelFormatter={(label) => String(label)}
+ formatter={(value: number) => tzs(value)}
+ contentStyle={tipStyle}
+ />
  <Legend iconType="rect" wrapperStyle={{ paddingTop: 8 }} />
  <Bar dataKey="outstanding" name="Outstanding" fill="hsl(185 55% 45%)" radius={[4, 4, 0, 0]} maxBarSize={36} />
  <Bar dataKey="par" name="PAR" fill="hsl(0 72% 52%)" radius={[4, 4, 0, 0]} maxBarSize={36} />

@@ -16,6 +16,7 @@ import {
  XCircle,
 } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard-header";
+import { ListPaginationBar, paginateItems } from "@/components/list-pagination-bar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -44,6 +45,13 @@ import {
  type ReconciliationSummary,
 } from "@/lib/payment-adapters";
 import { useSessionUser } from "@/lib/use-session-user";
+import {
+  listRowRevealClassName,
+  listRowRevealStyle,
+  useListRevealKey,
+} from "@/lib/list-row-reveal";
+
+const PAGE_SIZE = 8;
 
 const reconciliationVariant: Record<
  ReconciliationStatus,
@@ -85,6 +93,8 @@ export default function ReconciliationPage() {
  const [error, setError] = useState<string | null>(null);
  const [searchQuery, setSearchQuery] = useState("");
  const [statusFilter, setStatusFilter] = useState<ReconciliationStatus | "all">("all");
+ const [page, setPage] = useState(1);
+ const [listRevealKey, bumpListReveal] = useListRevealKey();
 
  const load = useCallback(async () => {
  if (!user) return;
@@ -139,6 +149,7 @@ export default function ReconciliationPage() {
 
  setPayments(extractPaymentsPayload(payJson).payments);
  setLoans(extractLoansList(loanJson));
+ bumpListReveal();
 
  if (custRes && custRes.ok) {
  const custJson = await custRes.json();
@@ -156,7 +167,7 @@ export default function ReconciliationPage() {
  } finally {
  setLoading(false);
  }
- }, [user, scopeBranchId, isOfficerView]);
+ }, [user, scopeBranchId, isOfficerView, bumpListReveal]);
 
  useEffect(() => {
  void load();
@@ -198,6 +209,20 @@ export default function ReconciliationPage() {
  );
  });
  }, [scopedPayments, searchQuery, statusFilter]);
+
+ useEffect(() => {
+  setPage(1);
+ }, [searchQuery, statusFilter, scopeBranchId]);
+
+ useEffect(() => {
+  const totalPages = Math.max(1, Math.ceil(filteredPayments.length / PAGE_SIZE));
+  if (page > totalPages) setPage(totalPages);
+ }, [page, filteredPayments.length]);
+
+ const pagedPayments = useMemo(
+  () => paginateItems(filteredPayments, page, PAGE_SIZE),
+  [filteredPayments, page]
+ );
 
  const needsAttention = summary.manual_review + summary.unmatched + summary.underpaid;
 
@@ -306,7 +331,7 @@ export default function ReconciliationPage() {
  ) : (
  <>
  <div className="grid gap-3 p-4 sm:hidden">
- {filteredPayments.map((payment) => {
+ {pagedPayments.map((payment, index) => {
  const reconKey = payment.reconciliation_status ?? "unmatched";
  const recon = reconciliationVariant[reconKey];
  const ReconIcon = recon.icon;
@@ -314,8 +339,11 @@ export default function ReconciliationPage() {
 
  return (
  <div
- key={payment.id}
- className="rounded-xl border border-emerald-100 bg-emerald-50/30 p-3"
+  key={`${listRevealKey}-${page}-${payment.id}`}
+  className={listRowRevealClassName(
+   "rounded-xl border border-emerald-100 bg-emerald-50/30 p-3"
+  )}
+  style={listRowRevealStyle(index)}
  >
  <div className="flex items-start justify-between gap-2">
  <p className="font-mono text-xs font-medium">{payment.payment_number}</p>
@@ -375,13 +403,17 @@ export default function ReconciliationPage() {
  </TableRow>
  </TableHeader>
  <TableBody>
- {filteredPayments.map((payment) => {
+ {pagedPayments.map((payment, index) => {
  const reconKey = payment.reconciliation_status ?? "unmatched";
  const recon = reconciliationVariant[reconKey];
  const ReconIcon = recon.icon;
  const loan = loanById.get(payment.loan_id);
  return (
- <TableRow key={payment.id}>
+ <TableRow
+  key={`${listRevealKey}-${page}-${payment.id}`}
+  className={listRowRevealClassName()}
+  style={listRowRevealStyle(index)}
+ >
  <TableCell className="font-mono text-xs">{payment.payment_number}</TableCell>
  <TableCell>
  <p className="text-sm font-medium">{loan?.customerDisplayName ?? payment.customer_display_name ?? "—"}</p>
@@ -411,6 +443,13 @@ export default function ReconciliationPage() {
  </TableBody>
  </Table>
  </div>
+ <ListPaginationBar
+  page={page}
+  pageSize={PAGE_SIZE}
+  total={filteredPayments.length}
+  loading={loading}
+  onPageChange={setPage}
+ />
  </>
  )}
  </CardContent>

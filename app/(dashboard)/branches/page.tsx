@@ -17,10 +17,12 @@ import {
  Loader2,
  PencilLine,
  Plus,
+ Trash2,
  UserCheck,
  UserMinus,
  Users,
 } from "lucide-react";
+import { toast } from "sonner";
 import { DashboardHeader } from "@/components/dashboard-header";
 import {
  collectionActivities,
@@ -31,9 +33,19 @@ import {
  payments,
  repaymentSchedules,
 } from "@/lib/mock-data";
+import { addHiddenBranchId, filterHiddenBranches } from "@/lib/branch-hidden-client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+ AlertDialog,
+ AlertDialogCancel,
+ AlertDialogContent,
+ AlertDialogDescription,
+ AlertDialogFooter,
+ AlertDialogHeader,
+ AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
  Dialog,
  DialogContent,
@@ -110,6 +122,17 @@ export default function BranchesPage() {
  const [exportingBranchId, setExportingBranchId] = useState<string | null>(null);
  const [assignmentError, setAssignmentError] = useState("");
  const [assignmentBusy, setAssignmentBusy] = useState(false);
+ const [deleteTarget, setDeleteTarget] = useState<Branch | null>(null);
+ const [deleting, setDeleting] = useState(false);
+ const [hiddenBranchIds, setHiddenBranchIds] = useState<Set<string>>(() => new Set());
+
+ const visibleBranchRecords = useMemo(
+ () =>
+ filterHiddenBranches(branchRecords).filter(
+ (branch) => branch.is_active !== false && !hiddenBranchIds.has(branch.id)
+ ),
+ [branchRecords, hiddenBranchIds]
+ );
 
  const branchManagers = useMemo(
  () => users.filter((u) => u.role === "branch_manager" && u.is_active !== false),
@@ -129,7 +152,7 @@ export default function BranchesPage() {
  );
 
  const branchSummary = useMemo(() => {
- return branchRecords.map((branch) => {
+ return visibleBranchRecords.map((branch) => {
  const branchCustomers = customers.filter((c) => c.branch_id === branch.id);
  const branchLoans = loans.filter((l) => l.branch_id === branch.id);
  const branchLoanIds = new Set(branchLoans.map((l) => l.id));
@@ -149,7 +172,7 @@ export default function BranchesPage() {
  collected,
  };
  });
- }, [branchRecords, users, loanOfficers]);
+ }, [visibleBranchRecords, users, loanOfficers]);
 
  const selectedBranch = useMemo(
  () => branchRecords.find((b) => b.id === overviewBranchId) ?? null,
@@ -331,6 +354,56 @@ export default function BranchesPage() {
  }
  };
 
+ const softDeleteBranch = async () => {
+ if (!deleteTarget) return;
+ setDeleting(true);
+ try {
+ const res = await fetch(`/api/falco/branches/${encodeURIComponent(deleteTarget.id)}`, {
+ method: "PATCH",
+ credentials: "include",
+ headers: { "Content-Type": "application/json" },
+ body: JSON.stringify({
+ name: deleteTarget.name,
+ code: deleteTarget.code,
+ region: deleteTarget.region,
+ address: deleteTarget.address,
+ phone: deleteTarget.phone,
+ manager_id: deleteTarget.manager_id || null,
+ is_active: false,
+ }),
+ });
+ const json = (await res.json().catch(() => ({}))) as { message?: string };
+
+ if (res.ok) {
+ updateBranch(deleteTarget.id, { is_active: false });
+ await refresh();
+ toast.success(`${deleteTarget.name} deactivated.`);
+ } else {
+ // UI soft-hide fallback when backend cannot deactivate (same pattern as customers).
+ addHiddenBranchId(deleteTarget.id);
+ setHiddenBranchIds((prev) => {
+ const next = new Set(prev);
+ next.add(deleteTarget.id);
+ return next;
+ });
+ toast.success(
+ json.message
+ ? `${deleteTarget.name} hidden from this list. Backend: ${json.message}`
+ : `${deleteTarget.name} hidden from this list.`
+ );
+ }
+
+ if (overviewBranchId === deleteTarget.id) setOverviewBranchId(null);
+ if (editBranchId === deleteTarget.id) setEditBranchId(null);
+ if (selectedBranchQuickOpen === deleteTarget.id) setSelectedBranchQuickOpen("all");
+ setDeleteTarget(null);
+ } catch {
+ toast.error("Could not deactivate branch.");
+ } finally {
+ setDeleting(false);
+ }
+ };
+
  const managerOptions = branchManagers.filter(
  (manager) =>
  !manager.branch_id ||
@@ -474,7 +547,6 @@ export default function BranchesPage() {
  <>
  <DashboardHeader
  title="Branch Management"
- description="Create branches, manage manager/officer assignments, and monitor branch portfolio with professional customer drill-down."
  />
  <main className="flex-1 overflow-auto p-4 lg:p-6">
  <div className="mx-auto max-w-7xl space-y-6">
@@ -485,7 +557,7 @@ export default function BranchesPage() {
  <CardContent className="grid grid-cols-2 gap-2">
  <div className="rounded-lg border border-emerald-200/70 bg-emerald-100/60 p-3 ">
  <p className="text-[11px] text-muted-foreground">Branches</p>
- <p className="text-lg font-semibold">{branchRecords.length}</p>
+ <p className="text-lg font-semibold">{visibleBranchRecords.length}</p>
  </div>
  <div className="rounded-lg border border-emerald-200/70 bg-emerald-100/60 p-3 ">
  <p className="text-[11px] text-muted-foreground">Managers</p>
@@ -502,13 +574,13 @@ export default function BranchesPage() {
  </CardContent>
  </Card>
 
- <Card className="border-emerald-200/40 bg-gradient-to-b from-emerald-50/35 to-background shadow-sm ">
- <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+ <div className="space-y-6">
+ <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
  <div>
- <CardTitle className="text-lg">Branches</CardTitle>
- <CardDescription>
+ <h2 className="text-lg font-semibold leading-none">Branches</h2>
+ <p className="mt-2 text-sm text-muted-foreground">
  Use branch cards for quick actions, then open the full branch overview panel.
- </CardDescription>
+ </p>
  </div>
  <div className="flex flex-col gap-2 sm:flex-row">
  <Select value={selectedBranchQuickOpen} onValueChange={setSelectedBranchQuickOpen}>
@@ -517,7 +589,7 @@ export default function BranchesPage() {
  </SelectTrigger>
  <SelectContent>
  <SelectItem value="all">Select branch panel</SelectItem>
- {branchRecords.map((branch) => (
+ {visibleBranchRecords.map((branch) => (
  <SelectItem key={branch.id} value={branch.id}>
  {branch.name}
  </SelectItem>
@@ -535,10 +607,9 @@ export default function BranchesPage() {
  Create Branch
  </Button>
  </div>
- </CardHeader>
- <CardContent>
+ </div>
  <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
- {branchSummary.map(({ branch, manager, officers, customerCount, loanCount, disbursed, collected }) => (
+ {branchSummary.map(({ branch, manager, officers }) => (
  <Card
  key={branch.id}
  className="border border-emerald-200/50 bg-gradient-to-br from-emerald-50/45 to-background shadow-sm "
@@ -560,26 +631,31 @@ export default function BranchesPage() {
  <p>Officers: {officers.length}</p>
  <p>{branch.phone}</p>
  </div>
- <div className="grid grid-cols-2 gap-2 text-sm">
- <div className="rounded-md border border-emerald-200/60 bg-emerald-100/50 p-2 ">
- <p className="text-xs text-muted-foreground">Customers</p>
- <p className="font-semibold">{customerCount}</p>
- </div>
- <div className="rounded-md border border-emerald-200/60 bg-emerald-100/50 p-2 ">
- <p className="text-xs text-muted-foreground">Loans</p>
- <p className="font-semibold">{loanCount}</p>
- </div>
- </div>
- <p className="text-xs text-muted-foreground">
- Disbursed {formatCurrency(disbursed)} · Collected {formatCurrency(collected)}
- </p>
- <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
- <Button size="sm" variant="outline" onClick={() => setEditBranchId(branch.id)}>
- <PencilLine className="mr-2 h-4 w-4" />
+ <div className="grid grid-cols-2 gap-2">
+ <Button
+ size="sm"
+ variant="outline"
+ className="w-full border-red-200 text-red-700 hover:bg-red-50"
+ onClick={() => setDeleteTarget(branch)}
+ >
+ <Trash2 className="mr-1.5 h-4 w-4 shrink-0" />
+ Delete
+ </Button>
+ <Button
+ size="sm"
+ variant="outline"
+ className="w-full"
+ onClick={() => setEditBranchId(branch.id)}
+ >
+ <PencilLine className="mr-1.5 h-4 w-4 shrink-0" />
  Edit
  </Button>
- <Button size="sm" onClick={() => setOverviewBranchId(branch.id)}>
- <Eye className="mr-2 h-4 w-4" />
+ <Button
+ size="sm"
+ className="col-span-2 w-full"
+ onClick={() => setOverviewBranchId(branch.id)}
+ >
+ <Eye className="mr-1.5 h-4 w-4 shrink-0" />
  View Details
  </Button>
  </div>
@@ -587,10 +663,48 @@ export default function BranchesPage() {
  </Card>
  ))}
  </div>
- </CardContent>
- </Card>
+ </div>
  </div>
  </main>
+
+ <AlertDialog
+ open={Boolean(deleteTarget)}
+ onOpenChange={(open) => {
+ if (!open && !deleting) setDeleteTarget(null);
+ }}
+ >
+ <AlertDialogContent>
+ <AlertDialogHeader>
+ <AlertDialogTitle>Deactivate branch?</AlertDialogTitle>
+ <AlertDialogDescription>
+ {deleteTarget
+ ? `“${deleteTarget.name}” (${deleteTarget.code}) will be soft-deleted: marked inactive and removed from this list. Historical data stays in the system.`
+ : "This branch will be marked inactive."}
+ </AlertDialogDescription>
+ </AlertDialogHeader>
+ <AlertDialogFooter>
+ <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+ <Button
+ type="button"
+ variant="destructive"
+ disabled={deleting || !deleteTarget}
+ onClick={() => void softDeleteBranch()}
+ >
+ {deleting ? (
+ <>
+ <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+ Deactivating…
+ </>
+ ) : (
+ <>
+ <Trash2 className="mr-2 h-4 w-4" />
+ Deactivate
+ </>
+ )}
+ </Button>
+ </AlertDialogFooter>
+ </AlertDialogContent>
+ </AlertDialog>
 
  <Dialog
  open={createOpen}

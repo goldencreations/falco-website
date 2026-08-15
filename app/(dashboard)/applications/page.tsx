@@ -101,6 +101,11 @@ import {
 } from "@/lib/application-status";
 import { useSessionUser } from "@/lib/use-session-user";
 import type { LoanApplicationStatus } from "@/lib/types";
+import {
+  listRowRevealClassName,
+  listRowRevealStyle,
+  useListRevealKey,
+} from "@/lib/list-row-reveal";
 
 const statusConfig: Record<
  LoanApplicationStatus,
@@ -139,6 +144,7 @@ export default function ApplicationsPage() {
  const [searchQuery, setSearchQuery] = useState("");
  const [statusFilter, setStatusFilter] = useState<string>("all");
  const [page, setPage] = useState(1);
+ const [listRevealKey, bumpListReveal] = useListRevealKey();
  const [applications, setApplications] = useState<ApplicationViewRow[]>([]);
  const [listLoading, setListLoading] = useState(true);
  const [actionError, setActionError] = useState<string | null>(null);
@@ -162,8 +168,10 @@ export default function ApplicationsPage() {
  } | null>(null);
  const [bulkDeleting, setBulkDeleting] = useState(false);
 
- const reloadApplications = useCallback(async () => {
- setListLoading(true);
+ const reloadApplications = useCallback(async (opts?: { reveal?: boolean }) => {
+ // Silent polls / visibility refreshes keep the table mounted; only show the
+ // loading state on intentional loads so rows don't flash every few seconds.
+ if (opts?.reveal) setListLoading(true);
  setActionError(null);
  try {
  const params = new URLSearchParams();
@@ -182,15 +190,18 @@ export default function ApplicationsPage() {
  }
  const rows = enrichApplicationRows(extractApplicationsList(json), ctx);
  setApplications(rows);
+ // Only remount rows for entrance animation on first/scope loads — not on
+ // pending-disbursement polling or background refreshes.
+ if (opts?.reveal) bumpListReveal();
  } catch (e) {
  setActionError(e instanceof Error ? e.message : "Failed to load applications");
  } finally {
- setListLoading(false);
+ if (opts?.reveal) setListLoading(false);
  }
- }, [scopeBranchId, effectiveRole, isOfficerView]);
+ }, [scopeBranchId, effectiveRole, isOfficerView, bumpListReveal]);
 
   useEffect(() => {
-  void reloadApplications();
+  void reloadApplications({ reveal: true });
   }, [reloadApplications]);
 
   // Re-load immediately when the Disbursement screen signals a change via localStorage.
@@ -785,7 +796,7 @@ export default function ApplicationsPage() {
  No applications found
  </p>
  ) : (
- pagedApplications.map((app) => {
+ pagedApplications.map((app, index) => {
  const status = statusConfig[app.status];
  const StatusIcon = status.icon;
  const statusLabel = applicationOperationalStatusLabel(
@@ -795,7 +806,13 @@ export default function ApplicationsPage() {
  );
  const rowDeletable = canDeleteApplication(effectiveRole, app, user?.id);
  return (
- <div key={app.id} className="rounded-xl border border-emerald-100 bg-emerald-50/30 p-3">
+ <div
+  key={`${listRevealKey}-${page}-${app.id}`}
+  className={listRowRevealClassName(
+   "rounded-xl border border-emerald-100 bg-emerald-50/30 p-3"
+  )}
+  style={listRowRevealStyle(index)}
+ >
  <div className="flex items-start justify-between gap-2">
  <div className="flex items-start gap-2">
  {isTopAdminView && rowDeletable ? (
@@ -887,7 +904,7 @@ export default function ApplicationsPage() {
  </TableCell>
  </TableRow>
  ) : (
- pagedApplications.map((app) => {
+ pagedApplications.map((app, index) => {
  const status = statusConfig[app.status];
  const StatusIcon = status.icon;
  const statusLabel = applicationOperationalStatusLabel(
@@ -899,7 +916,12 @@ export default function ApplicationsPage() {
  const rowDeletable = canDeleteApplication(effectiveRole, app, user?.id);
 
  return (
- <TableRow key={app.id} data-state={selectedIds.has(app.id) ? "selected" : undefined}>
+ <TableRow
+  key={`${listRevealKey}-${page}-${app.id}`}
+  className={listRowRevealClassName()}
+  style={listRowRevealStyle(index)}
+  data-state={selectedIds.has(app.id) ? "selected" : undefined}
+ >
  {isTopAdminView ? (
  <TableCell>
  {rowDeletable ? (

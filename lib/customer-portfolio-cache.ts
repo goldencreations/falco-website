@@ -2,7 +2,7 @@ import type { CustomerPortfolioData } from "@/lib/customer-portfolio-detail";
 import { invalidateFetchCache } from "@/lib/client-fetch-cache";
 
 const CACHE_MS = 10 * 60 * 1000;
-const SESSION_PREFIX = "falco-customer-portfolio:";
+const SESSION_PREFIX = "falco-customer-portfolio:v3:";
 
 type CacheEntry = {
   data: CustomerPortfolioData;

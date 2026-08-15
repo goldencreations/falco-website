@@ -4,9 +4,11 @@ import { ensureResourceBranchAllowed } from "@/lib/authorization";
 import type { SessionUser } from "@/lib/auth";
 import {
  extractLoansList,
- extractPaymentsList,
  type LoanListRow,
 } from "@/lib/loan-adapters";
+import { applyPaymentTotalsToLoans } from "@/lib/loan-enrichment";
+import { effectiveCustomerTotalPaid } from "@/lib/loan-display";
+import { extractPaymentsPayload, type PaymentViewRow } from "@/lib/payment-adapters";
 import { falcoServerFetch } from "@/lib/server-falco";
 import type { ApplicationViewRow } from "@/lib/application-adapters";
 import type { Payment } from "@/lib/types";
@@ -84,7 +86,10 @@ export function buildPaymentTrend(
  const pd = new Date(p.payment_date);
  return pd.getFullYear() === y && pd.getMonth() === m;
  });
- const completed = inMonth.filter((p) => p.status === "completed");
+ const completed = inMonth.filter((p) => {
+ const s = String(p.status ?? "").toLowerCase();
+ return !s || s === "completed" || s === "verified";
+ });
  const actual = completed.reduce((sum, p) => sum + p.amount, 0);
  const onTime =
  inMonth.length > 0 ? Math.round((completed.length / inMonth.length) * 100) : 0;
@@ -128,15 +133,163 @@ export function buildCreditScoreHistory(
  });
 }
 
-export function buildBalanceSnapshot(loans: LoanListRow[]): BalanceSnapshotPoint[] {
- const paid = loans.reduce((sum, l) => sum + l.total_paid, 0);
+export function buildBalanceSnapshot(loans: LoanListRow[], payments: Payment[] = []): BalanceSnapshotPoint[] {
+ const paid = effectiveCustomerTotalPaid(loans, payments);
  const outstanding = loans.reduce((sum, l) => sum + l.total_outstanding, 0);
  return [{ name: "Portfolio", paid, outstanding }];
 }
 
+function mergePaymentsById(rows: PaymentViewRow[]): PaymentViewRow[] {
+ const byId = new Map<string, PaymentViewRow>();
+ for (const row of rows) {
+ const key = row.id || `${row.loan_id}:${row.reference_number}:${row.payment_date}:${row.amount}`;
+ if (!byId.has(key)) byId.set(key, row);
+ }
+ return [...byId.values()].sort((a, b) => String(b.payment_date).localeCompare(String(a.payment_date)));
+}
+
+function paymentBelongsToCustomer(
+ payment: PaymentViewRow,
+ customerId: string,
+ loanIds: Set<string>,
+ loanNumbers: Set<string>
+): boolean {
+ if (payment.customer_id && payment.customer_id === customerId) return true;
+ if (payment.loan_id && loanIds.has(payment.loan_id)) return true;
+ const loanNumber = payment.loan_number?.trim().toLowerCase();
+ if (loanNumber && loanNumbers.has(loanNumber)) return true;
+ return false;
+}
+
+function mergeLoansById(rows: LoanListRow[]): LoanListRow[] {
+ const byId = new Map<string, LoanListRow>();
+ for (const row of rows) {
+ if (!row.id) continue;
+ byId.set(row.id, row);
+ }
+ return [...byId.values()];
+}
+
+async function loadCustomerLoans(
+ request: Request,
+ customerId: string,
+ branchId: string
+): Promise<LoanListRow[]> {
+ const collected: LoanListRow[] = [];
+
+ const byCustomer = await falcoServerFetch<unknown>("/loans", {
+ request,
+ query: {
+ customer_id: customerId,
+ branch_id: branchId,
+ page: "1",
+ page_size: "100",
+ },
+ });
+ if (byCustomer.ok) {
+ collected.push(
+ ...extractLoansList(byCustomer.data).filter((l) => !l.customer_id || l.customer_id === customerId)
+ );
+ }
+
+ // Payments console resolves loans from the branch list; do the same so we don't miss
+ // Automatic payments when `customer_id` filtering on /loans is incomplete.
+ for (let page = 1; page <= 15; page++) {
+ const res = await falcoServerFetch<unknown>("/loans", {
+ request,
+ query: {
+ page: String(page),
+ page_size: "100",
+ branch_id: branchId || undefined,
+ },
+ });
+ if (!res.ok) break;
+ const batch = extractLoansList(res.data);
+ for (const loan of batch) {
+ if (loan.customer_id === customerId) collected.push(loan);
+ }
+ if (batch.length < 100) break;
+ }
+
+ return mergeLoansById(collected);
+}
+
+/**
+ * Load payments the same way the Payments console does (branch list), then keep rows
+ * for this customer. Also tries customer_id / loan_id filters when the API supports them.
+ */
+async function loadCustomerPayments(
+ request: Request,
+ customerId: string,
+ branchId: string,
+ loans: LoanListRow[]
+): Promise<PaymentViewRow[]> {
+ const loanIds = new Set(loans.map((l) => l.id).filter(Boolean));
+ const loanNumbers = new Set(
+ loans.map((l) => l.loan_number?.trim().toLowerCase()).filter((n): n is string => Boolean(n))
+ );
+ const collected: PaymentViewRow[] = [];
+
+ const byCustomer = await falcoServerFetch<unknown>("/payments", {
+ request,
+ query: {
+ customer_id: customerId,
+ branch_id: branchId,
+ page: "1",
+ page_size: "200",
+ },
+ });
+ if (byCustomer.ok) {
+ collected.push(
+ ...extractPaymentsPayload(byCustomer.data).payments.filter((p) =>
+ paymentBelongsToCustomer(p, customerId, loanIds, loanNumbers)
+ )
+ );
+ }
+
+ await Promise.all(
+ [...loanIds].map(async (loanId) => {
+ const res = await falcoServerFetch<unknown>("/payments", {
+ request,
+ query: {
+ loan_id: loanId,
+ page: "1",
+ page_size: "200",
+ },
+ });
+ if (res.ok) collected.push(...extractPaymentsPayload(res.data).payments);
+ })
+ );
+
+ // Same source as Payments page: branch-wide list, then filter to this customer / their loans.
+ for (let page = 1; page <= 25; page++) {
+ const res = await falcoServerFetch<unknown>("/payments", {
+ request,
+ query: {
+ page: String(page),
+ page_size: "200",
+ branch_id: branchId || undefined,
+ },
+ });
+ if (!res.ok) break;
+ const batch = extractPaymentsPayload(res.data).payments;
+ for (const p of batch) {
+ if (paymentBelongsToCustomer(p, customerId, loanIds, loanNumbers)) collected.push(p);
+ }
+ if (batch.length < 200) break;
+ }
+
+ // Attach loan_number from our loan set so payment↔loan matching is reliable.
+ return mergePaymentsById(collected).map((p) => {
+ if (p.loan_number?.trim()) return p;
+ const loan = loans.find((l) => l.id === p.loan_id);
+ return loan?.loan_number ? { ...p, loan_number: loan.loan_number } : p;
+ });
+}
+
 export function summarizePortfolio(loans: LoanListRow[], payments: Payment[]) {
  const total_borrowed = loans.reduce((sum, l) => sum + l.principal_amount, 0);
- const total_paid = loans.reduce((sum, l) => sum + l.total_paid, 0);
+ const total_paid = effectiveCustomerTotalPaid(loans, payments);
  const total_outstanding = loans.reduce((sum, l) => sum + l.total_outstanding, 0);
  const active_loans = loans.filter((l) => l.status === "active" || l.status === "in_arrears").length;
  const completed_loans = loans.filter((l) => l.status === "paid_off").length;
@@ -176,25 +329,8 @@ export async function loadCustomerPortfolioData(
 
  const branchId = customer.branch_id;
 
- const [loansRes, paymentsRes, appsRes] = await Promise.all([
- falcoServerFetch<unknown>("/loans", {
- request,
- query: {
- customer_id: customerId,
- branch_id: branchId,
- page: "1",
- page_size: "100",
- },
- }),
- falcoServerFetch<unknown>("/payments", {
- request,
- query: {
- customer_id: customerId,
- branch_id: branchId,
- page: "1",
- page_size: "200",
- },
- }),
+ const [rawLoans, appsRes] = await Promise.all([
+ loadCustomerLoans(request, customerId, branchId),
  falcoServerFetch<unknown>("/applications", {
  request,
  query: {
@@ -205,8 +341,9 @@ export async function loadCustomerPortfolioData(
  }),
  ]);
 
- const loans = loansRes.ok ? extractLoansList(loansRes.data) : [];
- const payments = paymentsRes.ok ? extractPaymentsList(paymentsRes.data) : [];
+ const payments = await loadCustomerPayments(request, customerId, branchId, rawLoans);
+ // Same fix as loans list: LMS total_paid can lag behind completed Automatic payments.
+ const loans = applyPaymentTotalsToLoans(rawLoans, payments);
  const applications = appsRes.ok
  ? extractApplicationsList(appsRes.data).filter((a) => a.customer_id === customerId)
  : [];
@@ -216,7 +353,7 @@ export async function loadCustomerPortfolioData(
  const creditHistory = customer.credit_score
  ? buildCreditScoreHistory(customer.credit_score, customer.created_at)
  : [];
- const balanceSnapshot = buildBalanceSnapshot(loans);
+ const balanceSnapshot = buildBalanceSnapshot(loans, payments);
  const summary = summarizePortfolio(loans, payments);
 
  return {

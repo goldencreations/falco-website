@@ -24,7 +24,32 @@ export const FORM_ATTACHMENT_PREVIEW_IMAGE_CLASS = cn(
   FORM_ATTACHMENT_PREVIEW_MAX_HEIGHT
 );
 
-/** Image preview: preview URL first, same-origin proxy fallback for authenticated files. */
+function candidateUrls(
+  previewUrl?: string | null,
+  authUrl?: string | null,
+  filenameHint?: string | null
+): string[] {
+  const hint = filenameHint?.trim();
+  const withHint = (url: string | null) => {
+    if (!url || !hint) return url;
+    if (url.includes("name=")) return url;
+    const sep = url.includes("?") ? "&" : "?";
+    return `${url}${sep}name=${encodeURIComponent(hint)}`;
+  };
+  const preview = previewUrl?.trim() ? withHint(toProxyUrl(previewUrl)) : null;
+  const auth = authUrl?.trim() ? withHint(toProxyUrl(authUrl)) : null;
+  const out: string[] = [];
+  for (const url of [preview, auth]) {
+    if (url && !out.includes(url)) out.push(url);
+  }
+  return out;
+}
+
+/**
+ * Same-origin proxy URLs that View already opens successfully.
+ * Use them directly as <img src> — do not re-fetch into a blob (that path was
+ * rejecting valid phone photos when Content-Type sniffing failed).
+ */
 export function CachedMediaPreview({
   previewUrl,
   authUrl,
@@ -34,23 +59,22 @@ export function CachedMediaPreview({
   maxHeight = "max-h-48",
   fit = false,
 }: CachedMediaPreviewProps) {
-  const [useProxy, setUseProxy] = useState(false);
+  const urls = candidateUrls(previewUrl, authUrl, alt);
+  const [urlIndex, setUrlIndex] = useState(0);
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
 
-  const proxyUrl = authUrl?.trim() ? toProxyUrl(authUrl) : null;
-  const preview = previewUrl?.trim() ? toProxyUrl(previewUrl) : null;
-  const activeSrc = useProxy ? proxyUrl : preview ?? proxyUrl;
+  const activeSrc = !failed && urls[urlIndex] ? `${urls[urlIndex]}${retryToken ? `&_r=${retryToken}` : ""}` : null;
 
   useEffect(() => {
-    setUseProxy(false);
-    setFailed(false);
+    setUrlIndex(0);
+    setFailed(urls.length === 0);
     setLoaded(false);
-  }, [preview, authUrl]);
+    setRetryToken(0);
+  }, [previewUrl, authUrl, urls.length]);
 
-  if (!activeSrc) return null;
-
-  if (failed) {
+  if (failed || !activeSrc) {
     return (
       <div
         className={cn(
@@ -93,6 +117,7 @@ export function CachedMediaPreview({
         src={activeSrc}
         alt={alt}
         decoding="async"
+        loading="lazy"
         className={cn(
           fit
             ? cn("h-auto w-auto max-w-full object-contain", maxHeight)
@@ -101,12 +126,17 @@ export function CachedMediaPreview({
         )}
         onLoad={() => setLoaded(true)}
         onError={() => {
-          if (!useProxy && proxyUrl && activeSrc !== proxyUrl) {
-            setUseProxy(true);
-            setLoaded(false);
-          } else {
-            setFailed(true);
+          setLoaded(false);
+          if (urlIndex + 1 < urls.length) {
+            setUrlIndex((i) => i + 1);
+            return;
           }
+          // One soft retry on the last URL (handles brief upstream blips).
+          if (retryToken < 1) {
+            setRetryToken((t) => t + 1);
+            return;
+          }
+          setFailed(true);
         }}
       />
     </div>

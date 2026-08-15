@@ -28,6 +28,7 @@ import {
 } from "recharts";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { DisbursementRetryDialog } from "@/components/disbursements/disbursement-retry-dialog";
+import { ListPaginationBar, paginateItems } from "@/components/list-pagination-bar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -93,6 +94,13 @@ import { resolvePortalHref } from "@/lib/portal-paths";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/formatters";
 import { formatApiResponseError } from "@/lib/falco-api";
 import { parseJsonResponse } from "@/lib/parse-json-response";
+import {
+  listRowRevealClassName,
+  listRowRevealStyle,
+  useListRevealKey,
+} from "@/lib/list-row-reveal";
+
+const PAGE_SIZE = 10;
 
 const STATUS_ORDER: Disbursement["status"][] = [
  "pending_approval",
@@ -576,6 +584,8 @@ export default function DisbursementsPage() {
  const createHref = resolvePortalHref(user?.role, "/disbursements/new");
  const [searchQuery, setSearchQuery] = useState("");
  const [statusFilter, setStatusFilter] = useState<string>("all");
+ const [page, setPage] = useState(1);
+ const [listRevealKey, bumpListReveal] = useListRevealKey();
  const [rows, setRows] = useState<DisbursementViewRow[]>([]);
  const [kpis, setKpis] = useState<DisbursementKpis | null>(null);
  const [loading, setLoading] = useState(true);
@@ -625,6 +635,8 @@ export default function DisbursementsPage() {
  if (!data) throw new Error("Disbursement details could not be loaded.");
  setRows(Array.isArray(data.disbursements) ? data.disbursements : []);
  setKpis(data.kpis && typeof data.kpis === "object" ? data.kpis : null);
+ // Silent ClickPesa polls must not remount rows / replay entrance animation.
+ if (!opts?.silent) bumpListReveal();
  } catch (e) {
  if (!opts?.silent) {
  setError(e instanceof Error ? e.message : "Load failed");
@@ -632,11 +644,22 @@ export default function DisbursementsPage() {
  } finally {
  if (!opts?.silent) setLoading(false);
  }
- }, [statusFilter, searchQuery]);
+ }, [statusFilter, searchQuery, bumpListReveal]);
 
  useEffect(() => {
  void load();
  }, [load]);
+
+ useEffect(() => {
+  setPage(1);
+ }, [searchQuery, statusFilter]);
+
+ useEffect(() => {
+  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  if (page > totalPages) setPage(totalPages);
+ }, [page, rows.length]);
+
+ const pagedRows = useMemo(() => paginateItems(rows, page, PAGE_SIZE), [rows, page]);
 
  const shouldPollClickPesa = useMemo(
  () => rows.some((row) => isAwaitingClickPesaConfirmation(row)),
@@ -888,7 +911,7 @@ export default function DisbursementsPage() {
 
  <div className="flex w-full shrink-0 flex-col gap-2 lg:w-[232px] xl:w-[248px]">
  <div className="grid grid-cols-2 gap-1.5">
- <div className="relative overflow-hidden rounded-lg border border-amber-200/60 bg-gradient-to-br from-amber-50/95 to-background px-2 py-2 shadow-sm">
+ <div className="relative overflow-hidden rounded-lg bg-amber-50 px-2 py-2 shadow-md">
  <MiniSpark className="text-amber-600/18" />
  <p className="relative text-[9px] font-semibold uppercase tracking-wide text-amber-900/75">
  Pending
@@ -900,7 +923,7 @@ export default function DisbursementsPage() {
  {totalRecords ? `${shareOfTotal(kpis?.pending_approval ?? 0)}%` : "\u00a0"}
  </p>
  </div>
- <div className="relative overflow-hidden rounded-lg border border-sky-200/60 bg-gradient-to-br from-sky-50/95 to-background px-2 py-2 shadow-sm">
+ <div className="relative overflow-hidden rounded-lg bg-sky-50 px-2 py-2 shadow-md">
  <MiniSpark className="text-sky-600/18" />
  <p className="relative text-[9px] font-semibold uppercase tracking-wide text-sky-900/75">
  Approved
@@ -912,7 +935,7 @@ export default function DisbursementsPage() {
  {totalRecords ? `${shareOfTotal(kpis?.approved ?? 0)}%` : "\u00a0"}
  </p>
  </div>
- <div className="relative overflow-hidden rounded-lg border border-emerald-200/60 bg-gradient-to-br from-emerald-50/95 to-background px-2 py-2 shadow-sm">
+ <div className="relative overflow-hidden rounded-lg bg-emerald-50 px-2 py-2 shadow-md">
  <MiniSpark className="text-emerald-600/18" />
  <p className="relative text-[9px] font-semibold uppercase tracking-wide text-emerald-900/75">
  Completed
@@ -924,7 +947,7 @@ export default function DisbursementsPage() {
  {totalRecords ? `${shareOfTotal(kpis?.completed ?? 0)}%` : "\u00a0"}
  </p>
  </div>
- <div className="relative overflow-hidden rounded-lg border border-rose-200/60 bg-gradient-to-br from-rose-50/95 to-background px-2 py-2 shadow-sm">
+ <div className="relative overflow-hidden rounded-lg bg-rose-50 px-2 py-2 shadow-md">
  <MiniSpark className="text-rose-600/18" />
  <p className="relative text-[9px] font-semibold uppercase tracking-wide text-rose-900/75">
  Rejected
@@ -937,7 +960,7 @@ export default function DisbursementsPage() {
  </p>
  </div>
  </div>
- <div className="rounded-lg border border-emerald-200/70 bg-gradient-to-br from-emerald-50/90 to-background px-2.5 py-2 shadow-sm">
+ <div className="rounded-lg bg-emerald-50 px-2.5 py-2 shadow-md">
  <p className="text-[9px] font-semibold uppercase tracking-wide text-emerald-900/75">
  MTD completed
  </p>
@@ -1041,13 +1064,16 @@ export default function DisbursementsPage() {
  </TableCell>
  </TableRow>
  ) : (
- rows.map((row) => {
+ pagedRows.map((row, index) => {
  const sc = displayStatus(row);
  const rejectedOpen = expandedRejectedRows.has(row.id);
  const confirmedRejected = isConfirmedRejection(row);
  return (
- <Fragment key={row.id}>
- <TableRow>
+ <Fragment key={`${listRevealKey}-${page}-${row.id}`}>
+ <TableRow
+  className={listRowRevealClassName()}
+  style={listRowRevealStyle(index)}
+ >
  <TableCell className="font-medium">
  <Link className="text-primary hover:underline" href="/loans">
  {row.loan_number ?? row.loan_id}
@@ -1149,6 +1175,13 @@ export default function DisbursementsPage() {
  </TableBody>
  </Table>
  </div>
+ <ListPaginationBar
+  page={page}
+  pageSize={PAGE_SIZE}
+  total={rows.length}
+  loading={loading}
+  onPageChange={setPage}
+ />
  </CardContent>
  </Card>
 
@@ -1163,12 +1196,16 @@ export default function DisbursementsPage() {
  No disbursements match your filters.
  </p>
  ) : (
- rows.map((row) => {
+ pagedRows.map((row, index) => {
  const sc = displayStatus(row);
  const rejectedOpen = expandedRejectedRows.has(row.id);
  const confirmedRejected = isConfirmedRejection(row);
  return (
- <Card key={row.id}>
+ <Card
+  key={`${listRevealKey}-${page}-${row.id}`}
+  className={listRowRevealClassName()}
+  style={listRowRevealStyle(index)}
+ >
  <CardHeader className="pb-2">
  <div className="flex items-start justify-between gap-2">
  <div>
@@ -1255,6 +1292,14 @@ export default function DisbursementsPage() {
  );
  })
  )}
+ <ListPaginationBar
+  page={page}
+  pageSize={PAGE_SIZE}
+  total={rows.length}
+  loading={loading}
+  onPageChange={setPage}
+  className="flex flex-col gap-3 border-t border-border px-1 py-3 sm:flex-row sm:items-center sm:justify-between"
+ />
  </div>
  </div>
  </main>

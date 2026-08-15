@@ -8,38 +8,32 @@ type StatTone = "cyan" | "emerald" | "amber" | "violet" | "teal";
 const toneStyles: Record<
   StatTone,
   {
-    surface: string;
     icon: string;
     label: string;
     value: string;
   }
 > = {
   cyan: {
-    surface: "border-cyan-200 bg-cyan-50",
     icon: "bg-cyan-500/15 text-cyan-700 ring-1 ring-cyan-500/20",
     label: "text-cyan-800/70",
     value: "text-cyan-950",
   },
   emerald: {
-    surface: "border-emerald-200 bg-emerald-50",
     icon: "bg-emerald-500/15 text-emerald-700 ring-1 ring-emerald-500/20",
     label: "text-emerald-800/70",
     value: "text-emerald-950",
   },
   amber: {
-    surface: "border-amber-200 bg-amber-50",
     icon: "bg-amber-500/15 text-amber-700 ring-1 ring-amber-500/20",
     label: "text-amber-800/70",
     value: "text-amber-950",
   },
   violet: {
-    surface: "border-violet-200 bg-violet-50",
     icon: "bg-violet-500/15 text-violet-700 ring-1 ring-violet-500/20",
     label: "text-violet-800/70",
     value: "text-violet-950",
   },
   teal: {
-    surface: "border-teal-200 bg-teal-50",
     icon: "bg-teal-500/15 text-teal-700 ring-1 ring-teal-500/20",
     label: "text-teal-800/70",
     value: "text-teal-950",
@@ -59,7 +53,7 @@ export function CustomerProfileStatCard({ title, value, hint, icon: Icon, tone }
 
   return (
     <div>
-      <Card className={cn("gap-0 rounded-xl border py-0 shadow-sm", styles.surface)}>
+      <Card className="gap-0 rounded-xl border-0 bg-transparent py-0 shadow-md">
         <CardContent className="flex min-w-0 items-start gap-3 p-3.5 sm:p-4">
           <div
             className={cn(

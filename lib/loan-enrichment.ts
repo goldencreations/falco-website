@@ -290,7 +290,13 @@ type PaymentAgg = { total: number; count: number; lastDate?: string };
  * posted yet (e.g. a pending gateway payment) toward paid totals.
  */
 function isSettledPayment(p: PaymentViewRow): boolean {
- return String(p.status ?? "").toLowerCase() === "completed";
+ const s = String(p.status ?? "").toLowerCase();
+ if (s === "failed" || s === "reversed" || s === "pending") return false;
+ if (s === "completed" || s === "verified" || s === "paid" || s === "success") return true;
+ const ledger = String(p.ledger_status ?? "").toLowerCase();
+ if (ledger === "verified" || ledger === "posted") return true;
+ // Adapter defaults missing status to completed; treat blank as settled.
+ return !s;
 }
 
 async function loadBranchPayments(
@@ -328,14 +334,19 @@ function buildPaymentAggregates(
 
  for (const payment of payments) {
  if (!isSettledPayment(payment)) continue;
- let loanId = payment.loan_id?.trim();
- if (!loanId && payment.loan_number) {
- loanId = loanIdByNumber.get(payment.loan_number.trim().toLowerCase()) ?? "";
+ let loanId = payment.loan_id?.trim() ?? "";
+ // Prefer an id that belongs to the loan set; fall back to loan_number match.
+ if (!loanId || !byLoanId.has(loanId)) {
+ const byNumber = payment.loan_number
+ ? loanIdByNumber.get(payment.loan_number.trim().toLowerCase())
+ : undefined;
+ if (byNumber) loanId = byNumber;
  }
- if (!loanId) continue;
+ if (!loanId || !byLoanId.has(loanId)) continue;
 
  const prev = byLoanId.get(loanId) ?? { total: 0, count: 0 };
  const amount = Number(payment.amount ?? 0);
+ if (!(amount > 0)) continue;
  prev.total += amount;
  prev.count += 1;
  const pd = payment.payment_date;
@@ -346,13 +357,12 @@ function buildPaymentAggregates(
  return byLoanId;
 }
 
-/** Sum completed / verified payments per loan and merge into `total_paid` + progress fields. */
-export async function enrichLoansWithPaymentTotals(
+/** Merge completed payment totals into loan rows (does not re-fetch). */
+export function applyPaymentTotalsToLoans(
  loans: LoanListRow[],
- options?: { request?: Request; branchId?: string }
-): Promise<LoanListRow[]> {
+ payments: PaymentViewRow[]
+): LoanListRow[] {
  if (!loans.length) return loans;
- const payments = await loadBranchPayments(options?.branchId, options?.request);
  const agg = buildPaymentAggregates(payments, loans);
 
  return loans.map((loan) => {
@@ -371,6 +381,16 @@ export async function enrichLoansWithPaymentTotals(
  principal_paid: Math.max(Number(loan.principal_paid ?? 0), payments_recorded_total),
  };
  });
+}
+
+/** Sum completed / verified payments per loan and merge into `total_paid` + progress fields. */
+export async function enrichLoansWithPaymentTotals(
+ loans: LoanListRow[],
+ options?: { request?: Request; branchId?: string }
+): Promise<LoanListRow[]> {
+ if (!loans.length) return loans;
+ const payments = await loadBranchPayments(options?.branchId, options?.request);
+ return applyPaymentTotalsToLoans(loans, payments);
 }
 
 /** Load repayment schedules and attach the next unpaid installment due date. */

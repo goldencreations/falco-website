@@ -71,10 +71,9 @@ export default function DashboardPage() {
  <DashboardHeader title={t("dashboard.title")} description={t("dashboard.description")} />
  <main className="flex-1 overflow-auto p-4 lg:p-6">
  <div className="mx-auto max-w-7xl space-y-6">
- <section className="overflow-hidden rounded-2xl border border-emerald-950/10 bg-gradient-to-br from-slate-900/[0.04] via-primary/[0.06] to-emerald-600/[0.08] p-1 shadow-md ring-1 ring-emerald-950/5 ">
- <div className="grid gap-2 rounded-[0.875rem] bg-card/40 p-3 backdrop-blur-[2px] sm:grid-cols-2 sm:gap-3 md:grid-cols-3 lg:p-4 ">
- <div className="group relative overflow-hidden rounded-xl border border-border/50 bg-gradient-to-br from-emerald-50/90 via-card to-card p-3.5 shadow-sm ring-1 ring-emerald-600/10 transition-shadow hover:shadow-md ">
- <div className="absolute right-0 top-0 h-16 w-16 translate-x-1/3 -translate-y-1/3 rounded-full bg-emerald-500/10 blur-2xl" />
+ <section className="overflow-hidden rounded-2xl">
+ <div className="grid gap-2 rounded-[0.875rem] p-3 sm:grid-cols-2 sm:gap-3 md:grid-cols-3 lg:p-4">
+ <div className="group relative overflow-hidden rounded-xl bg-card p-3.5 shadow-md">
  <p className="relative text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
  {t("dashboard.collectionsPeriod")}
  </p>
@@ -86,8 +85,7 @@ export default function DashboardPage() {
  {t("dashboard.fromLiveMetrics")}
  </p>
  </div>
- <div className="group relative overflow-hidden rounded-xl border border-border/50 bg-gradient-to-br from-sky-50/80 via-card to-card p-3.5 shadow-sm ring-1 ring-sky-500/10 transition-shadow hover:shadow-md ">
- <div className="absolute right-0 top-0 h-16 w-16 translate-x-1/3 -translate-y-1/3 rounded-full bg-sky-500/10 blur-2xl" />
+ <div className="group relative overflow-hidden rounded-xl bg-card p-3.5 shadow-md">
  <p className="relative text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
  {t("dashboard.portfolioHealth")}
  </p>
@@ -99,8 +97,7 @@ export default function DashboardPage() {
  {t("dashboard.riskSnapshot")}
  </p>
  </div>
- <div className="group relative overflow-hidden rounded-xl border border-border/50 bg-gradient-to-br from-teal-50/85 via-card to-card p-3.5 shadow-sm ring-1 ring-teal-500/10 transition-shadow hover:shadow-md sm:col-span-1">
- <div className="absolute right-0 top-0 h-16 w-16 translate-x-1/3 -translate-y-1/3 rounded-full bg-teal-500/10 blur-2xl" />
+ <div className="group relative overflow-hidden rounded-xl bg-card p-3.5 shadow-md sm:col-span-1">
  <p className="relative text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
  {t("dashboard.outstandingBook")}
  </p>

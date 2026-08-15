@@ -10,6 +10,12 @@ import {
 import { filterHiddenCustomers } from "@/lib/customer-hidden-client";
 import type { Customer, CustomerType, EmploymentType, RiskGrade } from "@/lib/types";
 
+function normalizeCustomerType(value: unknown): CustomerType {
+  const raw = String(value ?? "individual").trim().toLowerCase();
+  if (raw === "business" || raw === "company" || raw === "corporate") return "business";
+  return "individual";
+}
+
 function isPlaceholderCustomerNamePart(value: string | undefined): boolean {
   const v = value?.trim() ?? "";
   if (!v) return true;
@@ -169,7 +175,7 @@ export function adaptApiCustomerRowToCustomer(row: Record<string, unknown>): Cus
  return {
  id: String(row.id ?? ""),
  customer_number: String(row.customer_number ?? ""),
- customer_type: (String(row.customer_type ?? "individual") as CustomerType) || "individual",
+ customer_type: normalizeCustomerType(row.customer_type),
  first_name: first,
  middle_name: row.middle_name ? String(row.middle_name) : undefined,
  last_name: last,

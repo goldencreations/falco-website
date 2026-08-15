@@ -7,6 +7,31 @@ export function effectiveLoanTotalPaid(loan: LoanListRow): number {
  return Math.max(fromLoan, fromPayments);
 }
 
+/** Total repaid across a customer's loans and/or payment rows (whichever is higher). */
+export function effectiveCustomerTotalPaid(
+ loans: LoanListRow[],
+ payments: Array<{ amount?: number; status?: string; ledger_status?: string }> = []
+): number {
+ const fromLoans = loans.reduce((sum, l) => sum + effectiveLoanTotalPaid(l), 0);
+ const fromPayments = payments.reduce((sum, p) => {
+ const s = String(p.status ?? "").toLowerCase();
+ if (s === "failed" || s === "reversed" || s === "pending") return sum;
+ const ledger = String(p.ledger_status ?? "").toLowerCase();
+ const settled =
+ !s ||
+ s === "completed" ||
+ s === "verified" ||
+ s === "paid" ||
+ s === "success" ||
+ ledger === "verified" ||
+ ledger === "posted";
+ if (!settled) return sum;
+ const amount = Number(p.amount ?? 0);
+ return amount > 0 ? sum + amount : sum;
+ }, 0);
+ return Math.max(fromLoans, fromPayments);
+}
+
 export function effectivePaidPercent(loan: LoanListRow): number {
  const total = Number(loan.total_amount ?? 0);
  if (total <= 0) return 0;

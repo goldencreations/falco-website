@@ -16,7 +16,9 @@ import {
 } from "@/components/ui/table";
 import { useTranslations } from "@/lib/i18n/use-translations";
 import { formatCurrency } from "@/lib/formatters";
+import { resolvePortalPath } from "@/lib/portal-paths";
 import type { RiskClassification } from "@/lib/types";
+import { useSessionUser } from "@/lib/use-session-user";
 import { cn } from "@/lib/utils";
 
 function riskLabels(t: (key: string) => string): Record<
@@ -120,6 +122,7 @@ function classificationKey(raw: string | undefined): RiskClassification {
 
 export function LoansAtRisk() {
  const { t } = useTranslations();
+ const { user } = useSessionUser();
  const riskConfig = riskLabels(t);
  const [rows, setRows] = useState<RiskRow[]>([]);
 
@@ -237,7 +240,7 @@ export function LoansAtRisk() {
  </TableCell>
  <TableCell className="text-right">
  <Button variant="ghost" size="sm" asChild className="text-primary hover:text-primary">
- <Link href={`/loans/${loan.id}`}>{t("loansAtRisk.viewDetails")}</Link>
+ <Link href={resolvePortalPath(user?.role, `/loans/${loan.id}`)}>{t("loansAtRisk.viewDetails")}</Link>
  </Button>
  </TableCell>
  </TableRow>
