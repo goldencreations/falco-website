@@ -21,6 +21,7 @@ import {
   X,
 } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard-header";
+import { AllocateToLoanDialog } from "@/components/cashbook/allocate-to-loan-dialog";
 import { useOptionalBranchAssignment } from "@/components/branch-assignment-context";
 import { ListPaginationBar, paginateItems } from "@/components/list-pagination-bar";
 import { Badge } from "@/components/ui/badge";
@@ -43,6 +44,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -74,7 +83,7 @@ import {
   financialEntrySourceBadgeLabel,
 } from "@/lib/financial-entry-adapters";
 import { formatApiResponseError } from "@/lib/falco-api";
-import { forceCachedReload } from "@/lib/client-fetch-cache";
+import { forceCachedReload, invalidateFetchCache } from "@/lib/client-fetch-cache";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import { cn } from "@/lib/utils";
 import { parseJsonResponse } from "@/lib/parse-json-response";
@@ -91,13 +100,19 @@ const PAGE_SIZE = 8;
 const MANUAL_CATEGORY_PRESETS = ["office_expense", "bank_deposit", "cash_transfer", "other"];
 const UNCLASSIFIED_QUEUE_CATEGORY = "unclassified_gateway_income";
 
-type CashbookSavedView = "all" | "auto_loan_repayments" | "auto_registration_fees" | "unmatched";
+type CashbookSavedView =
+  | "all"
+  | "auto_loan_repayments"
+  | "auto_registration_fees"
+  | "unmatched"
+  | "superseded_legacy";
 
 const CASHBOOK_SAVED_VIEWS: { value: CashbookSavedView; label: string }[] = [
   { value: "all", label: "All" },
   { value: "unmatched", label: "Unmatched / Needs investigation" },
   { value: "auto_loan_repayments", label: "Automatic loan repayments" },
   { value: "auto_registration_fees", label: "Automatic registration fees" },
+  { value: "superseded_legacy", label: "Superseded legacy receipts" },
 ];
 
 function todayInputDate(): string {
@@ -196,6 +211,8 @@ export default function CashbookPage() {
   const [classifyFieldErrors, setClassifyFieldErrors] = useState<Record<string, string>>({});
   const classifySearchToken = useRef(0);
 
+  const [allocateEntry, setAllocateEntry] = useState<FinancialEntry | null>(null);
+
   const [reverseEntry, setReverseEntry] = useState<FinancialEntry | null>(null);
   const [reverseReason, setReverseReason] = useState("");
   const [reverseLoading, setReverseLoading] = useState(false);
@@ -207,6 +224,10 @@ export default function CashbookPage() {
   const canManage = user?.role === "super_admin" || user?.role === "accountant";
   const canClassify =
     canManage || Boolean(user?.permissions?.includes("payments.create"));
+  const canAllocateToLoan =
+    user?.role === "super_admin" ||
+    user?.role === "accountant" ||
+    Boolean(user?.permissions?.includes("payments.create"));
   const canViewPayments =
     user?.role === "super_admin" ||
     user?.role === "accountant" ||
@@ -334,6 +355,13 @@ export default function CashbookPage() {
         setSourceFilter("clickpesa");
         setCategoryFilter("unclassified_gateway_income");
         setStatusFilter("posted");
+        setDirectionFilter("all");
+        break;
+      case "superseded_legacy":
+        setUnclassifiedOnly(false);
+        setSourceFilter("clickpesa");
+        setCategoryFilter("all");
+        setStatusFilter("reversed");
         setDirectionFilter("all");
         break;
       default:
@@ -560,7 +588,7 @@ export default function CashbookPage() {
     }
   };
 
-  const showRowActions = canClassify || canManage || canViewPayments;
+  const showRowActions = canClassify || canAllocateToLoan || canManage || canViewPayments;
 
   if (!sessionLoaded) {
     return (
@@ -918,17 +946,31 @@ export default function CashbookPage() {
                             </TableCell>
                             {showRowActions ? (
                               <TableCell className="text-right">
-                                {unmatched && canClassify ? (
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="outline"
-                                    title="This money was received in ClickPesa but Falco could not match the BillPay number. Classify it as income. This does not repay a loan."
-                                    onClick={() => openClassify(entry)}
-                                  >
-                                    <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
-                                    Classify as income
-                                  </Button>
+                                {unmatched && (canAllocateToLoan || canClassify) ? (
+                                  <div className="flex flex-col items-end gap-1">
+                                    {canAllocateToLoan ? (
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        onClick={() => setAllocateEntry(entry)}
+                                      >
+                                        <Banknote className="mr-1 h-3.5 w-3.5" />
+                                        Allocate to loan
+                                      </Button>
+                                    ) : null}
+                                    {canClassify ? (
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        title="This action classifies accounting income only. It does not credit a loan or update a repayment schedule."
+                                        onClick={() => openClassify(entry)}
+                                      >
+                                        <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
+                                        Classify as income
+                                      </Button>
+                                    ) : null}
+                                  </div>
                                 ) : paymentId && canViewPayments && entry.source === "system" ? (
                                   <Button type="button" size="sm" variant="outline" asChild>
                                     <Link href={`/payments?paymentId=${encodeURIComponent(String(paymentId))}`}>
@@ -1073,7 +1115,7 @@ export default function CashbookPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog
+      <Sheet
         open={Boolean(classifyEntry)}
         onOpenChange={(open) => {
           if (!open) {
@@ -1082,18 +1124,22 @@ export default function CashbookPage() {
           }
         }}
       >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{classifyConfirming ? "Confirm classification" : "Classify as income"}</DialogTitle>
-            <DialogDescription>
+        <SheetContent
+          side="right"
+          className="flex h-full w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-md"
+        >
+          <SheetHeader className="border-b pr-10 text-left">
+            <SheetTitle>{classifyConfirming ? "Confirm classification" : "Classify as income"}</SheetTitle>
+            <SheetDescription>
               {classifyEntry
                 ? `Classify ${classifyEntry.entry_number} (${formatCurrency(classifyEntry.amount)}, receipt ${
                     classifyEntry.reference ?? "—"
                   }) as income. This does not create a payment or credit a loan.`
                 : "Classify this unmatched ClickPesa receipt as income. This does not create a payment or credit a loan."}
-            </DialogDescription>
-          </DialogHeader>
+            </SheetDescription>
+          </SheetHeader>
 
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
           {classifyConfirming && classifyEntry ? (
             <div className="space-y-3">
               <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
@@ -1315,8 +1361,9 @@ export default function CashbookPage() {
               </Field>
             </FieldGroup>
           )}
+          </div>
 
-          <DialogFooter>
+          <SheetFooter className="border-t sm:flex-row sm:justify-end">
             {classifyConfirming ? (
               <>
                 <Button type="button" variant="outline" onClick={() => setClassifyConfirming(false)}>
@@ -1341,9 +1388,35 @@ export default function CashbookPage() {
                 </Button>
               </>
             )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
+      <AllocateToLoanDialog
+        entry={allocateEntry}
+        branches={branches}
+        scopedBranchId={scopedBranchId}
+        open={Boolean(allocateEntry)}
+        onOpenChange={(open) => {
+          if (!open) setAllocateEntry(null);
+        }}
+        onError={setError}
+        onAllocated={(allocation) => {
+          const allocatedId = allocateEntry?.id;
+          if (allocatedId) setEntries((prev) => prev.filter((row) => row.id !== allocatedId));
+          invalidateFetchCache();
+          void Promise.all([load(), loadUnmatchedCount()]);
+          const loanId = allocation.loan_id;
+          void fetch("/api/payments?page=1&page_size=50", { credentials: "include" });
+          if (loanId) {
+            void fetch(`/api/loans/${encodeURIComponent(loanId)}`, { credentials: "include" });
+            void fetch(`/api/loans/${encodeURIComponent(loanId)}/schedule`, { credentials: "include" });
+          }
+          if (user?.role === "super_admin" || user?.role === "accountant") {
+            void fetch("/api/webhook-events/health?gateway=clickpesa&hours=24", { credentials: "include" });
+          }
+        }}
+      />
 
       <Dialog open={Boolean(reverseEntry)} onOpenChange={(open) => !open && setReverseEntry(null)}>
         <DialogContent className="sm:max-w-md">

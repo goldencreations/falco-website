@@ -306,3 +306,79 @@ export function mapUiFinancialEntryClassificationToApi(body: Record<string, unkn
   if (description) payload.description = description;
   return payload;
 }
+
+function idForAllocate(value: unknown): string | number | undefined {
+  if (value == null || value === "") return undefined;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const s = str(value).trim();
+  if (!s) return undefined;
+  if (/^\d+$/.test(s)) return Number(s);
+  return s;
+}
+
+/**
+ * Map Allocate-to-loan form → `POST /financial-entries/{id}/allocate-to-loan`.
+ * Never sends amount, direction, reference, or source — the backend uses the original receipt.
+ */
+export function mapUiFinancialEntryAllocateToLoanToApi(body: Record<string, unknown>): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    branch_id: str(body.branch_id).trim(),
+    customer_id: idForAllocate(body.customer_id),
+    loan_id: idForAllocate(body.loan_id),
+    notes: str(body.notes).trim(),
+  };
+  return payload;
+}
+
+export type FinancialEntryLoanAllocation = {
+  already_allocated: boolean;
+  payment_id?: string;
+  loan_id?: string;
+  amount?: number;
+  penalty_allocated: number;
+  fees_allocated: number;
+  interest_allocated: number;
+  principal_allocated: number;
+  loan_total_outstanding?: number;
+  loan_total_paid?: number;
+  loan_penalty_outstanding?: number;
+};
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+/** Parse `POST /financial-entries/{id}/allocate-to-loan` 201/200 body. */
+export function extractAllocateToLoanResult(json: unknown): FinancialEntryLoanAllocation {
+  const root = asRecord(json) ?? {};
+  const data = asRecord(root.data) ?? root;
+  const payment = asRecord(data.payment) ?? asRecord(root.payment);
+  const loan = asRecord(data.loan) ?? asRecord(root.loan);
+  const allocation = asRecord(data.allocation) ?? asRecord(root.allocation) ?? payment ?? data;
+  const already =
+    data.already_allocated === true ||
+    root.already_allocated === true ||
+    str(data.status).toLowerCase() === "already_allocated";
+
+  return {
+    already_allocated: already,
+    payment_id: str(payment?.id ?? data.payment_id ?? allocation?.payment_id) || undefined,
+    loan_id: str(loan?.id ?? data.loan_id ?? allocation?.loan_id) || undefined,
+    amount: allocation?.amount != null ? num(allocation.amount) : undefined,
+    penalty_allocated: num(allocation?.penalty_allocated ?? allocation?.penalty_amount),
+    fees_allocated: num(allocation?.fees_allocated ?? allocation?.fees_amount),
+    interest_allocated: num(allocation?.interest_allocated ?? allocation?.interest_amount),
+    principal_allocated: num(allocation?.principal_allocated ?? allocation?.principal_amount),
+    loan_total_outstanding:
+      loan?.total_outstanding != null ? num(loan.total_outstanding) : undefined,
+    loan_total_paid: loan?.total_paid != null ? num(loan.total_paid) : undefined,
+    loan_penalty_outstanding:
+      loan?.penalty_outstanding != null
+        ? num(loan.penalty_outstanding)
+        : loan?.penalty != null
+          ? num(loan.penalty)
+          : undefined,
+  };
+}

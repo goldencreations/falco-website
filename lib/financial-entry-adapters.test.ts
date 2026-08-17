@@ -9,6 +9,8 @@ import {
   financialEntryOrderReference,
   financialEntryPayerHint,
   financialEntrySourceBadgeLabel,
+  extractAllocateToLoanResult,
+  mapUiFinancialEntryAllocateToLoanToApi,
   mapUiFinancialEntryClassificationToApi,
 } from "./financial-entry-adapters";
 
@@ -130,6 +132,61 @@ describe("clickpesa classification payload", () => {
     assert.equal(payload.direction, undefined);
     assert.equal(payload.reference_number, undefined);
     assert.equal(payload.source, undefined);
+  });
+});
+
+describe("clickpesa allocate-to-loan payload", () => {
+  it("sends branch, customer, loan, and notes without amount", () => {
+    const payload = mapUiFinancialEntryAllocateToLoanToApi({
+      branch_id: "branch-dom01",
+      customer_id: 33,
+      loan_id: 21,
+      notes: "Verified against the ClickPesa merchant receipt",
+      amount: 66528,
+      direction: "inflow",
+      reference_number: "MP260817.1123.Q86853",
+    });
+    assert.equal(payload.branch_id, "branch-dom01");
+    assert.equal(payload.customer_id, 33);
+    assert.equal(payload.loan_id, 21);
+    assert.equal(payload.notes, "Verified against the ClickPesa merchant receipt");
+    assert.equal(payload.amount, undefined);
+    assert.equal(payload.direction, undefined);
+    assert.equal(payload.reference_number, undefined);
+    assert.equal(payload.source, undefined);
+  });
+
+  it("reads allocation breakdown and already_allocated from the API body", () => {
+    const result = extractAllocateToLoanResult({
+      already_allocated: false,
+      payment: {
+        id: "44",
+        amount: 66528,
+        penalty_allocated: 2000,
+        fees_allocated: 0,
+        interest_allocated: 14528,
+        principal_allocated: 50000,
+      },
+      loan: {
+        id: "21",
+        total_outstanding: 100000,
+        total_paid: 66528,
+        penalty_outstanding: 0,
+      },
+    });
+    assert.equal(result.already_allocated, false);
+    assert.equal(result.payment_id, "44");
+    assert.equal(result.loan_id, "21");
+    assert.equal(result.penalty_allocated, 2000);
+    assert.equal(result.principal_allocated, 50000);
+    assert.equal(result.loan_penalty_outstanding, 0);
+    assert.equal(result.loan_total_paid, 66528);
+  });
+
+  it("treats already_allocated as success without inventing a second row", () => {
+    const result = extractAllocateToLoanResult({ already_allocated: true, payment_id: "44" });
+    assert.equal(result.already_allocated, true);
+    assert.equal(result.payment_id, "44");
   });
 });
 
