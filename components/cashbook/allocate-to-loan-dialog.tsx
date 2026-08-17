@@ -1,16 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Check, ChevronsUpDown, Loader2, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Check, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
 import {
   Sheet,
   SheetContent,
@@ -20,7 +12,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -29,7 +21,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { customerRegistrationDisplayName, extractCustomersList } from "@/lib/customer-adapters";
+import { customerRegistrationDisplayName } from "@/lib/customer-adapters";
+import { fetchAllCustomersFromApi } from "@/lib/customer-list-fetch";
 import { formatApiResponseError } from "@/lib/falco-api";
 import {
   extractAllocateToLoanResult,
@@ -40,6 +33,7 @@ import {
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import { parseLoansFromApiResponse, type LoanListRow } from "@/lib/loan-adapters";
 import { parseJsonResponse } from "@/lib/parse-json-response";
+import { branchIdsMatch, branchMatchesScope } from "@/lib/branch-scope";
 import { cn } from "@/lib/utils";
 import type { Branch, Customer, FinancialEntry } from "@/lib/types";
 
@@ -47,6 +41,35 @@ const PAYABLE_STATUSES = new Set(["active", "in_arrears"]);
 
 function isPayableLoan(loan: LoanListRow): boolean {
   return PAYABLE_STATUSES.has(loan.status);
+}
+
+function catalogBranchForCustomer(customer: Customer, branches: Branch[]): Branch | undefined {
+  return branches.find(
+    (b) =>
+      branchIdsMatch(b.id, customer.branch_id) ||
+      branchIdsMatch(b.code, customer.branch_id) ||
+      branchMatchesScope(b, customer.branch_id)
+  );
+}
+
+function customerMatchesQuery(customer: Customer, rawQuery: string): boolean {
+  const q = rawQuery.trim().toLowerCase();
+  if (!q) return true;
+  const haystacks = [
+    customerRegistrationDisplayName(customer),
+    customer.first_name,
+    customer.middle_name,
+    customer.last_name,
+    customer.business_name,
+    customer.customer_number,
+    customer.phone_primary,
+    customer.phone_secondary,
+    ...(customer.phone_numbers ?? []),
+    customer.national_id,
+  ]
+    .filter(Boolean)
+    .map((value) => String(value).toLowerCase());
+  return haystacks.some((value) => value.includes(q));
 }
 
 type AllocateToLoanDialogProps = {
@@ -71,9 +94,8 @@ export function AllocateToLoanDialog({
   const [branchId, setBranchId] = useState("");
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [customerQuery, setCustomerQuery] = useState("");
-  const [customerResults, setCustomerResults] = useState<Customer[]>([]);
+  const [customerRoster, setCustomerRoster] = useState<Customer[]>([]);
   const [customerSearching, setCustomerSearching] = useState(false);
-  const [customerOpen, setCustomerOpen] = useState(false);
   const [loans, setLoans] = useState<LoanListRow[]>([]);
   const [loansLoading, setLoansLoading] = useState(false);
   const [loanId, setLoanId] = useState("");
@@ -82,7 +104,6 @@ export function AllocateToLoanDialog({
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<FinancialEntryLoanAllocation | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const searchToken = useRef(0);
 
   const payer = entry ? financialEntryPayerHint(entry) : undefined;
   const method = entry ? financialEntryMethodLabel(entry) : "";
@@ -93,7 +114,6 @@ export function AllocateToLoanDialog({
     setBranchId(scopedBranchId ?? entry.branch_id ?? "");
     setCustomer(null);
     setCustomerQuery("");
-    setCustomerResults([]);
     setLoans([]);
     setLoanId("");
     setNotes(entry.reference ? `Verified against the ClickPesa merchant receipt ${entry.reference}` : "");
@@ -103,27 +123,50 @@ export function AllocateToLoanDialog({
   }, [open, entry, scopedBranchId]);
 
   useEffect(() => {
-    if (!open || !customerOpen) return;
-    const token = ++searchToken.current;
-    const timer = window.setTimeout(async () => {
-      setCustomerSearching(true);
-      try {
-        const params = new URLSearchParams();
-        if (customerQuery.trim()) params.set("q", customerQuery.trim());
-        if (branchId.trim()) params.set("branch_id", branchId.trim());
-        params.set("page_size", "20");
-        const res = await fetch(`/api/customers?${params.toString()}`, { credentials: "include" });
-        const { data } = await parseJsonResponse<unknown>(res);
-        if (searchToken.current !== token) return;
-        setCustomerResults(branchId.trim() && res.ok ? extractCustomersList(data) : []);
-      } catch {
-        if (searchToken.current === token) setCustomerResults([]);
-      } finally {
-        if (searchToken.current === token) setCustomerSearching(false);
-      }
-    }, 300);
-    return () => window.clearTimeout(timer);
-  }, [open, customerOpen, customerQuery, branchId]);
+    if (!open) return;
+    let cancelled = false;
+    setCustomerSearching(true);
+    void fetchAllCustomersFromApi(new URLSearchParams(), { pageSize: 100 })
+      .then((list) => {
+        if (!cancelled) setCustomerRoster(list);
+      })
+      .catch(() => {
+        if (!cancelled) setCustomerRoster([]);
+      })
+      .finally(() => {
+        if (!cancelled) setCustomerSearching(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  const selectedBranch = branches.find((b) => b.id === branchId) ?? null;
+  const customerResults = useMemo(() => {
+    const q = customerQuery.trim();
+    const matched = customerRoster.filter((c) => customerMatchesQuery(c, q));
+    if (!q) {
+      if (!selectedBranch) return matched.slice(0, 20);
+      return matched
+        .filter(
+          (c) =>
+            branchIdsMatch(c.branch_id, selectedBranch.id) ||
+            branchIdsMatch(c.branch_id, selectedBranch.code) ||
+            branchMatchesScope(selectedBranch, c.branch_id)
+        )
+        .slice(0, 20);
+    }
+    const preferred = selectedBranch
+      ? matched.filter(
+          (c) =>
+            branchIdsMatch(c.branch_id, selectedBranch.id) ||
+            branchIdsMatch(c.branch_id, selectedBranch.code) ||
+            branchMatchesScope(selectedBranch, c.branch_id)
+        )
+      : [];
+    const others = matched.filter((c) => !preferred.some((p) => p.id === c.id));
+    return [...preferred, ...others].slice(0, 20);
+  }, [customerRoster, customerQuery, selectedBranch]);
 
   useEffect(() => {
     if (!open || !customer?.id) {
@@ -135,7 +178,6 @@ export function AllocateToLoanDialog({
     setLoansLoading(true);
     const params = new URLSearchParams();
     params.set("customer_id", customer.id);
-    if (branchId.trim()) params.set("branch_id", branchId.trim());
     params.set("page_size", "50");
     void fetch(`/api/loans?${params.toString()}`, { credentials: "include" })
       .then(async (res) => {
@@ -157,7 +199,7 @@ export function AllocateToLoanDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, customer?.id, branchId]);
+  }, [open, customer?.id]);
 
   const applyFieldErrors = (details: unknown): boolean => {
     if (!Array.isArray(details)) return false;
@@ -370,7 +412,6 @@ export function AllocateToLoanDialog({
                   setBranchId(v);
                   setCustomer(null);
                   setCustomerQuery("");
-                  setCustomerResults([]);
                   setLoans([]);
                   setLoanId("");
                 }}
@@ -386,80 +427,82 @@ export function AllocateToLoanDialog({
                   ))}
                 </SelectContent>
               </Select>
-              {fieldErrors.branch ? <p className="text-xs text-destructive">{fieldErrors.branch}</p> : null}
+              {fieldErrors.branch ? <p className="text-xs text-destructive">{fieldErrors.branch}</p> : (
+                <p className="text-xs text-muted-foreground">
+                  Customer list Location is the home/business address (for example Temeke, Dar es
+                  Salaam). It is not a Falco branch. Choose the branch that owns the customer, such as
+                  Mbagala.
+                </p>
+              )}
             </Field>
             <Field>
               <FieldLabel>Customer</FieldLabel>
-              <Popover open={customerOpen} onOpenChange={setCustomerOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    role="combobox"
-                    className={cn(
-                      "h-9 w-full justify-between font-normal",
-                      fieldErrors.customer && "border-destructive"
-                    )}
-                  >
-                    {customer ? (
-                      <span className="truncate">{customerRegistrationDisplayName(customer)}</span>
-                    ) : (
-                      <span className="text-muted-foreground">Search customer by name or phone…</span>
-                    )}
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-                  <Command shouldFilter={false}>
-                    <CommandInput
-                      placeholder={branchId ? "Search customers…" : "Select a branch first…"}
-                      value={customerQuery}
-                      onValueChange={setCustomerQuery}
-                      disabled={!branchId}
-                    />
-                    <CommandList>
-                      {customerSearching ? (
-                        <div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          Searching…
-                        </div>
-                      ) : (
-                        <>
-                          <CommandEmpty>
-                            {branchId ? "No customers found." : "Choose a branch to search customers."}
-                          </CommandEmpty>
-                          <CommandGroup>
-                            {customerResults.map((c) => (
-                              <CommandItem
-                                key={c.id}
-                                value={c.id}
-                                onSelect={() => {
-                                  setCustomer(c);
-                                  setCustomerOpen(false);
-                                }}
-                              >
-                                <Check
-                                  className={cn(
-                                    "mr-2 h-4 w-4",
-                                    customer?.id === c.id ? "opacity-100" : "opacity-0"
-                                  )}
-                                />
-                                <div className="flex flex-col">
-                                  <span>{customerRegistrationDisplayName(c)}</span>
-                                  {c.phone_primary ? (
-                                    <span className="text-xs text-muted-foreground">{c.phone_primary}</span>
-                                  ) : null}
-                                </div>
-                              </CommandItem>
-                            ))}
-                          </CommandGroup>
-                        </>
-                      )}
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
-              {customer ? (
+              <Input
+                className={cn("h-9", fieldErrors.customer && "border-destructive")}
+                placeholder="Search by name, phone, or customer number"
+                value={customer ? customerRegistrationDisplayName(customer) : customerQuery}
+                onChange={(e) => {
+                  setCustomer(null);
+                  setCustomerQuery(e.target.value);
+                  setLoans([]);
+                  setLoanId("");
+                }}
+              />
+              {customerSearching ? (
+                <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Loading customers…
+                </p>
+              ) : null}
+              {!customer ? (
+                <div className="max-h-48 overflow-y-auto rounded-md border">
+                  {customerResults.length === 0 ? (
+                    <p className="px-3 py-4 text-sm text-muted-foreground">
+                      {customerQuery.trim()
+                        ? "No matching Falco customer. Try Amosi, Isdori, or CUS-260807-166758."
+                        : "Type a name, phone, or customer number. Search is not limited to the selected branch."}
+                    </p>
+                  ) : (
+                    customerResults.map((c) => {
+                      const assignedBranch = catalogBranchForCustomer(c, branches);
+                      return (
+                        <button
+                          key={c.id}
+                          type="button"
+                          className="flex w-full items-start gap-2 border-b px-3 py-2 text-left last:border-b-0 hover:bg-muted/60"
+                          onClick={() => {
+                            setCustomer(c);
+                            setCustomerQuery("");
+                            const matched = catalogBranchForCustomer(c, branches);
+                            if (matched) setBranchId(matched.id);
+                          }}
+                        >
+                          <Check
+                            className={cn(
+                              "mt-0.5 h-4 w-4 shrink-0",
+                              customer?.id === c.id ? "opacity-100" : "opacity-0"
+                            )}
+                          />
+                          <div className="flex min-w-0 flex-col">
+                            <span className="truncate text-sm">
+                              {customerRegistrationDisplayName(c)}
+                            </span>
+                            <span className="truncate text-xs text-muted-foreground">
+                              {[
+                                c.customer_number,
+                                c.phone_primary,
+                                assignedBranch?.name ?? (c.branch_id || "Unassigned branch"),
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              ) : (
                 <Button
                   type="button"
                   variant="ghost"
@@ -467,6 +510,7 @@ export function AllocateToLoanDialog({
                   className="h-7 px-2 text-xs text-muted-foreground"
                   onClick={() => {
                     setCustomer(null);
+                    setCustomerQuery("");
                     setLoans([]);
                     setLoanId("");
                   }}
@@ -474,7 +518,7 @@ export function AllocateToLoanDialog({
                   <X className="mr-1 h-3 w-3" />
                   Clear customer
                 </Button>
-              ) : null}
+              )}
               {fieldErrors.customer ? <p className="text-xs text-destructive">{fieldErrors.customer}</p> : null}
             </Field>
             <Field>
