@@ -266,6 +266,18 @@ export function adaptApiLoanRow(raw: Record<string, unknown>): LoanListRow {
  const passThroughPhone = str(row.customerPhone ?? "").trim();
 
  const applicationId = str(row.application_id ?? row.applicationId ?? "");
+ const application =
+  row.application && typeof row.application === "object"
+   ? (row.application as Record<string, unknown>)
+   : undefined;
+ const nestedGroup =
+  row.group && typeof row.group === "object"
+   ? (row.group as Record<string, unknown>)
+   : application?.group && typeof application.group === "object"
+    ? (application.group as Record<string, unknown>)
+    : undefined;
+ const groupIdRaw = row.group_id ?? application?.group_id ?? nestedGroup?.id;
+ const loanModeRaw = str(row.loan_mode ?? application?.loan_mode);
 
  const repayment_frequency = asRepaymentFrequency(
   row.repayment_frequency ? str(row.repayment_frequency) : undefined
@@ -282,8 +294,8 @@ export function adaptApiLoanRow(raw: Record<string, unknown>): LoanListRow {
  loan_number: str(row.loan_number ?? row.loan_no ?? row.id),
  application_id: applicationId,
  customer_id: resolveLoanCustomerId(row),
- loan_mode: row.loan_mode === "group_based" ? "group_based" : "individual",
- group_id: row.group_id ? str(row.group_id) : undefined,
+ loan_mode: loanModeRaw === "group_based" ? "group_based" : "individual",
+ group_id: groupIdRaw ? str(groupIdRaw) : undefined,
  product_id: resolveLoanProductId(row),
  branch_id: str(row.branch_id ?? ""),
 

@@ -23,8 +23,9 @@ export async function GET(request: Request) {
  page_size: pageSize,
  status: url.searchParams.get("status") ?? undefined,
  branch_id: resolvedBranchIdForListQuery(auth.user, url.searchParams.get("branch_id")),
- customer_id: url.searchParams.get("customer_id") ?? undefined,
- in_arrears: url.searchParams.get("in_arrears") ?? undefined,
+        customer_id: url.searchParams.get("customer_id") ?? undefined,
+        group_id: url.searchParams.get("group_id") ?? undefined,
+        in_arrears: url.searchParams.get("in_arrears") ?? undefined,
  },
  });
 
