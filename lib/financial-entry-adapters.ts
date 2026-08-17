@@ -123,14 +123,16 @@ export function financialEntrySourceBadgeLabel(
   return financialEntrySourceLabel(entry.source);
 }
 
-/** Channel / payer account — never "Gateway (Auto)". */
+/** Payment channel/provider — never the ClickPesa payer/group name, never "Gateway (Auto)". */
 export function financialEntryMethodLabel(
   entry: Pick<FinancialEntry, "account_name" | "payment_method" | "source" | "metadata">
 ): string {
-  const account = (entry.account_name ?? "").trim();
-  if (account) return account;
   const channel = metadataString(entry, "channel");
   if (channel) return channel;
+  if (entry.source !== "clickpesa") {
+    const account = (entry.account_name ?? "").trim();
+    if (account) return account;
+  }
   if (entry.source === "clickpesa") return "ClickPesa";
   const method = String(entry.payment_method ?? "").trim();
   if (method && !/^gateway(\s*\(\s*auto\s*\))?$/i.test(method)) return method;
@@ -147,16 +149,70 @@ export function financialEntryOrderReference(
   return match?.[1];
 }
 
-export function financialEntryPayerHint(entry: Pick<FinancialEntry, "metadata">): {
+export function financialEntryPayerHint(
+  entry: Pick<FinancialEntry, "account_name" | "metadata">
+): {
   name?: string;
   phone?: string;
 } {
-  const name = metadataString(entry, "gateway_customer_name");
+  const name =
+    metadataString(entry, "gateway_customer_name") || (entry.account_name ?? "").trim();
   const phone = metadataString(entry, "gateway_customer_phone");
   return {
     name: name || undefined,
     phone: phone || undefined,
   };
+}
+
+/** Case/whitespace-normalized ClickPesa payer or Falco group name for exact matching. */
+export function normalizeClickPesaPayerName(value: string): string {
+  return value
+    .normalize("NFKC")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toUpperCase();
+}
+
+export type AllocationGroupMatch = {
+  id: string;
+  group_name: string;
+  group_code?: string;
+  status?: string;
+  branch_id?: string;
+};
+
+/**
+ * Unique active Falco group whose normalized name or code equals the ClickPesa payer.
+ * A name that merely resembles a group (for example contains "GROUP") is not a match.
+ */
+export function exactActiveGroupMatch<T extends AllocationGroupMatch>(
+  groups: T[],
+  payerName: string | undefined
+): T | undefined {
+  const needle = normalizeClickPesaPayerName(payerName ?? "");
+  if (!needle) return undefined;
+  const matches = groups.filter((group) => {
+    if ((group.status ?? "active").toLowerCase() !== "active") return false;
+    const name = normalizeClickPesaPayerName(group.group_name);
+    const code = normalizeClickPesaPayerName(group.group_code ?? "");
+    return name === needle || (code.length > 0 && code === needle);
+  });
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+export function hasExactActiveGroupMatch(
+  groups: AllocationGroupMatch[],
+  payerName: string | undefined
+): boolean {
+  const needle = normalizeClickPesaPayerName(payerName ?? "");
+  if (!needle) return false;
+  return groups.some((group) => {
+    if ((group.status ?? "active").toLowerCase() !== "active") return false;
+    const name = normalizeClickPesaPayerName(group.group_name);
+    const code = normalizeClickPesaPayerName(group.group_code ?? "");
+    return name === needle || (code.length > 0 && code === needle);
+  });
 }
 
 /**
@@ -330,10 +386,87 @@ export function mapUiFinancialEntryAllocateToLoanToApi(body: Record<string, unkn
   return payload;
 }
 
+export type GroupReceiptAllocationRow = {
+  loan_id: string;
+  amount: number;
+  outstanding?: number;
+};
+
+function roundTzs(value: unknown): number {
+  return Math.max(0, Math.round(num(value)));
+}
+
+/** Split a receipt across payable loans in proportion to outstanding, never above each loan's outstanding. */
+export function splitReceiptAcrossOutstanding(
+  receiptAmount: number,
+  loans: GroupReceiptAllocationRow[]
+): GroupReceiptAllocationRow[] {
+  const receipt = roundTzs(receiptAmount);
+  const payable = loans
+    .map((loan) => ({
+      loan_id: str(loan.loan_id).trim(),
+      outstanding: roundTzs(loan.outstanding ?? loan.amount),
+    }))
+    .filter((loan) => loan.loan_id && loan.outstanding > 0);
+  const totalOut = payable.reduce((sum, loan) => sum + loan.outstanding, 0);
+  if (receipt <= 0 || totalOut <= 0) return [];
+  const toAllocate = Math.min(receipt, totalOut);
+  const amounts = payable.map((loan) =>
+    Math.min(loan.outstanding, Math.floor((toAllocate * loan.outstanding) / totalOut))
+  );
+  let remainder = toAllocate - amounts.reduce((sum, amount) => sum + amount, 0);
+  const order = payable
+    .map((_, index) => index)
+    .sort((a, b) => payable[b].outstanding - payable[a].outstanding);
+  for (const index of order) {
+    if (remainder <= 0) break;
+    const room = payable[index].outstanding - amounts[index];
+    if (room <= 0) continue;
+    const add = Math.min(room, remainder);
+    amounts[index] += add;
+    remainder -= add;
+  }
+  return payable
+    .map((loan, index) => ({ loan_id: loan.loan_id, amount: amounts[index] }))
+    .filter((row) => row.amount > 0);
+}
+
+function mapGroupAllocationRows(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((row) => {
+      if (!row || typeof row !== "object") return null;
+      const o = row as Record<string, unknown>;
+      const loan_id = idForAllocate(o.loan_id);
+      const amount = roundTzs(o.amount);
+      if (loan_id == null || amount <= 0) return null;
+      const item: Record<string, unknown> = { loan_id, amount };
+      const customer_id = idForAllocate(o.customer_id);
+      if (customer_id != null) item.customer_id = customer_id;
+      return item;
+    })
+    .filter((row): row is Record<string, unknown> => row != null);
+}
+
+/**
+ * Map Group-loans form → `POST /financial-entries/{id}/allocate-to-group`.
+ * Sends `allocations` rows (loan_id, customer_id, amount). Never sends a top-level amount
+ * or POST /payments — the receipt total still comes from the original unmatched row.
+ */
+export function mapUiFinancialEntryAllocateToGroupToApi(body: Record<string, unknown>): Record<string, unknown> {
+  return {
+    branch_id: str(body.branch_id).trim(),
+    group_id: idForAllocate(body.group_id),
+    notes: str(body.notes).trim(),
+    allocations: mapGroupAllocationRows(body.allocations ?? body.allocation),
+  };
+}
+
 export type FinancialEntryLoanAllocation = {
   already_allocated: boolean;
   payment_id?: string;
   loan_id?: string;
+  group_id?: string;
   amount?: number;
   penalty_allocated: number;
   fees_allocated: number;
@@ -350,6 +483,22 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
+function allocationParts(source: Record<string, unknown> | undefined): {
+  penalty_allocated: number;
+  fees_allocated: number;
+  interest_allocated: number;
+  principal_allocated: number;
+  amount?: number;
+} {
+  return {
+    penalty_allocated: num(source?.penalty_allocated ?? source?.penalty_amount),
+    fees_allocated: num(source?.fees_allocated ?? source?.fees_amount),
+    interest_allocated: num(source?.interest_allocated ?? source?.interest_amount),
+    principal_allocated: num(source?.principal_allocated ?? source?.principal_amount),
+    amount: source?.amount != null ? num(source.amount) : undefined,
+  };
+}
+
 /** Parse `POST /financial-entries/{id}/allocate-to-loan` 201/200 body. */
 export function extractAllocateToLoanResult(json: unknown): FinancialEntryLoanAllocation {
   const root = asRecord(json) ?? {};
@@ -361,16 +510,18 @@ export function extractAllocateToLoanResult(json: unknown): FinancialEntryLoanAl
     data.already_allocated === true ||
     root.already_allocated === true ||
     str(data.status).toLowerCase() === "already_allocated";
+  const parts = allocationParts(allocation);
 
   return {
     already_allocated: already,
     payment_id: str(payment?.id ?? data.payment_id ?? allocation?.payment_id) || undefined,
     loan_id: str(loan?.id ?? data.loan_id ?? allocation?.loan_id) || undefined,
-    amount: allocation?.amount != null ? num(allocation.amount) : undefined,
-    penalty_allocated: num(allocation?.penalty_allocated ?? allocation?.penalty_amount),
-    fees_allocated: num(allocation?.fees_allocated ?? allocation?.fees_amount),
-    interest_allocated: num(allocation?.interest_allocated ?? allocation?.interest_amount),
-    principal_allocated: num(allocation?.principal_allocated ?? allocation?.principal_amount),
+    group_id: str(data.group_id ?? root.group_id ?? allocation?.group_id) || undefined,
+    amount: parts.amount,
+    penalty_allocated: parts.penalty_allocated,
+    fees_allocated: parts.fees_allocated,
+    interest_allocated: parts.interest_allocated,
+    principal_allocated: parts.principal_allocated,
     loan_total_outstanding:
       loan?.total_outstanding != null ? num(loan.total_outstanding) : undefined,
     loan_total_paid: loan?.total_paid != null ? num(loan.total_paid) : undefined,
@@ -380,5 +531,47 @@ export function extractAllocateToLoanResult(json: unknown): FinancialEntryLoanAl
         : loan?.penalty != null
           ? num(loan.penalty)
           : undefined,
+  };
+}
+
+/** Parse `POST /financial-entries/{id}/allocate-to-group` 201/200 body. */
+export function extractAllocateToGroupResult(json: unknown): FinancialEntryLoanAllocation {
+  const root = asRecord(json) ?? {};
+  const data = asRecord(root.data) ?? root;
+  const nested =
+    Array.isArray(data.allocations)
+      ? data.allocations
+      : Array.isArray(data.payments)
+        ? data.payments
+        : Array.isArray(root.allocations)
+          ? root.allocations
+          : Array.isArray(root.payments)
+            ? root.payments
+            : [];
+  const rows = nested.filter((row): row is Record<string, unknown> => Boolean(asRecord(row)));
+  const summed = rows.reduce(
+    (acc, row) => {
+      const parts = allocationParts(row);
+      acc.penalty_allocated += parts.penalty_allocated;
+      acc.fees_allocated += parts.fees_allocated;
+      acc.interest_allocated += parts.interest_allocated;
+      acc.principal_allocated += parts.principal_allocated;
+      if (parts.amount != null) acc.amount = (acc.amount ?? 0) + parts.amount;
+      return acc;
+    },
+    { penalty_allocated: 0, fees_allocated: 0, interest_allocated: 0, principal_allocated: 0, amount: undefined as number | undefined }
+  );
+  const base = extractAllocateToLoanResult(json);
+  const firstPayment = asRecord(rows[0]);
+  return {
+    ...base,
+    group_id: str(data.group_id ?? root.group_id ?? base.group_id) || undefined,
+    payment_id: base.payment_id || str(firstPayment?.id ?? firstPayment?.payment_id) || undefined,
+    loan_id: base.loan_id || str(firstPayment?.loan_id) || undefined,
+    penalty_allocated: rows.length > 0 ? summed.penalty_allocated : base.penalty_allocated,
+    fees_allocated: rows.length > 0 ? summed.fees_allocated : base.fees_allocated,
+    interest_allocated: rows.length > 0 ? summed.interest_allocated : base.interest_allocated,
+    principal_allocated: rows.length > 0 ? summed.principal_allocated : base.principal_allocated,
+    amount: rows.length > 0 ? summed.amount : base.amount,
   };
 }

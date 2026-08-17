@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   adaptApiFinancialEntryRow,
+  exactActiveGroupMatch,
+  extractAllocateToGroupResult,
+  extractAllocateToLoanResult,
   financialEntryDisplayLabel,
   financialEntryIsUnmatchedClickPesa,
   financialEntryMethodLabel,
@@ -9,9 +12,12 @@ import {
   financialEntryOrderReference,
   financialEntryPayerHint,
   financialEntrySourceBadgeLabel,
-  extractAllocateToLoanResult,
+  hasExactActiveGroupMatch,
+  mapUiFinancialEntryAllocateToGroupToApi,
   mapUiFinancialEntryAllocateToLoanToApi,
   mapUiFinancialEntryClassificationToApi,
+  normalizeClickPesaPayerName,
+  splitReceiptAcrossOutstanding,
 } from "./financial-entry-adapters";
 
 const unmatchedExample = {
@@ -54,7 +60,7 @@ describe("clickpesa cashbook unmatched receipts", () => {
     assert.equal(row.customer_name, undefined);
     assert.equal(financialEntryDisplayLabel(row), "Needs investigation");
     assert.equal(financialEntrySourceBadgeLabel(row), "ClickPesa unmatched");
-    assert.equal(financialEntryMethodLabel(row), "Seja Habibu Mohamed");
+    assert.equal(financialEntryMethodLabel(row), "AIRTEL BILLPAY");
     assert.equal(financialEntryOrderReference(row), "35218598");
     assert.deepEqual(financialEntryPayerHint(row), {
       name: "Seja Habibu Mohamed",
@@ -79,6 +85,20 @@ describe("clickpesa cashbook unmatched receipts", () => {
       category: "application_fee",
     });
     assert.equal(financialEntryNeedsClassification(row), false);
+  });
+
+  it("does not display the payer or group name as the payment provider", () => {
+    const row = adaptApiFinancialEntryRow({
+      ...unmatchedExample,
+      account_name: "UAMINIFU GROUP",
+      metadata: {
+        ...unmatchedExample.metadata,
+        channel: "AIRTEL BILLPAY",
+        gateway_customer_name: "UAMINIFU GROUP",
+      },
+    });
+    assert.equal(financialEntryMethodLabel(row), "AIRTEL BILLPAY");
+    assert.equal(financialEntryPayerHint(row).name, "UAMINIFU GROUP");
   });
 
   it("uses channel as method when account_name is missing", () => {
@@ -187,6 +207,95 @@ describe("clickpesa allocate-to-loan payload", () => {
     const result = extractAllocateToLoanResult({ already_allocated: true, payment_id: "44" });
     assert.equal(result.already_allocated, true);
     assert.equal(result.payment_id, "44");
+  });
+});
+
+describe("clickpesa allocate-to-group payload", () => {
+  it("sends branch, group, notes, and allocation rows without a top-level amount", () => {
+    const payload = mapUiFinancialEntryAllocateToGroupToApi({
+      branch_id: "branch-dom01",
+      group_id: 12,
+      notes: "Verified against the ClickPesa merchant receipt",
+      amount: 66528,
+      allocation: [
+        { loan_id: 81, customer_id: 33, amount: 20000 },
+        { loan_id: 82, customer_id: 34, amount: 46528 },
+      ],
+      direction: "inflow",
+    });
+    assert.equal(payload.branch_id, "branch-dom01");
+    assert.equal(payload.group_id, 12);
+    assert.equal(payload.notes, "Verified against the ClickPesa merchant receipt");
+    assert.deepEqual(payload.allocations, [
+      { loan_id: 81, customer_id: 33, amount: 20000 },
+      { loan_id: 82, customer_id: 34, amount: 46528 },
+    ]);
+    assert.equal(payload.amount, undefined);
+    assert.equal(payload.allocation, undefined);
+    assert.equal(payload.customer_id, undefined);
+    assert.equal(payload.loan_id, undefined);
+  });
+
+  it("drops zero-amount allocation rows", () => {
+    const payload = mapUiFinancialEntryAllocateToGroupToApi({
+      branch_id: "branch-dom01",
+      group_id: 12,
+      notes: "Verified",
+      allocation: [
+        { loan_id: 81, customer_id: 33, amount: 66528 },
+        { loan_id: 82, customer_id: 34, amount: 0 },
+      ],
+    });
+    assert.deepEqual(payload.allocations, [{ loan_id: 81, customer_id: 33, amount: 66528 }]);
+  });
+
+  it("splits a receipt across outstanding balances without exceeding any loan", () => {
+    const rows = splitReceiptAcrossOutstanding(66528, [
+      { loan_id: "81", outstanding: 50000 },
+      { loan_id: "82", outstanding: 20000 },
+    ]);
+    assert.equal(rows.reduce((sum, row) => sum + row.amount, 0), 66528);
+    assert.equal(rows.find((row) => row.loan_id === "81")?.amount, 47520);
+    assert.equal(rows.find((row) => row.loan_id === "82")?.amount, 19008);
+  });
+
+  it("sums member allocation rows when the API returns them", () => {
+    const result = extractAllocateToGroupResult({
+      already_allocated: false,
+      group_id: 12,
+      allocations: [
+        { payment_id: "44", loan_id: 81, penalty_allocated: 1000, principal_allocated: 20000 },
+        { payment_id: "45", loan_id: 82, penalty_allocated: 500, principal_allocated: 45028 },
+      ],
+    });
+    assert.equal(result.already_allocated, false);
+    assert.equal(result.group_id, "12");
+    assert.equal(result.penalty_allocated, 1500);
+    assert.equal(result.principal_allocated, 65028);
+  });
+});
+
+describe("clickpesa group name suggestion", () => {
+  const groups = [
+    { id: "12", group_name: "Uaminifu Group", group_code: "GRP-12", status: "active", branch_id: "branch-dom01" },
+    { id: "13", group_name: "Tumaini Group", group_code: "GRP-13", status: "active", branch_id: "branch-dom01" },
+    { id: "14", group_name: "Old Group", group_code: "GRP-14", status: "inactive", branch_id: "branch-dom01" },
+  ];
+
+  it("normalizes whitespace and case for exact matching", () => {
+    assert.equal(normalizeClickPesaPayerName("  uaminifu   group "), "UAMINIFU GROUP");
+  });
+
+  it("suggests a unique active group that exactly matches the payer name", () => {
+    const match = exactActiveGroupMatch(groups, "UAMINIFU GROUP");
+    assert.equal(match?.id, "12");
+    assert.equal(hasExactActiveGroupMatch(groups, "UAMINIFU GROUP"), true);
+  });
+
+  it("does not treat a payer that merely resembles a group name as a match", () => {
+    assert.equal(exactActiveGroupMatch(groups, "SEJA HABIBU MOHAMED"), undefined);
+    assert.equal(hasExactActiveGroupMatch(groups, "SOME OTHER GROUP"), false);
+    assert.equal(exactActiveGroupMatch(groups, "Old Group"), undefined);
   });
 });
 

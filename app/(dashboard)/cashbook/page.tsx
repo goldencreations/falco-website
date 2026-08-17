@@ -955,7 +955,7 @@ export default function CashbookPage() {
                                         onClick={() => setAllocateEntry(entry)}
                                       >
                                         <Banknote className="mr-1 h-3.5 w-3.5" />
-                                        Allocate to loan
+                                        Allocate repayment
                                       </Button>
                                     ) : null}
                                     {canClassify ? (
