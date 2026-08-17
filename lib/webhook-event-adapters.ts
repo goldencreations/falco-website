@@ -35,12 +35,14 @@ export function adaptApiWebhookHealth(raw: unknown): WebhookHealthSummary | null
       : o.data && typeof o.data === "object" && !Array.isArray(o.data)
         ? (o.data as Record<string, unknown>)
         : o;
+  const counts =
+    inner.counts && typeof inner.counts === "object" ? (inner.counts as Record<string, unknown>) : undefined;
   return {
-    received: num(inner.received),
-    processed: num(inner.processed),
-    failed: num(inner.failed),
-    pending: num(inner.pending),
-    duplicate: num(inner.duplicate),
+    received: num(inner.received ?? counts?.received),
+    processed: num(inner.processed ?? counts?.processed),
+    failed: num(inner.failed ?? counts?.failed),
+    pending: num(inner.pending ?? counts?.pending),
+    duplicate: num(inner.duplicate ?? counts?.duplicate),
     oldest_pending_at: str(inner.oldest_pending_at) || undefined,
   };
 }

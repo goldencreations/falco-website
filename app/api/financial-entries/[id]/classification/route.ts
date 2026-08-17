@@ -15,7 +15,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if ("response" in auth) return auth.response;
 
   const mayClassify =
-    MAY_CLASSIFY.has(auth.user.role) || auth.user.permissions?.includes("financial_entries.classify");
+    MAY_CLASSIFY.has(auth.user.role) ||
+    auth.user.permissions?.includes("financial_entries.classify") ||
+    auth.user.permissions?.includes("payments.create");
   if (!mayClassify) {
     return NextResponse.json(
       { message: "You do not have permission to classify cashbook entries." },

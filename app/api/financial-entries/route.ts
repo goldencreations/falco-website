@@ -13,6 +13,19 @@ export async function GET(request: Request) {
   if ("response" in auth) return auth.response;
 
   const url = new URL(request.url);
+  const source = url.searchParams.get("source") ?? undefined;
+  const category = url.searchParams.get("category") ?? undefined;
+  const unmatchedQueue =
+    source === "clickpesa" && category === "unclassified_gateway_income";
+  const clientBranchId = url.searchParams.get("branch_id");
+  const branchId = unmatchedQueue
+    ? auth.user.role === "branch_manager" || auth.user.role === "loan_officer"
+      ? auth.user.branch_id?.trim() || undefined
+      : undefined
+    : auth.user.role === "accountant" || auth.user.role === "super_admin"
+      ? clientBranchId?.trim() || undefined
+      : resolvedBranchIdForListQuery(auth.user, clientBranchId);
+
   const res = await falcoServerFetch<unknown>("/financial-entries", {
     request,
     query: {
@@ -21,10 +34,10 @@ export async function GET(request: Request) {
       from: url.searchParams.get("from") ?? undefined,
       to: url.searchParams.get("to") ?? undefined,
       direction: url.searchParams.get("direction") ?? undefined,
-      category: url.searchParams.get("category") ?? undefined,
-      source: url.searchParams.get("source") ?? undefined,
+      category,
+      source,
       status: url.searchParams.get("status") ?? undefined,
-      branch_id: resolvedBranchIdForListQuery(auth.user, url.searchParams.get("branch_id")),
+      branch_id: branchId,
     },
   });
 

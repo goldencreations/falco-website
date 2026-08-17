@@ -48,12 +48,39 @@ function normalizedCategoryForUi(params: { category: string }): string {
 /** Category sentinels meaning "an accountant still needs to classify this receipt". */
 const UNCLASSIFIED_CATEGORIES = new Set(["", "unclassified", "unclassified_gateway_income"]);
 
-/** True when this entry is an unclassified ClickPesa receipt that still needs an accountant to classify it. */
-export function financialEntryNeedsClassification(entry: Pick<FinancialEntry, "source" | "category" | "status" | "is_reversed">): boolean {
+function metadataFlag(entry: Pick<FinancialEntry, "metadata">, key: string): unknown {
+  return entry.metadata?.[key];
+}
+
+function metadataString(entry: Pick<FinancialEntry, "metadata">, key: string): string {
+  const v = metadataFlag(entry, key);
+  return v == null ? "" : String(v).trim();
+}
+
+/** Posted unmatched ClickPesa income that still needs classification (not a failed payment). */
+export function financialEntryIsUnmatchedClickPesa(
+  entry: Pick<FinancialEntry, "source" | "category" | "direction" | "status" | "is_reversed" | "metadata">
+): boolean {
   if (entry.source !== "clickpesa") return false;
-  if (entry.is_reversed || String(entry.status ?? "").toLowerCase() === "reversed") return false;
+  if (entry.direction && entry.direction !== "in") return false;
+  if (entry.is_reversed) return false;
+  const status = String(entry.status ?? "posted").toLowerCase();
+  if (status !== "posted") return false;
+  const classification = metadataString(entry, "classification").toLowerCase();
+  if (classification === "classified") return false;
   const category = (entry.category ?? "").trim().toLowerCase();
-  return UNCLASSIFIED_CATEGORIES.has(category);
+  const unmatchedFlag = metadataFlag(entry, "unmatched");
+  if (unmatchedFlag === false) return false;
+  const unmatched =
+    unmatchedFlag === true || classification === "unclassified_gateway_income" || UNCLASSIFIED_CATEGORIES.has(category);
+  return unmatched;
+}
+
+/** True when this entry is an unclassified ClickPesa receipt that still needs an accountant to classify it. */
+export function financialEntryNeedsClassification(
+  entry: Pick<FinancialEntry, "source" | "category" | "direction" | "status" | "is_reversed" | "metadata">
+): boolean {
+  return financialEntryIsUnmatchedClickPesa(entry);
 }
 
 /** True when a manual entry may be reversed (system-posted entries are never reversible here). */
@@ -65,8 +92,10 @@ const CATEGORY_LABELS: Record<string, string> = {
   loan_repayment: "Loan repayment",
   registration_fee: "Registration fee",
   loan_disbursement: "Loan disbursement",
-  unclassified: "Unclassified",
-  unclassified_gateway_income: "Unclassified",
+  unclassified: "Unmatched ClickPesa receipt",
+  unclassified_gateway_income: "Unmatched ClickPesa receipt",
+  application_fee: "Application fee",
+  other_income: "Other income",
 };
 
 export function financialEntryCategoryLabel(category: string | undefined | null): string {
@@ -83,34 +112,71 @@ export function financialEntryCategoryLabel(category: string | undefined | null)
 export function financialEntrySourceLabel(source: FinancialEntrySource): string {
   if (source === "clickpesa") return "ClickPesa";
   if (source === "manual") return "Manual";
-  return "System";
+  return "Automatic";
+}
+
+export function financialEntrySourceBadgeLabel(
+  entry: Pick<FinancialEntry, "source" | "category" | "direction" | "status" | "is_reversed" | "metadata">
+): string {
+  if (financialEntryIsUnmatchedClickPesa(entry)) return "ClickPesa unmatched";
+  if (entry.source === "system") return "Automatic";
+  return financialEntrySourceLabel(entry.source);
+}
+
+/** Channel / payer account — never "Gateway (Auto)". */
+export function financialEntryMethodLabel(
+  entry: Pick<FinancialEntry, "account_name" | "payment_method" | "source" | "metadata">
+): string {
+  const account = (entry.account_name ?? "").trim();
+  if (account) return account;
+  const channel = metadataString(entry, "channel");
+  if (channel) return channel;
+  if (entry.source === "clickpesa") return "ClickPesa";
+  const method = String(entry.payment_method ?? "").trim();
+  if (method && !/^gateway(\s*\(\s*auto\s*\))?$/i.test(method)) return method;
+  return "ClickPesa";
+}
+
+export function financialEntryOrderReference(
+  entry: Pick<FinancialEntry, "metadata" | "notes">
+): string | undefined {
+  const order = metadataString(entry, "order_reference");
+  if (order) return order;
+  const notes = entry.notes ?? "";
+  const match = notes.match(/order reference\s+([A-Za-z0-9]+)/i);
+  return match?.[1];
+}
+
+export function financialEntryPayerHint(entry: Pick<FinancialEntry, "metadata">): {
+  name?: string;
+  phone?: string;
+} {
+  const name = metadataString(entry, "gateway_customer_name");
+  const phone = metadataString(entry, "gateway_customer_phone");
+  return {
+    name: name || undefined,
+    phone: phone || undefined,
+  };
 }
 
 /**
- * UI label for auto/manual/system classification.
- * - System + gateway + loan_repayment => Loan repayment · Gateway (Auto)
- * - System + gateway + registration_fee => Registration fee · Gateway (Auto)
- * - Reversed legacy clickpesa => Superseded by automatic payment
- * - Historical clickpesa unclassified => Needs investigation
+ * Category label for the cashbook row.
+ * Unmatched ClickPesa income => Needs investigation. Matched auto rows stay Loan repayment / Registration fee.
+ * Never "Payment failed" or "Gateway (Auto)".
  */
-export function financialEntryDisplayLabel(entry: Pick<FinancialEntry, "source" | "category" | "status" | "payment_method" | "reversal_reason">): string {
-  const category = (entry.category ?? "").trim().toLowerCase();
+export function financialEntryDisplayLabel(
+  entry: Pick<
+    FinancialEntry,
+    "source" | "category" | "direction" | "status" | "payment_method" | "reversal_reason" | "is_reversed" | "metadata"
+  >
+): string {
   const status = (entry.status ?? "").trim().toLowerCase();
-  const method = String(entry.payment_method ?? "").trim().toLowerCase();
   const reversedSuperseded =
     entry.source === "clickpesa" &&
     status === "reversed" &&
     /superseded by an automatically allocated clickpesa payment/i.test(entry.reversal_reason ?? "");
   if (reversedSuperseded) return "Superseded by automatic payment";
-  if (entry.source === "clickpesa" && status === "posted" && UNCLASSIFIED_CATEGORIES.has(category)) {
-    return "Needs investigation";
-  }
-  if (entry.source === "system" && category === "loan_repayment" && method === "gateway") {
-    return "Loan repayment · Gateway (Auto)";
-  }
-  if (entry.source === "system" && category === "registration_fee" && method === "gateway") {
-    return "Registration fee · Gateway (Auto)";
-  }
+  if (financialEntryIsUnmatchedClickPesa(entry)) return "Needs investigation";
   return financialEntryCategoryLabel(entry.category);
 }
 
@@ -125,10 +191,11 @@ export function adaptApiFinancialEntryRow(raw: Record<string, unknown>): Financi
   const source = asSource(inner.source);
   const direction = asDirection(inner.direction ?? inner.type);
   const md = readNested(inner, "metadata");
-  const customerId =
-    inner.customer_id != null ? str(inner.customer_id) : customer?.id != null ? str(customer.id) : undefined;
+  const customerIdRaw =
+    inner.customer_id != null ? str(inner.customer_id) : customer?.id != null ? str(customer.id) : "";
+  const customerId = customerIdRaw.trim() || undefined;
   const category = normalizedCategoryForUi({
-    category: str(inner.category ?? (source === "clickpesa" ? "unclassified" : "")),
+    category: str(inner.category ?? (source === "clickpesa" ? "unclassified_gateway_income" : "")),
   });
 
   return {
@@ -143,7 +210,10 @@ export function adaptApiFinancialEntryRow(raw: Record<string, unknown>): Financi
     branch_id: inner.branch_id != null ? str(inner.branch_id) : branch?.id != null ? str(branch.id) : undefined,
     branch_name: str(branch?.name ?? inner.branch_name) || undefined,
     customer_id: customerId,
-    customer_name: fullName(customer) ?? (inner.customer_name != null ? str(inner.customer_name) : undefined),
+    // Only a confirmed Falco customer — never ClickPesa payer name / account_name.
+    customer_name: customerId
+      ? fullName(customer) ?? (inner.customer_name != null ? str(inner.customer_name) : undefined)
+      : undefined,
     income_type: str(inner.income_type) || undefined,
     notes: str(inner.notes ?? inner.description) || undefined,
     reference: str(inner.reference_number ?? inner.reference ?? inner.external_reference) || undefined,
@@ -229,9 +299,10 @@ export function mapUiFinancialEntryClassificationToApi(body: Record<string, unkn
   }
   const notes = str(body.classification_notes ?? body.notes).trim();
   if (notes) {
-    payload.description = notes;
     payload.classification_notes = notes;
     payload.notes = notes;
   }
+  const description = str(body.description ?? notes).trim();
+  if (description) payload.description = description;
   return payload;
 }

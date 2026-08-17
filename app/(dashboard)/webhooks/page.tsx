@@ -1,6 +1,8 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import {
   AlertTriangle,
   ChevronDown,
@@ -44,6 +46,16 @@ import { useSessionUser } from "@/lib/use-session-user";
 
 const POLL_INTERVAL_MS = 60_000;
 
+function isoDateDaysAgo(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+
+function todayIsoDate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function statusBadge(status: WebhookEventStatus) {
   if (status === "processed") {
     return (
@@ -78,9 +90,16 @@ function statusBadge(status: WebhookEventStatus) {
 
 export default function WebhookHealthPage() {
   const { user, loaded: sessionLoaded } = useSessionUser();
-  const canAccess = user?.role === "super_admin" || user?.role === "accountant";
+  const pathname = usePathname();
+  const canAccess =
+    user?.role === "super_admin" ||
+    user?.role === "accountant" ||
+    Boolean(user?.permissions?.includes("webhooks.manage"));
   const canManageWebhooks =
     canAccess || Boolean(user?.permissions?.includes("webhooks.manage"));
+  const cashbookUnmatchedHref = pathname.startsWith("/accountant")
+    ? "/accountant/cashbook?view=unmatched"
+    : "/cashbook?view=unmatched";
 
   const [hours, setHours] = useState<"24" | "168">("24");
   const [health, setHealth] = useState<WebhookHealthSummary | null>(null);
@@ -122,7 +141,15 @@ export default function WebhookHealthPage() {
   const loadEvents = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setEventsLoading(true);
     try {
-      const res = await fetch(`/api/webhook-events?gateway=clickpesa&page_size=200`, {
+      const days = hours === "168" ? 7 : 1;
+      const params = new URLSearchParams();
+      params.set("gateway", "clickpesa");
+      params.set("status", "failed");
+      params.set("from", isoDateDaysAgo(days));
+      params.set("to", todayIsoDate());
+      params.set("page", "1");
+      params.set("page_size", "200");
+      const res = await fetch(`/api/webhook-events?${params.toString()}`, {
         credentials: "include",
       });
       const { data } = await parseJsonResponse<{ events?: WebhookEvent[]; data?: WebhookEvent[]; message?: string }>(
@@ -140,6 +167,22 @@ export default function WebhookHealthPage() {
       if (!opts?.silent) setError(e instanceof Error ? e.message : "Failed to load webhook events");
     } finally {
       if (!opts?.silent) setEventsLoading(false);
+    }
+  }, [hours]);
+
+  const refetchCashbookUnmatched = useCallback(async () => {
+    try {
+      const params = new URLSearchParams();
+      params.set("source", "clickpesa");
+      params.set("category", "unclassified_gateway_income");
+      params.set("status", "posted");
+      params.set("from", isoDateDaysAgo(30));
+      params.set("to", todayIsoDate());
+      params.set("page", "1");
+      params.set("page_size", "50");
+      await fetch(`/api/financial-entries?${params.toString()}`, { credentials: "include" });
+    } catch {
+      // Cashbook will load itself when opened; this is a best-effort refresh after retry.
     }
   }, []);
 
@@ -194,8 +237,8 @@ export default function WebhookHealthPage() {
 
   const retry = async (group: ReceiptAttemptGroup) => {
     const event = group.latest;
-    if (!group.can_retry || !canManageWebhooks) return;
-    const confirmText = `Retry this unresolved receipt?\n\nEvent reference: ${group.event_reference}\nOrder reference: ${group.order_reference ?? "—"}\n\nOnly retry after confirming no matching payment exists and the reference mapping issue is corrected.`;
+    if (event.status !== "failed" || !canManageWebhooks) return;
+    const confirmText = `Retry this failed processing event?\n\nEvent reference: ${group.event_reference}\nOrder reference: ${group.order_reference ?? "—"}\n\nFailed means a payload, amount, or processing error — not an unknown customer. Unmatched receipts appear in Cashbook → Unmatched.`;
     if (!window.confirm(confirmText)) return;
 
     setRetryingIds((prev) => new Set(prev).add(event.id));
@@ -206,13 +249,13 @@ export default function WebhookHealthPage() {
       });
       const { data } = await parseJsonResponse<Record<string, unknown>>(res);
       if (res.status === 202) {
-        toast.success(`Retry queued for ${event.event_reference || event.id}`);
-        await refreshAll({ silent: true });
+        toast.success("Retry queued. If a receipt posts, it will appear in Cashbook → Unmatched — not as a new payment.");
+        await Promise.all([refreshAll({ silent: true }), refetchCashbookUnmatched()]);
         return;
       }
       if (res.status === 409) {
         toast.info("This event is already resolved or processing — refreshing the list.");
-        await refreshAll({ silent: true });
+        await Promise.all([refreshAll({ silent: true }), refetchCashbookUnmatched()]);
         return;
       }
       if (res.status === 401) {
@@ -270,7 +313,7 @@ export default function WebhookHealthPage() {
   if (!canAccess) {
     return (
       <>
-        <DashboardHeader title="Webhook Health" description="Accountant / super admin access only." />
+        <DashboardHeader title="Webhook Health" description="Admins with webhook access only." />
         <main className="flex-1 p-4 lg:p-6">
           <Card className="mx-auto max-w-3xl border-destructive/30 bg-destructive/5">
             <CardHeader>
@@ -279,7 +322,7 @@ export default function WebhookHealthPage() {
                 Access denied
               </CardTitle>
               <CardDescription>
-                Only accountants and the super admin can view ClickPesa webhook health.
+                Only accountants, the super admin, or staff with webhooks.manage can view ClickPesa webhook health.
               </CardDescription>
             </CardHeader>
           </Card>
@@ -292,7 +335,7 @@ export default function WebhookHealthPage() {
     <>
       <DashboardHeader
         title="Webhook Health"
-        description="ClickPesa gateway callbacks: delivery health and failed-event retry."
+        description="ClickPesa delivery health. Failed events are payload, amount, or processing errors — unmatched BillPay numbers now post to Cashbook as unclassified income."
       />
       <main className="flex-1 overflow-auto p-4 lg:p-6">
         <div className="mx-auto max-w-6xl space-y-6">
@@ -338,6 +381,29 @@ export default function WebhookHealthPage() {
             </div>
           )}
 
+          {(health?.failed ?? 0) > 0 ? (
+            <Card className="border-amber-200 bg-amber-50">
+              <CardContent className="space-y-1 py-3 text-sm text-amber-900">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>
+                    {health?.failed} failed event{health?.failed === 1 ? "" : "s"} in this window.
+                    Unmatched receipts now appear in Cashbook → Unmatched. Failed events are processing
+                    errors.
+                  </span>
+                </div>
+                <p className="pl-6 text-xs">
+                  After deploy, unknown or ambiguous ClickPesa receipts are posted as unclassified
+                  income. They are not expected to stay in this failed list.{" "}
+                  <Link href={cashbookUnmatchedHref} className="underline underline-offset-2">
+                    Open unmatched cashbook
+                  </Link>
+                  .
+                </p>
+              </CardContent>
+            </Card>
+          ) : null}
+
           {(health?.pending ?? 0) > 0 ? (
             <Card className="border-amber-200 bg-amber-50">
               <CardContent className="flex items-center gap-2 py-3 text-sm text-amber-900">
@@ -351,10 +417,13 @@ export default function WebhookHealthPage() {
           ) : null}
 
           <div>
-            <div className="mb-3 flex items-center justify-between">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-sm font-medium text-muted-foreground">
-                Failed attempts {failedAttemptsCount > 0 ? `(${failedAttemptsCount})` : ""}
+                Failed processing events {failedAttemptsCount > 0 ? `(${failedAttemptsCount})` : ""}
               </h2>
+              <Button type="button" variant="link" className="h-auto p-0 text-sm" asChild>
+                <Link href={cashbookUnmatchedHref}>Cashbook → Unmatched</Link>
+              </Button>
             </div>
             {eventsLoading ? (
               <div className="flex items-center justify-center gap-2 py-10 text-muted-foreground">
@@ -381,7 +450,8 @@ export default function WebhookHealthPage() {
                         {receiptGroups.length === 0 ? (
                           <TableRow>
                             <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
-                              No failed ClickPesa receipt attempts in this range.
+                              No failed ClickPesa processing events in this range. Unmatched receipts
+                              appear in Cashbook → Unmatched.
                             </TableCell>
                           </TableRow>
                         ) : (
@@ -442,12 +512,8 @@ export default function WebhookHealthPage() {
                                   </TableCell>
                                   <TableCell className="text-right">
                                     {group.resolution === "resolved_after_failure" ? (
-                                      <a href="/payments" className="inline-block">
-                                        <Badge variant="outline">Resolved after failure</Badge>
-                                      </a>
-                                    ) : group.resolution === "not_checked" ? (
-                                      <Badge variant="secondary">Check payments first</Badge>
-                                    ) : (
+                                      <Badge variant="outline">Resolved after failure</Badge>
+                                    ) : latest.status === "failed" ? (
                                       <Button
                                         type="button"
                                         size="sm"
@@ -462,7 +528,7 @@ export default function WebhookHealthPage() {
                                         )}
                                         Retry
                                       </Button>
-                                    )}
+                                    ) : null}
                                   </TableCell>
                                 </TableRow>
                                 {expanded
@@ -503,8 +569,8 @@ export default function WebhookHealthPage() {
           </div>
 
           <p className="text-xs text-muted-foreground">
-            Statuses shown here are informational only — this screen never automatically credits a
-            receipt to a loan or customer.
+            Unmatched BillPay numbers are posted to Cashbook as unclassified income. This screen does
+            not create a payment or a second cashbook row. Retry is only for failed processing events.
           </p>
         </div>
       </main>
