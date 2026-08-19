@@ -48,10 +48,14 @@ export default function LoanDetailPage() {
  const load = async () => {
  try {
  const [dRes, sRes, pRes, cRes] = await Promise.all([
- fetch(`/api/loans/${encodeURIComponent(loanId)}`),
- fetch(`/api/loans/${encodeURIComponent(loanId)}/schedule`),
- fetch(`/api/payments?loan_id=${encodeURIComponent(loanId)}&page_size=100`),
- fetch(`/api/collections/activities?loan_id=${encodeURIComponent(loanId)}&page_size=100`),
+          fetch(`/api/loans/${encodeURIComponent(loanId)}`, { cache: "no-store" }),
+          fetch(`/api/loans/${encodeURIComponent(loanId)}/schedule`, { cache: "no-store" }),
+          fetch(`/api/payments?loan_id=${encodeURIComponent(loanId)}&page_size=100`, {
+            cache: "no-store",
+          }),
+          fetch(`/api/collections/activities?loan_id=${encodeURIComponent(loanId)}&page_size=100`, {
+            cache: "no-store",
+          }),
  ]);
 
  if (cancelled) return;
@@ -68,7 +72,9 @@ export default function LoanDetailPage() {
  let cust = extractCustomerFromLoanDetail(dJson);
  const resolvedCid = loanRow.customer_id?.trim() || "";
  if (!cust && resolvedCid) {
- const cr = await fetch(`/api/customers/${encodeURIComponent(resolvedCid)}`);
+            const cr = await fetch(`/api/customers/${encodeURIComponent(resolvedCid)}`, {
+              cache: "no-store",
+            });
  if (cr.ok) {
  const cj = await cr.json();
  const row = extractCustomerDetail(cj);

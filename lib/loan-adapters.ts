@@ -300,9 +300,15 @@ export function adaptApiLoanRow(raw: Record<string, unknown>): LoanListRow {
  branch_id: str(row.branch_id ?? ""),
 
  principal_amount: principal,
+ principal_interest_amount:
+ row.principal_interest_amount != null ? num(row.principal_interest_amount) : undefined,
+ processing_fee_interest_amount:
+ row.processing_fee_interest_amount != null ? num(row.processing_fee_interest_amount) : undefined,
  interest_amount: interest,
  total_fees: fees,
  total_amount: totalAmount,
+ total_repayment: row.total_repayment != null ? num(row.total_repayment) : undefined,
+ repayment_count: row.repayment_count != null ? num(row.repayment_count) : undefined,
 
  principal_outstanding: principalOut,
  interest_outstanding: interestOut,

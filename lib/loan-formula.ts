@@ -46,10 +46,13 @@ export function repaymentCountForFormula(
  termDays: number,
  months: number
 ): number {
- if (frequency === "daily") return Math.max(1, termDays);
- if (frequency === "weekly") return Math.max(1, Math.round(months * 4));
- if (frequency === "bi_weekly") return Math.max(1, Math.round(months * 2));
- return Math.max(1, Math.round(months));
+  const safeTermDays = Math.max(1, Math.round(Number(termDays) || 0));
+  if (frequency === "daily") return safeTermDays;
+  // Falco business rule: weekly and bi-weekly counts are month-based (30-day month),
+  // not strict calendar-day division.
+  if (frequency === "weekly") return Math.max(1, Math.round(months * 4));
+  if (frequency === "bi_weekly") return Math.max(1, Math.round(months * 2));
+  return Math.max(1, Math.round(months));
 }
 
 export function monthsFromTermDays(termDays: number): number {

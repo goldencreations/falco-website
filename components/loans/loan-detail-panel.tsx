@@ -11,7 +11,6 @@ import {
  User,
 } from "lucide-react";
 import { toast } from "sonner";
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -181,12 +180,6 @@ export function LoanDetailPanel({
  const interestCollected = viewPaymentsCompleted.reduce((sum, p) => sum + p.interest_allocated, 0);
  const feeCollected = viewPaymentsCompleted.reduce((sum, p) => sum + p.fees_allocated, 0);
  const penaltyCollected = viewPaymentsCompleted.reduce((sum, p) => sum + p.penalty_allocated, 0);
- const disbursementChartData = [
- { name: "Disbursed", amount: loan.principal_amount },
- { name: "Collected", amount: totalCollected },
- { name: "Interest", amount: loan.interest_amount },
- { name: "Outstanding", amount: loan.total_outstanding },
- ];
  const risk = riskConfig[loan.risk_classification] ?? riskConfig.current;
 
  return (
@@ -263,35 +256,71 @@ export function LoanDetailPanel({
 
  <Card className={plainCardClass}>
  <CardHeader className="pb-2">
- <CardTitle className="text-base">Financial Distribution</CardTitle>
+ <CardTitle className="text-base">Loan Pricing</CardTitle>
  </CardHeader>
- <CardContent className="grid gap-4 lg:grid-cols-2">
- <div className="h-64 w-full">
- <ResponsiveContainer width="100%" height="100%">
- <BarChart data={disbursementChartData}>
- <CartesianGrid strokeDasharray="3 3" />
- <XAxis dataKey="name" tick={{ fontSize: 12 }} />
- <YAxis tickFormatter={(v) => `${Number(v) / 1000000}M`} />
- <Tooltip formatter={(value: number) => formatCurrency(value)} />
- <Bar dataKey="amount" radius={[6, 6, 0, 0]} fill="hsl(var(--primary))" />
- </BarChart>
- </ResponsiveContainer>
+ <CardContent className="space-y-4">
+ <div className="flex flex-wrap items-end justify-between gap-4 rounded-lg border border-primary/20 bg-primary/5 p-4">
+ <div>
+ <p className="text-xs text-muted-foreground">Installment amount</p>
+ <p className="text-2xl font-bold text-primary">
+ {formatCurrency(loan.installment_amount)}
+ </p>
  </div>
- <div className="space-y-3">
+ <div className="text-right">
+ <p className="text-xs text-muted-foreground">Total repayment</p>
+ <p className="text-2xl font-bold">
+ {formatCurrency(loan.total_repayment ?? loan.total_amount)}
+ </p>
+ </div>
+ </div>
+ <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
  <div className="rounded-lg border border-border p-3">
- <p className="text-xs text-muted-foreground">Disbursed Principal</p>
+ <p className="text-xs text-muted-foreground">Disbursed principal</p>
  <p className="text-lg font-semibold">{formatCurrency(loan.principal_amount)}</p>
  </div>
  <div className="rounded-lg border border-border p-3">
- <p className="text-xs text-muted-foreground">Collections to Date</p>
- <p className="text-lg font-semibold">{formatCurrency(totalCollected)}</p>
+ <p className="text-xs text-muted-foreground">Interest on principal</p>
+ <p className="text-lg font-semibold">
+ {formatCurrency(loan.principal_interest_amount ?? loan.interest_amount)}
+ </p>
  </div>
+ {loan.processing_fee_interest_amount != null && loan.processing_fee_interest_amount > 0 ? (
  <div className="rounded-lg border border-border p-3">
- <p className="text-xs text-muted-foreground">Interest Amount</p>
+ <p className="text-xs text-muted-foreground">Interest on processing fee</p>
+ <p className="text-lg font-semibold">
+ {formatCurrency(loan.processing_fee_interest_amount)}
+ </p>
+ </div>
+ ) : null}
+ <div className="rounded-lg border border-border p-3">
+ <p className="text-xs text-muted-foreground">Total interest</p>
  <p className="text-lg font-semibold">{formatCurrency(loan.interest_amount)}</p>
  </div>
  <div className="rounded-lg border border-border p-3">
- <p className="text-xs text-muted-foreground">Outstanding Balance</p>
+ <p className="text-xs text-muted-foreground">Total fees</p>
+ <p className="text-lg font-semibold">{formatCurrency(loan.total_fees)}</p>
+ </div>
+ <div className="rounded-lg border border-border p-3">
+ <p className="text-xs text-muted-foreground">Installments</p>
+ <p className="text-lg font-semibold">
+ {loan.repayment_count ?? (schedule.length > 0 ? schedule.length : "—")}
+ </p>
+ </div>
+ </div>
+ </CardContent>
+ </Card>
+
+ <Card className={plainCardClass}>
+ <CardHeader className="pb-2">
+ <CardTitle className="text-base">Balances</CardTitle>
+ </CardHeader>
+ <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+ <div className="rounded-lg border border-border p-3">
+ <p className="text-xs text-muted-foreground">Collections to date</p>
+ <p className="text-lg font-semibold">{formatCurrency(totalCollected)}</p>
+ </div>
+ <div className="rounded-lg border border-border p-3">
+ <p className="text-xs text-muted-foreground">Outstanding balance</p>
  <p className="text-lg font-semibold">{formatCurrency(loan.total_outstanding)}</p>
  </div>
  <div className="rounded-lg border border-border p-3">
@@ -303,7 +332,6 @@ export function LoanDetailPanel({
  <div className="rounded-lg border border-border p-3">
  <p className="text-xs text-muted-foreground">Daily late penalty</p>
  <p className="text-lg font-semibold">{formatCurrency(loan.daily_penalty_rate ?? 0)}/day</p>
- </div>
  </div>
  </CardContent>
  </Card>
@@ -390,17 +418,33 @@ export function LoanDetailPanel({
  <TableHeader>
  <TableRow>
  <TableHead>Due date</TableHead>
+ <TableHead className="text-right">Installment</TableHead>
+ <TableHead className="text-right">Installment paid</TableHead>
+ <TableHead className="text-right">Balance</TableHead>
  <TableHead className="text-right">Days overdue</TableHead>
  <TableHead className="text-right">Penalty</TableHead>
  <TableHead className="text-right">Penalty paid</TableHead>
  <TableHead className="text-right">Penalty left</TableHead>
- <TableHead className="text-right">Balance due</TableHead>
  </TableRow>
  </TableHeader>
  <TableBody>
- {schedule.map((row) => (
+ {schedule.map((row) => {
+ const installment =
+ row.total_due || row.principal_due + row.interest_due + row.fees_due;
+ const installmentPaid = row.total_paid;
+ const balance = row.balance_due ?? row.balance;
+ return (
  <TableRow key={row.id}>
  <TableCell className="text-sm">{formatDate(row.due_date)}</TableCell>
+ <TableCell className="text-right font-medium">{formatCurrency(installment)}</TableCell>
+ <TableCell className="text-right">{formatCurrency(installmentPaid)}</TableCell>
+ <TableCell className="text-right">
+ {balance > 0 ? (
+ <span className="font-medium text-destructive">{formatCurrency(balance)}</span>
+ ) : (
+ <span className="text-muted-foreground">{formatCurrency(0)}</span>
+ )}
+ </TableCell>
  <TableCell className="text-right">
  {row.days_overdue > 0 ? (
  <span className="font-medium text-destructive">{row.days_overdue}</span>
@@ -411,11 +455,9 @@ export function LoanDetailPanel({
  <TableCell className="text-right">{formatCurrency(row.penalty_due)}</TableCell>
  <TableCell className="text-right">{formatCurrency(row.penalty_paid)}</TableCell>
  <TableCell className="text-right">{formatCurrency(row.penalty_outstanding)}</TableCell>
- <TableCell className="text-right font-medium">
- {formatCurrency(row.balance_due || row.balance)}
- </TableCell>
  </TableRow>
- ))}
+ );
+ })}
  </TableBody>
  </Table>
  </div>
