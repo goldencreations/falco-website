@@ -297,9 +297,13 @@ export interface Loan {
  
  // Amounts
  principal_amount: number;
+ principal_interest_amount?: number;
+ processing_fee_interest_amount?: number;
  interest_amount: number;
  total_fees: number;
  total_amount: number;
+ total_repayment?: number;
+ repayment_count?: number;
  
  // Outstanding
  principal_outstanding: number;
