@@ -27,6 +27,11 @@ export function useNavigationTransition() {
  return context;
 }
 
+/** Same as `useNavigationTransition` but returns null outside the shell (e.g. manager layout). */
+export function useOptionalNavigationTransition() {
+ return useContext(NavigationTransitionContext);
+}
+
 type NavigationLinkProps = Omit<ComponentProps<typeof Link>, "href"> & {
  href: string;
  children: ReactNode;

@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, usePathname, useRouter } from "next/navigation";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { CustomerEditDialog } from "@/components/customers/customer-edit-dialog";
 import { DashboardHeader } from "@/components/dashboard-header";
+import { useOptionalNavigationTransition } from "@/components/navigation-transition-context";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { adaptApiCustomerRowToCustomer, extractCustomerDetail } from "@/lib/customer-adapters";
@@ -15,25 +16,26 @@ import {
  invalidateCustomerDetailCache,
  setCachedCustomerDetail,
 } from "@/lib/customer-detail-cache";
+import { resolvePortalPathFromPathname } from "@/lib/portal-paths";
 import { useSessionUser } from "@/lib/use-session-user";
 import type { Customer } from "@/lib/types";
 
 export function CustomerEditPage() {
  const { id: customerId } = useParams<{ id: string }>();
+ const pathname = usePathname();
  const router = useRouter();
+ const navigation = useOptionalNavigationTransition();
  const { user } = useSessionUser();
- const customersListPath =
- user?.role === "branch_manager"
- ? "/manager/customers"
- : user?.role === "loan_officer"
- ? "/officer/customers"
- : "/customers";
- const profilePath =
- user?.role === "branch_manager"
- ? `/manager/customers/${customerId}`
- : user?.role === "loan_officer"
- ? `/officer/customers/${customerId}`
- : `/customers/${customerId}`;
+ const customersListPath = resolvePortalPathFromPathname(pathname, "/customers");
+ const profilePath = customerId
+ ? resolvePortalPathFromPathname(pathname, `/customers/${customerId}`)
+ : customersListPath;
+
+ const goToProfile = useCallback(() => {
+ if (!customerId) return;
+ navigation?.startNavigation(profilePath);
+ router.push(profilePath);
+ }, [customerId, navigation, profilePath, router]);
 
  const [customer, setCustomer] = useState<Customer | null>(null);
  const [sourceRow, setSourceRow] = useState<Record<string, unknown> | null>(null);
@@ -125,11 +127,9 @@ export function CustomerEditPage() {
  Edit KYC, assignment, guarantors, collateral, risk, payment, and attachment details in the same workspace style as customer creation.
  </p>
  </div>
- <Button variant="outline" asChild>
- <Link href={profilePath}>
+ <Button type="button" variant="outline" onClick={goToProfile} disabled={!customerId}>
  <ArrowLeft className="mr-2 h-4 w-4" />
  Back to Profile
- </Link>
  </Button>
  </div>
 
@@ -156,7 +156,7 @@ export function CustomerEditPage() {
  mode="page"
  open
  onOpenChange={(open) => {
- if (!open) router.push(profilePath);
+ if (!open) goToProfile();
  }}
  customerId={customerId}
  customer={customer}
@@ -165,7 +165,7 @@ export function CustomerEditPage() {
  setCustomer(next);
  setSourceRow(row);
  if (row) setCachedCustomerDetail(customerId, row, next);
- router.push(profilePath);
+ goToProfile();
  }}
  />
  </CardContent>
