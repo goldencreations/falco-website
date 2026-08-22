@@ -1,3 +1,4 @@
+import { calculateLoanFormula, monthsFromTermDays } from "@/lib/loan-formula";
 import { parseMoneyInput } from "@/lib/money-input";
 import type { InterestType, LoanProduct, RepaymentFrequency } from "@/lib/types";
 
@@ -249,4 +250,168 @@ export function getProductCalculatorValidationError(
   const termDays = Math.round(num(form.termDays));
   if (termDays < 1) return "Enter a loan term in days.";
   return validateProductCalculatorPreview(principal, termDays, product);
+}
+
+function parseScheduleDate(value: string): Date {
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return new Date();
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function formatScheduleDate(date: Date): string {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function addScheduleDays(date: Date, days: number): Date {
+  const next = new Date(date.getTime());
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+}
+
+function addScheduleMonths(date: Date, months: number): Date {
+  const next = new Date(date.getTime());
+  next.setUTCMonth(next.getUTCMonth() + months);
+  return next;
+}
+
+/** Due date for installment N in a manual preview schedule. */
+export function scheduleDueDateForPreview(
+  startDate: string,
+  frequency: RepaymentFrequency,
+  installmentNumber: number
+): string {
+  const baseDate = parseScheduleDate(startDate);
+
+  if (frequency === "daily") {
+    return formatScheduleDate(addScheduleDays(baseDate, installmentNumber));
+  }
+  if (frequency === "weekly") {
+    return formatScheduleDate(addScheduleDays(baseDate, installmentNumber * 7));
+  }
+  if (frequency === "bi_weekly") {
+    return formatScheduleDate(addScheduleDays(baseDate, installmentNumber * 14));
+  }
+  return formatScheduleDate(addScheduleMonths(baseDate, installmentNumber));
+}
+
+function productInterestRatePerMonth(product: LoanProduct): number {
+  if (product.interest_rate_per_month != null && product.interest_rate_per_month > 0) {
+    return product.interest_rate_per_month;
+  }
+  if (product.interest_rate > 0) return product.interest_rate / 12;
+  return 0;
+}
+
+type FlatCalculatorPreviewInput = {
+  principal: number;
+  months: number;
+  termDays: number;
+  interestRatePerMonth: string | number;
+  processingFeePercent: string | number;
+  insuranceFeePercent: string | number;
+  repaymentFrequency: RepaymentFrequency;
+  startDate: string;
+};
+
+function buildFlatCalculatorPreview(input: FlatCalculatorPreviewInput): CalculatorResultView {
+  const formula = calculateLoanFormula({
+    principal: input.principal,
+    months: input.months,
+    interestRatePerMonth: input.interestRatePerMonth,
+    processingFeePercent: input.processingFeePercent,
+    insuranceFeePercent: input.insuranceFeePercent,
+    repaymentFrequency: input.repaymentFrequency,
+    interestType: "flat",
+  });
+  const {
+    interestRate,
+    processingFee,
+    insuranceFee,
+    interestOnPrincipal,
+    interestOnProcessingFee,
+    interestAmount,
+    totalFees,
+    totalRepayment,
+    repaymentCount,
+    installmentAmount,
+    repaymentFrequency,
+  } = formula;
+
+  const principalDue = input.principal / repaymentCount;
+  const interestDue = interestAmount / repaymentCount;
+  const feesDue = totalFees / repaymentCount;
+  const schedulePreview = Array.from({ length: repaymentCount }, (_, index) => {
+    const installmentNumber = index + 1;
+    return {
+      installmentNumber,
+      dueDate: scheduleDueDateForPreview(input.startDate, repaymentFrequency, installmentNumber),
+      principalDue,
+      interestDue,
+      feesDue,
+      totalDue: installmentAmount,
+    };
+  });
+
+  return {
+    principal: input.principal,
+    termDays: input.termDays,
+    loanPeriodMonths: input.months,
+    interestRate,
+    interestType: "flat",
+    interestAmount,
+    interestOnPrincipal,
+    interestOnProcessingFee,
+    processingFee,
+    insuranceFee,
+    totalFees,
+    totalRepayment,
+    installmentAmount,
+    repaymentCount,
+    repaymentFrequency,
+    firstRepaymentDate: schedulePreview[0]?.dueDate,
+    schedulePreview,
+  };
+}
+
+/**
+ * Manual simulation preview using Falco flat-interest policy:
+ * Total Loan = Principal + Processing Fee + Interest on Processing Fee + Interest on Principal + Insurance
+ * Installment count: weekly = months × 4, bi-weekly = months × 2, monthly = months.
+ */
+export function buildManualCalculatorPreview(form: CalculatorPreviewForm): CalculatorResultView {
+  const principal = num(parseMoneyInput(form.principal));
+  const months = Math.max(1, Math.round(num(form.loanPeriodMonths)));
+  return buildFlatCalculatorPreview({
+    principal,
+    months,
+    termDays: months * 30,
+    interestRatePerMonth: form.interestRatePerMonth,
+    processingFeePercent: form.processingFeePercent,
+    insuranceFeePercent: form.insuranceFeePercent,
+    repaymentFrequency: form.repaymentFrequency,
+    startDate: form.startDate,
+  });
+}
+
+/** Product-backed preview using the same flat-interest policy as manual simulation. */
+export function buildProductCalculatorPreview(
+  form: CalculatorPreviewForm,
+  product: LoanProduct
+): CalculatorResultView {
+  const principal = num(parseMoneyInput(form.principal));
+  const termDays = Math.max(1, Math.round(num(form.termDays)));
+  const months = monthsFromTermDays(termDays);
+  return buildFlatCalculatorPreview({
+    principal,
+    months,
+    termDays,
+    interestRatePerMonth: productInterestRatePerMonth(product),
+    processingFeePercent: product.processing_fee_percent,
+    insuranceFeePercent: product.insurance_fee_percent,
+    repaymentFrequency: product.repayment_frequency,
+    startDate: form.startDate,
+  });
 }

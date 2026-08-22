@@ -27,11 +27,10 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   apiInterestTypeToUi,
+  buildManualCalculatorPreview,
+  buildProductCalculatorPreview,
   extractCalculatorProductDefaults,
-  extractCalculatorResult,
   getProductCalculatorValidationError,
-  mapUiCalculatorPreviewToApi,
-  termDaysFromLoanPeriodMonths,
   type CalculatorPreviewForm,
   type CalculatorResultView,
 } from "@/lib/calculator-adapters";
@@ -53,8 +52,8 @@ const defaultForm: CalculatorPreviewForm = {
   principal: "",
   termDays: "",
   loanPeriodMonths: "",
-  repaymentFrequency: "monthly",
-  interestType: "declining_balance",
+  repaymentFrequency: "weekly",
+  interestType: "flat_interest",
   interestRatePerMonth: "",
   processingFeePercent: "",
   insuranceFeePercent: "",
@@ -463,27 +462,26 @@ export default function LoanCalculatorPage() {
       return;
     }
 
-    if (form.mode === "product") {
-      const validationError = getProductCalculatorValidationError(form, activeProduct);
-      if (validationError) {
-        setError(validationError);
-        setResult(null);
-        return;
+    if (form.mode === "manual") {
+      setCalculating(true);
+      setError(null);
+      setFieldErrors({});
+      try {
+        setResult(buildManualCalculatorPreview(form));
+      } finally {
+        setCalculating(false);
       }
-      if (!activeProduct) {
-        setError("Select a loan product to calculate.");
-        setResult(null);
-        return;
-      }
+      return;
     }
 
-    const payload = mapUiCalculatorPreviewToApi(form, activeProduct);
-    if (!payload) {
-      setError(
-        form.mode === "product"
-          ? "Enter Principal Amount and term (days) within the product limits."
-          : "Enter Principal Amount and period (months) to calculate."
-      );
+    const validationError = getProductCalculatorValidationError(form, activeProduct);
+    if (validationError) {
+      setError(validationError);
+      setResult(null);
+      return;
+    }
+    if (!activeProduct) {
+      setError("Select a loan product to calculate.");
       setResult(null);
       return;
     }
@@ -492,26 +490,7 @@ export default function LoanCalculatorPage() {
     setError(null);
     setFieldErrors({});
     try {
-      const res = await fetch("/api/calculator/preview", {
-        method: "POST",
-        credentials: "include",
-        cache: "no-store",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const { data } = await parseJsonResponse<unknown>(res);
-      if (!res.ok) {
-        if (res.status === 401) {
-          throw new Error("Your session expired. Please sign in again.");
-        }
-        throw new Error(formatApiResponseError(data, "Calculation failed"));
-      }
-      const parsed = extractCalculatorResult(data);
-      if (!parsed) throw new Error("Unexpected calculation response");
-      setResult(parsed);
-    } catch (e) {
-      setResult(null);
-      setError(e instanceof Error ? simpleCalculatorError(e.message) : "Calculation failed");
+      setResult(buildProductCalculatorPreview(form, activeProduct));
     } finally {
       setCalculating(false);
     }
@@ -577,8 +556,8 @@ export default function LoanCalculatorPage() {
                     Product-backed preview
                   </CardTitle>
                   <CardDescription>
-                    Select a loan product — processing fee, insurance, and interest come from the
-                    product. Custom rates are only used in manual simulation.
+                    Select a loan product — rates and fees come from the product settings. Uses
+                    the same flat-interest formula as manual simulation.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -675,7 +654,8 @@ export default function LoanCalculatorPage() {
                   </CardTitle>
                   <CardDescription>
                     Total Loan = Principal Amount + Processing Fee Amount + Interest on Processing
-                    Fee + Interest on Principal Amount + Insurance Amount.
+                    Fee + Interest on Principal Amount + Insurance Amount. Uses flat interest and
+                    the same installment policy as the loan calculator spreadsheet.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
@@ -742,27 +722,14 @@ export default function LoanCalculatorPage() {
                     </FieldGroup>
                   </div>
 
-                  <Separator />
-
                   <div className="space-y-3">
-                    <p className="text-sm font-medium">Interest</p>
+                    <p className="text-sm font-medium">Interest &amp; fees</p>
+                    <p className="text-xs text-muted-foreground">
+                      Flat interest: monthly rate is applied to principal and processing fee for the
+                      full loan period. Processing fee and insurance are percentages of principal.
+                    </p>
                     <FieldGroup>
                       <div className="grid gap-4 md:grid-cols-2">
-                        <Field>
-                          <FieldLabel>Interest type</FieldLabel>
-                          <Select
-                            value={form.interestType}
-                            onValueChange={(value) => updateForm("interestType", value)}
-                          >
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="declining_balance">Declining balance</SelectItem>
-                              <SelectItem value="flat_interest">Flat interest</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </Field>
                         <Field>
                           <FieldLabel>Interest rate (% per month)</FieldLabel>
                           <Input
@@ -778,21 +745,6 @@ export default function LoanCalculatorPage() {
                             <FieldError>{fieldErrors.interestRatePerMonth}</FieldError>
                           ) : null}
                         </Field>
-                      </div>
-                    </FieldGroup>
-                  </div>
-
-                  <Separator />
-
-                  <div className="space-y-3">
-                    <p className="text-sm font-medium">Processing & insurance fees</p>
-                    <p className="text-xs text-muted-foreground">
-                      Processing fee and insurance fee are percentages of the principal amount.
-                      Late payment penalties are not simulated here — they apply when installments
-                      are overdue.
-                    </p>
-                    <FieldGroup>
-                      <div className="grid gap-4 md:grid-cols-2">
                         <Field>
                           <FieldLabel>Processing fee (%)</FieldLabel>
                           <Input
