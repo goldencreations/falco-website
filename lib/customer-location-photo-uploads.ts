@@ -96,12 +96,15 @@ export async function uploadCustomerSupportingDocuments(
   for (const file of attachments.supporting_documents) {
     const validated = validateSupportingDocument(file);
     if (!validated.ok) return validated;
+
+    const result = await uploadCustomerFiles(
+      customerId,
+      CUSTOMER_SUPPORTING_DOCUMENT_TYPE,
+      [file],
+      "Supporting documents"
+    );
+    if (!result.ok) return result;
   }
 
-  return uploadCustomerFiles(
-    customerId,
-    CUSTOMER_SUPPORTING_DOCUMENT_TYPE,
-    attachments.supporting_documents,
-    "Supporting documents"
-  );
+  return { ok: true };
 }

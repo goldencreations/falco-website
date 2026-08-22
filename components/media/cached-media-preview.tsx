@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { toProxyUrl } from "@/lib/document-proxy";
+import { isPdfFilename } from "@/lib/media-preview";
 import { cn } from "@/lib/utils";
 
 type CachedMediaPreviewProps = {
@@ -66,6 +67,7 @@ export function CachedMediaPreview({
   const [retryToken, setRetryToken] = useState(0);
 
   const activeSrc = !failed && urls[urlIndex] ? `${urls[urlIndex]}${retryToken ? `&_r=${retryToken}` : ""}` : null;
+  const isPdf = isPdfFilename(alt);
 
   useEffect(() => {
     setUrlIndex(0);
@@ -104,41 +106,67 @@ export function CachedMediaPreview({
         <div
           className={cn(
             "absolute inset-0 z-10 flex items-center justify-center bg-muted/30 text-xs text-muted-foreground",
-            fit && "min-h-24 min-w-24"
+            fit && "min-h-24 min-w-24",
+            isPdf && "min-h-48"
           )}
           aria-hidden
         >
           Loading…
         </div>
       ) : null}
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        key={activeSrc}
-        src={activeSrc}
-        alt={alt}
-        decoding="async"
-        loading="lazy"
-        className={cn(
-          fit
-            ? cn("h-auto w-auto max-w-full object-contain", maxHeight)
-            : cn("w-full object-contain", maxHeight),
-          imageClassName
-        )}
-        onLoad={() => setLoaded(true)}
-        onError={() => {
-          setLoaded(false);
-          if (urlIndex + 1 < urls.length) {
-            setUrlIndex((i) => i + 1);
-            return;
-          }
-          // One soft retry on the last URL (handles brief upstream blips).
-          if (retryToken < 1) {
-            setRetryToken((t) => t + 1);
-            return;
-          }
-          setFailed(true);
-        }}
-      />
+      {isPdf ? (
+        <iframe
+          key={activeSrc}
+          src={activeSrc}
+          title={alt}
+          className={cn(
+            "block w-full min-h-48 bg-background",
+            fit ? cn("max-w-full", maxHeight) : maxHeight
+          )}
+          onLoad={() => setLoaded(true)}
+          onError={() => {
+            setLoaded(false);
+            if (urlIndex + 1 < urls.length) {
+              setUrlIndex((i) => i + 1);
+              return;
+            }
+            if (retryToken < 1) {
+              setRetryToken((t) => t + 1);
+              return;
+            }
+            setFailed(true);
+          }}
+        />
+      ) : (
+        /* eslint-disable-next-line @next/next/no-img-element */
+        <img
+          key={activeSrc}
+          src={activeSrc}
+          alt={alt}
+          decoding="async"
+          loading="lazy"
+          className={cn(
+            fit
+              ? cn("h-auto w-auto max-w-full object-contain", maxHeight)
+              : cn("w-full object-contain", maxHeight),
+            imageClassName
+          )}
+          onLoad={() => setLoaded(true)}
+          onError={() => {
+            setLoaded(false);
+            if (urlIndex + 1 < urls.length) {
+              setUrlIndex((i) => i + 1);
+              return;
+            }
+            // One soft retry on the last URL (handles brief upstream blips).
+            if (retryToken < 1) {
+              setRetryToken((t) => t + 1);
+              return;
+            }
+            setFailed(true);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -151,4 +179,54 @@ export function resolveMediaViewUrl(
   if (preview) return toProxyUrl(preview) ?? preview;
   if (authUrl?.trim()) return toProxyUrl(authUrl) ?? authUrl;
   return null;
+}
+
+type LocalFilePreviewProps = {
+  file: File;
+  alt: string;
+  className?: string;
+  maxHeight?: string;
+};
+
+/** Inline preview for a not-yet-uploaded file (images and PDFs). */
+export function LocalFilePreview({
+  file,
+  alt,
+  className,
+  maxHeight = FORM_ATTACHMENT_PREVIEW_MAX_HEIGHT,
+}: LocalFilePreviewProps) {
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    const url = URL.createObjectURL(file);
+    setObjectUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
+  if (!objectUrl) return null;
+
+  const isPdf = file.type === "application/pdf" || isPdfFilename(file.name);
+
+  if (isPdf) {
+    return (
+      <iframe
+        src={objectUrl}
+        title={alt}
+        className={cn("block w-full min-h-48 rounded-md border bg-background", maxHeight, className)}
+      />
+    );
+  }
+
+  return (
+    /* eslint-disable-next-line @next/next/no-img-element */
+    <img
+      src={objectUrl}
+      alt={alt}
+      className={cn(
+        "w-full rounded-md border bg-background object-contain",
+        maxHeight,
+        className
+      )}
+    />
+  );
 }

@@ -7,6 +7,7 @@ import {
   resolveMediaViewUrl,
 } from "@/components/media/cached-media-preview";
 import type { CustomerAttachmentDocument } from "@/lib/customer-attachments";
+import { isPreviewableDocumentFilename, isPdfFilename } from "@/lib/media-preview";
 import { toProxyUrl } from "@/lib/document-proxy";
 import { cn } from "@/lib/utils";
 
@@ -16,26 +17,33 @@ type Props = {
   wide?: boolean;
 };
 
+/** @deprecated Use isSupportingPreviewableDocument */
 export function isSupportingImageDocument(doc: CustomerAttachmentDocument): boolean {
-  if (doc.previewUrl?.trim()) return true;
-  return (
-    /\.(jpe?g|png|webp)(?:[?#].*)?$/i.test(doc.name) ||
-    /\.(jpe?g|png|webp)(?:[?#].*)?$/i.test(doc.url)
-  );
+  return isSupportingPreviewableDocument(doc);
+}
+
+export function isSupportingPreviewableDocument(doc: CustomerAttachmentDocument): boolean {
+  return isPreviewableDocumentFilename(doc.name, doc.url ?? doc.previewUrl);
 }
 
 export function countSupportingImageDocuments(
   documents: CustomerAttachmentDocument[]
 ): number {
-  return documents.filter(isSupportingImageDocument).length;
+  return countSupportingPreviewableDocuments(documents);
+}
+
+export function countSupportingPreviewableDocuments(
+  documents: CustomerAttachmentDocument[]
+): number {
+  return documents.filter(isSupportingPreviewableDocument).length;
 }
 
 export function CustomerSupportingDocumentsList({ documents, wide = false }: Props) {
   if (documents.length === 0) return null;
 
-  const imageDocs = documents.filter(isSupportingImageDocument);
-  const otherDocs = documents.filter((doc) => !isSupportingImageDocument(doc));
-  const galleryWide = wide || imageDocs.length > 1;
+  const previewDocs = documents.filter(isSupportingPreviewableDocument);
+  const otherDocs = documents.filter((doc) => !isSupportingPreviewableDocument(doc));
+  const galleryWide = wide || previewDocs.length > 1;
 
   return (
     <div className="space-y-3 border-t border-dashed pt-4">
@@ -44,7 +52,7 @@ export function CustomerSupportingDocumentsList({ documents, wide = false }: Pro
         Supporting documents
       </p>
 
-      {imageDocs.length > 0 ? (
+      {previewDocs.length > 0 ? (
         <div
           className={cn(
             "grid gap-3",
@@ -53,13 +61,14 @@ export function CustomerSupportingDocumentsList({ documents, wide = false }: Pro
               : "sm:grid-cols-2"
           )}
         >
-          {imageDocs.map((doc, index) => {
+          {previewDocs.map((doc, index) => {
             const viewUrl = resolveMediaViewUrl(doc.previewUrl, doc.url);
             const downloadUrl = toProxyUrl(doc.url) ?? doc.url;
+            const isPdf = isPdfFilename(doc.name) || isPdfFilename(doc.url);
 
             return (
               <div
-                key={`${doc.url}-img-${index}`}
+                key={`${doc.url}-preview-${index}`}
                 className="overflow-hidden rounded-lg border border-border bg-background"
               >
                 <div className="flex items-center justify-between gap-2 px-2.5 py-2 text-xs">
@@ -87,8 +96,9 @@ export function CustomerSupportingDocumentsList({ documents, wide = false }: Pro
                       previewUrl={doc.previewUrl ?? doc.url}
                       authUrl={doc.url}
                       alt={doc.name}
-                      maxHeight="max-h-36 sm:max-h-44"
-                      imageClassName="object-cover"
+                      maxHeight={isPdf ? "max-h-56 sm:max-h-64" : "max-h-36 sm:max-h-44"}
+                      imageClassName={isPdf ? undefined : "object-cover"}
+                      fit={!isPdf}
                     />
                   </div>
                 ) : null}

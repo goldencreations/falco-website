@@ -67,8 +67,11 @@ export function DashboardNavigationShell({
  useEffect(() => {
  pendingPathRef.current = null;
  setPendingPath(null);
- finishIfReady();
- }, [pathname, finishIfReady]);
+ apiFetchesRef.current = 0;
+ setApiFetches(0);
+ isNavigatingRef.current = false;
+ setIsNavigating(false);
+ }, [pathname]);
 
  useEffect(() => {
  const originalFetch = window.fetch;
