@@ -16,6 +16,8 @@ import {
   mapUiFinancialEntryAllocateToGroupToApi,
   mapUiFinancialEntryAllocateToLoanToApi,
   mapUiFinancialEntryClassificationToApi,
+  dedupeUnmatchedFinancialEntries,
+  mergeFinancialEntriesById,
   normalizeClickPesaPayerName,
   splitReceiptAcrossOutstanding,
 } from "./financial-entry-adapters";
@@ -76,6 +78,15 @@ describe("clickpesa cashbook unmatched receipts", () => {
       customer_name: "Seja Habibu Mohamed",
     });
     assert.equal(row.customer_name, undefined);
+  });
+
+  it("treats explicit unclassified category as needing classification", () => {
+    const row = adaptApiFinancialEntryRow({
+      ...unmatchedExample,
+      source: "manual",
+      category: "unclassified",
+    });
+    assert.equal(financialEntryNeedsClassification(row), true);
   });
 
   it("hides classify after metadata.classification is classified", () => {
@@ -341,5 +352,71 @@ describe("clickpesa cashbook auto-classification labels", () => {
     });
     assert.equal(financialEntryDisplayLabel(row), "Superseded by automatic payment");
     assert.equal(financialEntryNeedsClassification(row), false);
+  });
+});
+
+describe("dedupeUnmatchedFinancialEntries", () => {
+  it("deduplicates by id, then entry_number, then reference", () => {
+    const base = adaptApiFinancialEntryRow(unmatchedExample);
+    const byEntryNumber = adaptApiFinancialEntryRow({
+      ...unmatchedExample,
+      id: "different-id",
+      entry_number: unmatchedExample.entry_number,
+      reference_number: "OTHER-REF",
+    });
+    const byReference = adaptApiFinancialEntryRow({
+      ...unmatchedExample,
+      id: "another-id",
+      entry_number: "FIN-DUP-REF",
+      reference_number: unmatchedExample.reference_number,
+    });
+    const unique = dedupeUnmatchedFinancialEntries([base, byEntryNumber, byReference]);
+    assert.equal(unique.length, 1);
+    assert.equal(unique[0]?.id, base.id);
+  });
+});
+
+describe("mergeFinancialEntriesById", () => {
+  it("merges by id and sorts newest transaction first", () => {
+    const a = adaptApiFinancialEntryRow({
+      id: "1",
+      entry_number: "FIN-1",
+      transaction_date: "2026-08-10",
+      direction: "inflow",
+      amount: 1000,
+      category: "loan_repayment",
+      source: "system",
+    });
+    const b = adaptApiFinancialEntryRow({
+      ...unmatchedExample,
+      id: "2",
+      transaction_date: "2026-08-20",
+    });
+    const merged = mergeFinancialEntriesById([a], [b]);
+    assert.equal(merged.length, 2);
+    assert.equal(merged[0]?.id, "2");
+    assert.equal(merged[1]?.id, "1");
+  });
+
+  it("interleaves matched and unmatched rows on the same day by entry_number", () => {
+    const matched = adaptApiFinancialEntryRow({
+      id: "matched-1",
+      entry_number: "FIN-20260822-AAAAAA",
+      transaction_date: "2026-08-22",
+      direction: "inflow",
+      amount: 1000,
+      category: "loan_repayment",
+      source: "system",
+    });
+    const unmatched = adaptApiFinancialEntryRow({
+      ...unmatchedExample,
+      id: "unmatched-1",
+      entry_number: "FIN-20260822-BBBBBB",
+      transaction_date: "2026-08-22",
+    });
+    const merged = mergeFinancialEntriesById([matched], [unmatched]);
+    assert.equal(merged.length, 2);
+    assert.equal(merged[0]?.entry_number, "FIN-20260822-BBBBBB");
+    assert.equal(merged[1]?.entry_number, "FIN-20260822-AAAAAA");
   });
 });

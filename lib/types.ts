@@ -674,7 +674,9 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
  'loans.view', 'loans.create',
  'payments.view', 'payments.create',
  'collections.view',
- 'reports.view'
+ 'reports.view',
+ 'groups.view',
+ 'groups.create',
  ],
  credit_analyst: [
  'dashboard.view',
@@ -691,13 +693,18 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
  'reports.view'
  ],
  accountant: [
- 'dashboard.view',
- 'customers.view',
- 'loans.view',
- 'payments.view', 'payments.create', 'payments.reverse',
- 'collections.view', 'collections.create',
- 'reports.view', 'reports.export',
- 'branches.view',
+  'dashboard.view',
+  'customers.view',
+  'loans.view',
+  'payments.view', 'payments.create', 'payments.reverse',
+  'collections.view', 'collections.create',
+  'reports.view', 'reports.export',
+  'branches.view',
+  'financial_entries.view',
+  'financial_entries.unassigned.view',
+  'financial_entries.create',
+  'financial_entries.classify',
+  'financial_entries.reverse',
  ],
  customer_service: [
  'dashboard.view',

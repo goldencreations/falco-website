@@ -76,11 +76,96 @@ export function financialEntryIsUnmatchedClickPesa(
   return unmatched;
 }
 
-/** True when this entry is an unclassified ClickPesa receipt that still needs an accountant to classify it. */
+/** True when this entry still needs classification (unmatched ClickPesa or explicit unclassified markers). */
 export function financialEntryNeedsClassification(
   entry: Pick<FinancialEntry, "source" | "category" | "direction" | "status" | "is_reversed" | "metadata">
 ): boolean {
+  if (entry.is_reversed) return false;
+  const status = String(entry.status ?? "posted").toLowerCase();
+  if (status !== "posted") return false;
+
+  const category = (entry.category ?? "").trim();
+  const classification = metadataString(entry, "classification");
+  const unmatchedFlag = metadataFlag(entry, "unmatched");
+
+  if (classification.toLowerCase() === "classified") return false;
+  if (unmatchedFlag === false) return false;
+
+  if (category === "unclassified_gateway_income" || category === "unclassified") return true;
+  if (unmatchedFlag === true) return true;
+  if (classification === "unclassified_gateway_income" || classification === "unclassified") return true;
+
   return financialEntryIsUnmatchedClickPesa(entry);
+}
+
+/** Newest-first ordering with tie-breakers so merged matched/unmatched rows interleave correctly. */
+export function compareFinancialEntriesNewestFirst(
+  a: Pick<FinancialEntry, "id" | "entry_number" | "transaction_date" | "created_at">,
+  b: Pick<FinancialEntry, "id" | "entry_number" | "transaction_date" | "created_at">
+): number {
+  const dateDiff =
+    new Date(b.transaction_date || 0).getTime() - new Date(a.transaction_date || 0).getTime();
+  if (dateDiff !== 0) return dateDiff;
+
+  const createdDiff =
+    new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+  if (createdDiff !== 0) return createdDiff;
+
+  const entryNumberDiff = String(b.entry_number ?? "").localeCompare(String(a.entry_number ?? ""));
+  if (entryNumberDiff !== 0) return entryNumberDiff;
+
+  return String(b.id ?? "").localeCompare(String(a.id ?? ""));
+}
+
+export function sortFinancialEntriesChronologically(entries: FinancialEntry[]): FinancialEntry[] {
+  return [...entries].sort(compareFinancialEntriesNewestFirst);
+}
+
+/** Merge cashbook rows by id (later lists win) and sort newest transaction first. */
+export function mergeFinancialEntriesById(...lists: FinancialEntry[][]): FinancialEntry[] {
+  const byId = new Map<string, FinancialEntry>();
+  for (const list of lists) {
+    for (const entry of list) {
+      if (entry.id) byId.set(entry.id, entry);
+    }
+  }
+  return sortFinancialEntriesChronologically(Array.from(byId.values()));
+}
+
+function entryReferenceKey(entry: FinancialEntry): string {
+  const direct = (entry.reference ?? "").trim();
+  if (direct) return direct;
+  const meta = entry.metadata?.reference_number;
+  return meta == null ? "" : String(meta).trim();
+}
+
+/** Deduplicate unmatched rows before counting or rendering (id → entry_number → reference). */
+export function dedupeUnmatchedFinancialEntries(entries: FinancialEntry[]): FinancialEntry[] {
+  const seenIds = new Set<string>();
+  const seenEntryNumbers = new Set<string>();
+  const seenReferences = new Set<string>();
+  const unique: FinancialEntry[] = [];
+
+  for (const entry of entries) {
+    const id = String(entry.id ?? "").trim();
+    const entryNumber = String(entry.entry_number ?? "").trim();
+    const reference = entryReferenceKey(entry);
+
+    if (id && seenIds.has(id)) continue;
+    if (entryNumber && seenEntryNumbers.has(entryNumber)) continue;
+    if (reference && seenReferences.has(reference)) continue;
+
+    if (id) seenIds.add(id);
+    if (entryNumber) seenEntryNumbers.add(entryNumber);
+    if (reference) seenReferences.add(reference);
+    unique.push(entry);
+  }
+
+  return sortFinancialEntriesChronologically(unique);
+}
+
+export function countFinancialEntriesNeedingClassification(entries: FinancialEntry[]): number {
+  return entries.filter(financialEntryNeedsClassification).length;
 }
 
 /** True when a manual entry may be reversed (system-posted entries are never reversible here). */
@@ -97,6 +182,24 @@ const CATEGORY_LABELS: Record<string, string> = {
   application_fee: "Application fee",
   other_income: "Other income",
 };
+
+/** Income `entry_type` values for classifying unmatched ClickPesa receipts. */
+export const FINANCIAL_ENTRY_TYPE_OPTIONS = [
+  { value: "interest", label: "Interest" },
+  { value: "penalty", label: "Penalty" },
+  { value: "other_income", label: "Other income" },
+  { value: "principal", label: "Principal" },
+  { value: "compulsory_saving", label: "Compulsory saving" },
+  { value: "loan_recovery", label: "Loan recovery" },
+] as const;
+
+export function financialEntryTypeLabel(entryType: string | undefined | null): string {
+  const key = (entryType ?? "").trim();
+  if (!key) return "Other income";
+  const match = FINANCIAL_ENTRY_TYPE_OPTIONS.find((option) => option.value === key);
+  if (match) return match.label;
+  return financialEntryCategoryLabel(key);
+}
 
 export function financialEntryCategoryLabel(category: string | undefined | null): string {
   const key = (category ?? "").trim();

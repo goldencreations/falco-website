@@ -4,6 +4,7 @@ import Link from "next/link";
 import {
  ArrowDownRight,
  ArrowUpRight,
+ BookOpen,
  ChevronRight,
  CreditCard,
  Loader2,
@@ -219,6 +220,12 @@ export function AccountantDashboardView({
  </div>
 
  <div className="flex flex-wrap justify-center gap-1 border-t px-3 py-2">
+ <Button variant="ghost" size="sm" className="h-8 text-xs" asChild>
+ <Link href="/accountant/cashbook">
+ <BookOpen className="mr-1 h-3.5 w-3.5" />
+ {tLabel("Cashbook", language)}
+ </Link>
+ </Button>
  <Button variant="ghost" size="sm" className="h-8 text-xs" asChild>
  <Link href="/accountant/reconciliation">
  {tLabel("Reconciliation", language)}

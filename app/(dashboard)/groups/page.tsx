@@ -28,6 +28,7 @@ import {
 import { useBranchAssignment } from "@/components/branch-assignment-context";
 import { extractGroupsList } from "@/lib/group-adapters";
 import { formatApiResponseError } from "@/lib/falco-api";
+import { canCreateGroups, canManageGroups } from "@/lib/group-access";
 import { formatDate } from "@/lib/formatters";
 import type { LoanGroup } from "@/lib/types";
 import { resolvePortalHref } from "@/lib/portal-paths";
@@ -37,7 +38,8 @@ export default function GroupsPage() {
   const { user } = useSessionUser();
   const { branches, users } = useBranchAssignment();
   const isOfficerView = user?.role === "loan_officer";
-  const canDeleteGroups = user?.role === "super_admin" || user?.role === "branch_manager";
+  const canCreate = user ? canCreateGroups(user) : false;
+  const canManage = user ? canManageGroups(user) : false;
   const scopeBranchId =
     user?.role === "branch_manager" || isOfficerView ? user.branch_id : null;
 
@@ -124,14 +126,16 @@ export default function GroupsPage() {
       />
       <main className="flex-1 overflow-auto p-4 lg:p-6">
         <div className="mx-auto max-w-7xl space-y-6">
-          <div className="flex justify-end">
-            <Button asChild>
-              <Link href={groupsNewHref}>
-                <Plus className="mr-2 h-4 w-4" />
-                Add New Kikundi
-              </Link>
-            </Button>
-          </div>
+          {canCreate ? (
+            <div className="flex justify-end">
+              <Button asChild>
+                <Link href={groupsNewHref}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add New Kikundi
+                </Link>
+              </Button>
+            </div>
+          ) : null}
 
           {error ? (
             <Card className="border-destructive/40 bg-destructive/5">
@@ -252,7 +256,7 @@ export default function GroupsPage() {
                                 View Details
                               </Link>
                             </Button>
-                            {canDeleteGroups ? (
+                            {canManage ? (
                               <Button
                                 type="button"
                                 size="sm"
@@ -294,9 +298,11 @@ export default function GroupsPage() {
                               colSpan={8}
                               className="py-10 text-center text-muted-foreground"
                             >
-                              {isOfficerView
+                              {isOfficerView && canCreate
                                 ? 'No vikundi assigned to you yet. Click "Add New Kikundi" to register a group.'
-                                : 'No vikundi found. Click "Add New Kikundi" to register a group.'}
+                                : canCreate
+                                  ? 'No vikundi found. Click "Add New Kikundi" to register a group.'
+                                  : "No vikundi found."}
                             </TableCell>
                           </TableRow>
                         ) : (
@@ -348,7 +354,7 @@ export default function GroupsPage() {
                                       View Group
                                     </Link>
                                   </Button>
-                                  {canDeleteGroups ? (
+                                  {canManage ? (
                                     <Button
                                       type="button"
                                       size="sm"

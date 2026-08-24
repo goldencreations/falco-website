@@ -20,6 +20,7 @@ import {
   Wallet,
   X,
 } from "lucide-react";
+import { toast } from "sonner";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { AllocateToLoanDialog } from "@/components/cashbook/allocate-to-loan-dialog";
 import { useOptionalBranchAssignment } from "@/components/branch-assignment-context";
@@ -78,13 +79,30 @@ import {
   financialEntryDisplayLabel,
   financialEntryIsReversible,
   financialEntryMethodLabel,
+  FINANCIAL_ENTRY_TYPE_OPTIONS,
   financialEntryNeedsClassification,
+  financialEntryOrderReference,
   financialEntryPayerHint,
   financialEntrySourceBadgeLabel,
+  mergeFinancialEntriesById,
+  sortFinancialEntriesChronologically,
 } from "@/lib/financial-entry-adapters";
 import { formatApiResponseError } from "@/lib/falco-api";
+import {
+  canAllocateCashbookToLoan,
+  canClassifyCashbookEntry,
+  canManageCashbook,
+  canReverseCashbookEntry,
+  canViewCashbook,
+  canViewUnmatchedCashbookQueue,
+  cashbookScopedBranchId,
+} from "@/lib/cashbook-access";
 import { forceCachedReload, invalidateFetchCache } from "@/lib/client-fetch-cache";
 import { formatCurrency, formatDate } from "@/lib/formatters";
+import {
+  invalidateUnmatchedClickPesaQueueCache,
+  useUnmatchedClickPesaQueue,
+} from "@/lib/use-unmatched-clickpesa-queue";
 import { cn } from "@/lib/utils";
 import { parseJsonResponse } from "@/lib/parse-json-response";
 import type { CashbookSummary, Customer, FinancialEntry, FinancialEntryDirection, FinancialEntrySource } from "@/lib/types";
@@ -98,7 +116,6 @@ import {
 const PAGE_SIZE = 8;
 
 const MANUAL_CATEGORY_PRESETS = ["office_expense", "bank_deposit", "cash_transfer", "other"];
-const UNCLASSIFIED_QUEUE_CATEGORY = "unclassified_gateway_income";
 
 type CashbookSavedView =
   | "all"
@@ -157,12 +174,10 @@ export default function CashbookPage() {
   const searchParams = useSearchParams();
   const branchCtx = useOptionalBranchAssignment();
   const branches = branchCtx?.branches ?? [];
-  const isBranchManagerView = user?.role === "branch_manager";
-  const scopedBranchId = isBranchManagerView && user?.branch_id?.trim() ? user.branch_id.trim() : null;
+  const scopedBranchId = user ? cashbookScopedBranchId(user) : null;
 
   const [entries, setEntries] = useState<FinancialEntry[]>([]);
   const [cashbook, setCashbook] = useState<CashbookSummary | null>(null);
-  const [unmatchedCount, setUnmatchedCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
@@ -184,7 +199,7 @@ export default function CashbookPage() {
   });
   const [toDate, setToDate] = useState(todayInputDate);
 
-  const effectiveBranchId = scopedBranchId ?? (branchFilter !== "all" ? branchFilter : undefined);
+  const ledgerBranchId = scopedBranchId ?? (branchFilter !== "all" ? branchFilter : undefined);
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [createDirection, setCreateDirection] = useState<FinancialEntryDirection>("out");
@@ -217,75 +232,66 @@ export default function CashbookPage() {
   const [reverseReason, setReverseReason] = useState("");
   const [reverseLoading, setReverseLoading] = useState(false);
 
-  const canAccess =
-    user?.role === "super_admin" ||
-    user?.role === "accountant" ||
-    user?.role === "branch_manager";
-  const canManage = user?.role === "super_admin" || user?.role === "accountant";
-  const canClassify =
-    canManage || Boolean(user?.permissions?.includes("payments.create"));
-  const canAllocateToLoan =
-    user?.role === "super_admin" ||
-    user?.role === "accountant" ||
-    Boolean(user?.permissions?.includes("payments.create"));
+  const canAccess = user ? canViewCashbook(user) : false;
+  const canViewUnmatchedQueue = user ? canViewUnmatchedCashbookQueue(user) : false;
+  const canManage = user ? canManageCashbook(user) : false;
+  const canClassify = user ? canClassifyCashbookEntry(user) : false;
+  const canAllocateToLoan = user ? canAllocateCashbookToLoan(user) : false;
+  const canReverse = user ? canReverseCashbookEntry(user) : false;
   const canViewPayments =
     user?.role === "super_admin" ||
     user?.role === "accountant" ||
     user?.role === "branch_manager" ||
     Boolean(user?.permissions?.includes("payments.view"));
 
-  const loadUnmatchedCount = useCallback(async () => {
-    try {
-      const params = new URLSearchParams();
-      params.set("page", "1");
-      params.set("page_size", "50");
-      params.set("source", "clickpesa");
-      params.set("category", UNCLASSIFIED_QUEUE_CATEGORY);
-      params.set("status", "posted");
-      if (fromDate) params.set("from", fromDate);
-      if (toDate) params.set("to", toDate);
-      const res = await fetch(`/api/financial-entries?${params.toString()}`, { credentials: "include" });
-      const { data } = await parseJsonResponse<{
-        entries?: FinancialEntry[];
-        data?: FinancialEntry[];
-        meta?: { total?: number };
-      }>(res);
-      if (!res.ok) return;
-      const rows = (data?.entries ?? data?.data ?? []).filter(financialEntryNeedsClassification);
-      setUnmatchedCount(typeof data?.meta?.total === "number" ? data.meta.total : rows.length);
-    } catch {
-      // Keep last known count if the queue probe fails.
-    }
-  }, [fromDate, toDate]);
+  const {
+    count: unmatchedCount,
+    error: unmatchedError,
+    refresh: refreshUnmatchedQueue,
+  } = useUnmatchedClickPesaQueue({
+    fromDate,
+    toDate,
+    user,
+    scopedBranchId,
+    enabled: canViewUnmatchedQueue,
+  });
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
+      if (unclassifiedOnly) {
+        if (!canViewUnmatchedQueue) {
+          setError("You do not have permission to view the unmatched queue.");
+          return;
+        }
+        const unmatchedResult = await refreshUnmatchedQueue();
+        if (unmatchedResult.error) {
+          setError(unmatchedResult.error);
+          return;
+        }
+        setEntries(unmatchedResult.entries);
+        setCashbook(null);
+        bumpListReveal();
+        return;
+      }
+
       const params = new URLSearchParams();
       params.set("page", "1");
-      params.set("page_size", unclassifiedOnly ? "50" : "200");
+      params.set("page_size", "500");
       if (fromDate) params.set("from", fromDate);
       if (toDate) params.set("to", toDate);
-      if (!unclassifiedOnly && effectiveBranchId) params.set("branch_id", effectiveBranchId);
-
-      if (unclassifiedOnly) {
-        params.set("source", "clickpesa");
-        params.set("category", UNCLASSIFIED_QUEUE_CATEGORY);
-        params.set("status", "posted");
-      } else {
-        if (directionFilter !== "all") params.set("direction", directionFilter);
-        if (sourceFilter !== "all") params.set("source", sourceFilter);
-        if (categoryFilter !== "all") params.set("category", categoryFilter);
-        if (statusFilter !== "all") params.set("status", statusFilter);
-      }
+      if (ledgerBranchId) params.set("branch_id", ledgerBranchId);
+      if (directionFilter !== "all") params.set("direction", directionFilter);
+      if (sourceFilter !== "all") params.set("source", sourceFilter);
+      if (categoryFilter !== "all") params.set("category", categoryFilter);
+      if (statusFilter !== "all") params.set("status", statusFilter);
 
       const res = await fetch(`/api/financial-entries?${params.toString()}`, { credentials: "include" });
       const { data } = await parseJsonResponse<{
         entries?: FinancialEntry[];
         data?: FinancialEntry[];
         cashbook?: CashbookSummary | null;
-        meta?: { total?: number };
         message?: string;
       }>(res);
       if (!res.ok) {
@@ -295,36 +301,56 @@ export default function CashbookPage() {
           setCashbook(null);
           return;
         }
+        if (res.status === 403) {
+          setError("You do not have permission to view the cashbook.");
+          setEntries([]);
+          setCashbook(null);
+          return;
+        }
         throw new Error(formatApiResponseError(data, "Failed to load the cashbook"));
       }
-      const rows = data?.entries ?? data?.data ?? [];
-      const nextRows = unclassifiedOnly ? rows.filter(financialEntryNeedsClassification) : rows;
-      setEntries(nextRows);
-      setCashbook(data?.cashbook ?? null);
-      if (unclassifiedOnly) {
-        setUnmatchedCount(typeof data?.meta?.total === "number" ? data.meta.total : nextRows.length);
+
+      const mainRows = data?.entries ?? data?.data ?? [];
+      let merged = sortFinancialEntriesChronologically(mainRows);
+      if (canViewUnmatchedQueue) {
+        const unmatchedResult = await refreshUnmatchedQueue();
+        if (!unmatchedResult.error) {
+          merged = mergeFinancialEntriesById(mainRows, unmatchedResult.entries);
+        }
       }
+      setEntries(merged);
+      setCashbook(data?.cashbook ?? null);
       bumpListReveal();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load the cashbook");
-      setEntries([]);
-      setCashbook(null);
+      if (!unclassifiedOnly) {
+        setEntries([]);
+        setCashbook(null);
+      }
     } finally {
       setLoading(false);
     }
-  }, [fromDate, toDate, directionFilter, sourceFilter, categoryFilter, statusFilter, unclassifiedOnly, effectiveBranchId, bumpListReveal]);
+  }, [
+    fromDate,
+    toDate,
+    directionFilter,
+    sourceFilter,
+    categoryFilter,
+    statusFilter,
+    unclassifiedOnly,
+    ledgerBranchId,
+    bumpListReveal,
+    canViewUnmatchedQueue,
+    refreshUnmatchedQueue,
+  ]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   useEffect(() => {
-    if (!unclassifiedOnly) void loadUnmatchedCount();
-  }, [unclassifiedOnly, loadUnmatchedCount]);
-
-  useEffect(() => {
     setPage(1);
-  }, [fromDate, toDate, directionFilter, sourceFilter, categoryFilter, statusFilter, unclassifiedOnly, effectiveBranchId, savedView]);
+  }, [fromDate, toDate, directionFilter, sourceFilter, categoryFilter, statusFilter, unclassifiedOnly, ledgerBranchId, savedView]);
 
   useEffect(() => {
     const totalPages = Math.max(1, Math.ceil(entries.length / PAGE_SIZE));
@@ -376,11 +402,14 @@ export default function CashbookPage() {
 
   useEffect(() => {
     const view = searchParams.get("view");
-    if (view === "unmatched" || view === "needs_investigation") {
+    if (
+      canViewUnmatchedQueue &&
+      (view === "unmatched" || view === "needs_investigation")
+    ) {
       applySavedView("unmatched");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+  }, [searchParams, canViewUnmatchedQueue]);
 
   const handleCreate = async () => {
     const amount = Number(createAmount);
@@ -507,13 +536,19 @@ export default function CashbookPage() {
           setClassifyConfirming(false);
           return;
         }
+        if (res.status === 409) {
+          setError("This receipt was already allocated or handled.");
+          return;
+        }
         setError(formatApiResponseError(data, "Failed to classify the entry"));
         return;
       }
       const classifiedId = classifyEntry.id;
       setClassifyEntry(null);
       setEntries((prev) => prev.filter((row) => row.id !== classifiedId));
-      await Promise.all([load(), loadUnmatchedCount()]);
+      toast.success("Receipt classified successfully.");
+      invalidateUnmatchedClickPesaQueueCache();
+      await Promise.all([load(), refreshUnmatchedQueue()]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to classify the entry");
     } finally {
@@ -674,7 +709,13 @@ export default function CashbookPage() {
             </Card>
           </div>
 
-          {unmatchedCount > 0 && !unclassifiedOnly ? (
+          {unmatchedError ? (
+            <Card className="border-destructive/50 bg-destructive/5">
+              <CardContent className="py-3 text-sm text-destructive">{unmatchedError}</CardContent>
+            </Card>
+          ) : null}
+
+          {canViewUnmatchedQueue && unmatchedCount > 0 && !unclassifiedOnly ? (
             <Card className="border-amber-200 bg-amber-50">
               <CardContent className="flex flex-wrap items-center gap-2 py-3 text-sm text-amber-900">
                 <Sparkles className="h-4 w-4 shrink-0" />
@@ -698,21 +739,23 @@ export default function CashbookPage() {
 
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-1 flex-wrap items-center gap-3">
-              <Tabs
-                value={unclassifiedOnly ? "unmatched" : "all"}
-                onValueChange={(v) => {
-                  if (v === "unmatched") applySavedView("unmatched");
-                  else if (unclassifiedOnly) applySavedView("all");
-                }}
-              >
-                <TabsList>
-                  <TabsTrigger value="all">All</TabsTrigger>
-                  <TabsTrigger value="unmatched">
-                    Unmatched / Needs investigation
-                    {unmatchedCount > 0 ? ` (${unmatchedCount})` : ""}
-                  </TabsTrigger>
-                </TabsList>
-              </Tabs>
+              {canViewUnmatchedQueue ? (
+                <Tabs
+                  value={unclassifiedOnly ? "unmatched" : "all"}
+                  onValueChange={(v) => {
+                    if (v === "unmatched") applySavedView("unmatched");
+                    else if (unclassifiedOnly) applySavedView("all");
+                  }}
+                >
+                  <TabsList>
+                    <TabsTrigger value="all">All</TabsTrigger>
+                    <TabsTrigger value="unmatched">
+                      Unmatched / Needs investigation
+                      {unmatchedCount > 0 ? ` (${unmatchedCount})` : ""}
+                    </TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              ) : null}
               <Select
                 value={savedView}
                 onValueChange={(v) => applySavedView(v as CashbookSavedView)}
@@ -722,7 +765,9 @@ export default function CashbookPage() {
                   <SelectValue placeholder="Saved view" />
                 </SelectTrigger>
                 <SelectContent>
-                  {CASHBOOK_SAVED_VIEWS.map((view) => (
+                  {CASHBOOK_SAVED_VIEWS.filter(
+                    (view) => view.value !== "unmatched" || canViewUnmatchedQueue
+                  ).map((view) => (
                     <SelectItem key={view.value} value={view.value}>
                       {view.label}
                       {view.value === "unmatched" && unmatchedCount > 0 ? ` (${unmatchedCount})` : ""}
@@ -874,7 +919,9 @@ export default function CashbookPage() {
                         <TableRow>
                           <TableCell colSpan={showRowActions ? 11 : 10} className="py-8 text-center text-muted-foreground">
                             {unclassifiedOnly
-                              ? "No unmatched ClickPesa receipts in this period."
+                              ? unmatchedError
+                                ? "Could not load unmatched receipts."
+                                : "No unmatched ClickPesa receipts in this period."
                               : "No cashbook entries in this range"}
                           </TableCell>
                         </TableRow>
@@ -926,9 +973,18 @@ export default function CashbookPage() {
                                   <span className="text-xs text-muted-foreground">{entry.customer_name}</span>
                                 ) : unmatched && (payer?.name || payer?.phone) ? (
                                   <span className="text-xs text-muted-foreground">
-                                    ClickPesa payer hint
-                                    {payer.name ? `: ${payer.name}` : ""}
+                                    {payer.name ?? "ClickPesa payer"}
                                     {payer.phone ? ` · ${payer.phone}` : ""}
+                                  </span>
+                                ) : null}
+                                {unmatched && entry.account_name ? (
+                                  <span className="text-xs text-muted-foreground">
+                                    Account: {entry.account_name}
+                                  </span>
+                                ) : null}
+                                {unmatched && financialEntryOrderReference(entry) ? (
+                                  <span className="text-xs text-muted-foreground">
+                                    Order: {financialEntryOrderReference(entry)}
                                   </span>
                                 ) : null}
                               </div>
@@ -977,7 +1033,7 @@ export default function CashbookPage() {
                                       View payment
                                     </Link>
                                   </Button>
-                                ) : financialEntryIsReversible(entry) && canManage ? (
+                                ) : financialEntryIsReversible(entry) && canReverse ? (
                                   <Button
                                     type="button"
                                     size="sm"
@@ -1229,12 +1285,20 @@ export default function CashbookPage() {
               </Field>
               <Field>
                 <FieldLabel>Entry type</FieldLabel>
-                <Input
-                  className={cn("h-9", classifyFieldErrors.entry_type && "border-destructive")}
-                  placeholder="e.g. other_income"
-                  value={classifyIncomeType}
-                  onChange={(e) => setClassifyIncomeType(e.target.value)}
-                />
+                <Select value={classifyIncomeType} onValueChange={setClassifyIncomeType}>
+                  <SelectTrigger
+                    className={cn("h-9 w-full", classifyFieldErrors.entry_type && "border-destructive")}
+                  >
+                    <SelectValue placeholder="Select entry type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {FINANCIAL_ENTRY_TYPE_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 {classifyFieldErrors.entry_type ? (
                   <p className="text-xs text-destructive">{classifyFieldErrors.entry_type}</p>
                 ) : null}
@@ -1405,7 +1469,9 @@ export default function CashbookPage() {
           const allocatedId = allocateEntry?.id;
           if (allocatedId) setEntries((prev) => prev.filter((row) => row.id !== allocatedId));
           invalidateFetchCache();
-          void Promise.all([load(), loadUnmatchedCount()]);
+          invalidateUnmatchedClickPesaQueueCache();
+          toast.success("Receipt allocated to loan successfully.");
+          void Promise.all([load(), refreshUnmatchedQueue()]);
           const loanId = allocation.loan_id;
           void fetch("/api/payments?page=1&page_size=50", { credentials: "include" });
           if (loanId) {

@@ -17,6 +17,7 @@ import { enrichGroupMembersOnClient } from "@/lib/group-member-enrichment";
 import { extractLoansList } from "@/lib/loan-adapters";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import { buildVikundiCollectionDetail } from "@/lib/vikundi-collection-summary";
+import { canManageGroups } from "@/lib/group-access";
 import { resolvePortalHref } from "@/lib/portal-paths";
 import { useSessionUser } from "@/lib/use-session-user";
 
@@ -30,6 +31,7 @@ export default function GroupDetailPage() {
  ? groupIdParam[0]
  : "";
  const { user } = useSessionUser();
+ const canManage = user ? canManageGroups(user) : false;
  const groupsListHref = resolvePortalHref(user?.role, "/groups");
  const { users } = useBranchAssignment();
  const [group, setGroup] = useState<GroupDetailView | null>(null);
@@ -247,7 +249,7 @@ export default function GroupDetailPage() {
  groupId={groupId}
  group={group}
  memberOutstanding={memberOutstanding}
- readOnly={user?.role === "loan_officer"}
+ readOnly={!canManage}
  role={user?.role}
  memberDetailHref={(id) =>
  resolvePortalHref(user?.role, `/groups/${groupId}/members/${id}`)
@@ -267,7 +269,7 @@ export default function GroupDetailPage() {
  </Card>
  ) : null}
 
- {user?.role !== "loan_officer" ? (
+ {canManage ? (
  <GroupDeleteDangerZone group={group} groupsListHref={groupsListHref} />
  ) : null}
  </div>
