@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireApiUser, resolvedBranchIdForListQuery, isBranchDataScoped } from "@/lib/authorization";
+import { canCreateGroups, isCreateOnlyGroupOfficer } from "@/lib/group-access";
 import { mapFormToGroupApi } from "@/lib/group-payload";
 import { falcoServerFetch } from "@/lib/server-falco";
 
@@ -33,6 +34,13 @@ export async function POST(request: Request) {
  const auth = await requireApiUser(request);
  if ("response" in auth) return auth.response;
 
+ if (!canCreateGroups(auth.user)) {
+ return NextResponse.json(
+ { message: "You do not have permission to create this group." },
+ { status: 403 }
+ );
+ }
+
  let body: Record<string, unknown>;
  try {
  body = (await request.json()) as Record<string, unknown>;
@@ -41,11 +49,11 @@ export async function POST(request: Request) {
  }
 
  const apiBody = mapFormToGroupApi(body);
- if (isBranchDataScoped(auth.user)) {
+ if (isCreateOnlyGroupOfficer(auth.user)) {
  apiBody.branch_id = auth.user.branch_id;
- }
- if (auth.user.role === "loan_officer") {
  apiBody.loan_officer_id = auth.user.id;
+ } else if (isBranchDataScoped(auth.user)) {
+ apiBody.branch_id = auth.user.branch_id;
  }
 
  const res = await falcoServerFetch<unknown>("/groups", {

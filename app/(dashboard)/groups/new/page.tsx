@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Loader2, Save, Users } from "lucide-react";
+import { ArrowLeft, Loader2, Save, ShieldAlert, Users } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { useBranchAssignment } from "@/components/branch-assignment-context";
 import { Button } from "@/components/ui/button";
@@ -36,6 +36,10 @@ import { extractGroupDetail } from "@/lib/group-adapters";
 import { extractUsersListPayload } from "@/lib/user-adapters";
 import { GroupMeetingLocationSection } from "@/components/groups/group-meeting-location-section";
 import type { GroupCreateForm } from "@/lib/group-payload";
+import {
+ canCreateGroups,
+ isCreateOnlyGroupOfficer,
+} from "@/lib/group-access";
 import { formatValidationDetails } from "@/lib/falco-api";
 import type { Branch, Customer, User } from "@/lib/types";
 import { resolvePortalHref } from "@/lib/portal-paths";
@@ -73,10 +77,11 @@ const defaultForm: GroupCreateForm = {
 export default function NewGroupPage() {
  const router = useRouter();
  const { user, loaded: sessionLoaded } = useSessionUser();
- const isOfficerView = user?.role === "loan_officer";
- const isScopedRole = user?.role === "branch_manager" || isOfficerView;
- const lockedBranchId = isScopedRole ? user?.branch_id ?? "" : "";
- const lockedOfficerId = isOfficerView ? user?.id ?? "" : "";
+ const canCreate = user ? canCreateGroups(user) : false;
+ const isCreateOnlyOfficer = user ? isCreateOnlyGroupOfficer(user) : false;
+ const lockedBranchId =
+  isCreateOnlyOfficer || user?.role === "branch_manager" ? user?.branch_id ?? "" : "";
+ const lockedOfficerId = isCreateOnlyOfficer ? user?.id ?? "" : "";
  const groupsListHref = resolvePortalHref(user?.role, "/groups");
 
  const { branches: contextBranches, users: contextUsers } = useBranchAssignment();
@@ -87,6 +92,7 @@ export default function NewGroupPage() {
  loan_officer_id: lockedOfficerId,
  }));
  const [error, setError] = useState("");
+ const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
  const [submitting, setSubmitting] = useState(false);
  const [branchRecords, setBranchRecords] = useState<Branch[]>([]);
  const [branchesLoading, setBranchesLoading] = useState(false);
@@ -120,7 +126,7 @@ export default function NewGroupPage() {
  setBranchRecords([
  fromContext ?? {
  ...synthetic,
- name: user.branch_name?.trim() || fromContext?.name || synthetic.name,
+ name: user.branch_name?.trim() || synthetic.name,
  },
  ]);
  return;
@@ -336,9 +342,34 @@ export default function NewGroupPage() {
  });
  };
 
+ const applyFieldErrors = (details: unknown): boolean => {
+  if (!Array.isArray(details)) return false;
+  const map: Record<string, string> = {};
+  for (const d of details as { field?: string; message?: string }[]) {
+   const field = (d.field ?? "").toLowerCase();
+   const message = d.message ?? "";
+   if (!message) continue;
+   if (field.includes("branch")) map.branch_id = message;
+   else if (field.includes("loan_officer")) map.loan_officer_id = message;
+   else if (field.includes("chairperson")) map.chairperson_customer_id = message;
+   else if (field.includes("secretary")) map.secretary_customer_id = message;
+   else if (field.includes("treasurer")) map.treasurer_customer_id = message;
+   else if (field.includes("member")) map.member_customer_ids = message;
+   else if (field.includes("group_name")) map.group_name = message;
+   else if (field.includes("formation")) map.formation_date = message;
+   else if (field.includes("meeting_day")) map.meeting_day = message;
+   else if (field.includes("meeting_location")) map.meeting_location = message;
+   else if (field.includes("village")) map.village_or_street = message;
+  }
+  if (Object.keys(map).length === 0) return false;
+  setFieldErrors(map);
+  return true;
+ };
+
  const handleSubmit = async (e: React.FormEvent) => {
  e.preventDefault();
  setError("");
+ setFieldErrors({});
  setSubmitting(true);
  try {
  const res = await fetch("/api/groups", {
@@ -350,6 +381,14 @@ export default function NewGroupPage() {
  const json = (await res.json()) as unknown;
  if (!res.ok) {
  const o = json as { message?: string; details?: { field?: string; message?: string }[] };
+ if (res.status === 403) {
+ setError(o.message || "You do not have permission to create this group.");
+ return;
+ }
+ if (res.status === 422 && applyFieldErrors(o.details)) {
+ setError(formatValidationDetails(o.details) || o.message || "Please fix the highlighted fields.");
+ return;
+ }
  const detailText = formatValidationDetails(o.details);
  setError(detailText || o.message || "Failed to create vikundi");
  return;
@@ -367,6 +406,47 @@ export default function NewGroupPage() {
  setSubmitting(false);
  }
  };
+
+ if (!sessionLoaded) {
+ return (
+ <>
+ <DashboardHeader title="Add New Kikundi" description="Loading session…" />
+ <main className="flex-1 p-4 lg:p-6">
+ <p className="text-sm text-muted-foreground">Loading session…</p>
+ </main>
+ </>
+ );
+ }
+
+ if (!canCreate) {
+ return (
+ <>
+ <DashboardHeader title="Add New Kikundi" description="Register a vikundi / vikoba group" />
+ <main className="flex-1 p-4 lg:p-6">
+ <Card className="mx-auto max-w-3xl border-destructive/30 bg-destructive/5">
+ <CardHeader>
+ <CardTitle className="flex items-center gap-2 text-destructive">
+ <ShieldAlert className="h-5 w-5" />
+ Access denied
+ </CardTitle>
+ <CardDescription>You do not have permission to create vikundi groups.</CardDescription>
+ </CardHeader>
+ <CardContent>
+ <Button asChild variant="outline">
+ <Link href={groupsListHref}>Back to Vikundi</Link>
+ </Button>
+ </CardContent>
+ </Card>
+ </main>
+ </>
+ );
+ }
+
+ const selectedBranch = branchOptions.find(
+ (branch) =>
+ branchIdsMatch(branch.id, form.branch_id) || branchIdsMatch(branch.code, form.branch_id)
+ );
+ const selectedOfficer = loanOfficerOptions.find((officer) => officer.id === form.loan_officer_id);
 
  return (
  <>
@@ -431,10 +511,32 @@ export default function NewGroupPage() {
  <div className="space-y-2 sm:col-span-2">
  <div className="flex items-center justify-between gap-2">
  <Label htmlFor="branch">Branch *</Label>
- {!branchesLoading && branchOptions.length > 0 ? (
+ {!isCreateOnlyOfficer && !branchesLoading && branchOptions.length > 0 ? (
  <span className="text-xs text-muted-foreground">{branchOptions.length} registered</span>
  ) : null}
  </div>
+ {isCreateOnlyOfficer ? (
+ <>
+ <p className="text-xs text-muted-foreground">
+ Your assigned branch is used automatically for this vikundi.
+ </p>
+ <Input
+ id="branch"
+ readOnly
+ value={
+ selectedBranch
+ ? `${selectedBranch.name || selectedBranch.code || selectedBranch.id} (${selectedBranch.id})`
+ : form.branch_id
+ ? `${user?.branch_name?.trim() || form.branch_id} (${form.branch_id})`
+ : ""
+ }
+ />
+ {fieldErrors.branch_id ? (
+ <p className="text-xs text-destructive">{fieldErrors.branch_id}</p>
+ ) : null}
+ </>
+ ) : (
+ <>
  <p className="text-xs text-muted-foreground">
  Select which registered branch this new vikundi belongs to.
  </p>
@@ -470,6 +572,9 @@ export default function NewGroupPage() {
  </p>
  ) : null}
  {branchesError ? <p className="text-xs text-destructive">{branchesError}</p> : null}
+ {fieldErrors.branch_id ? (
+ <p className="text-xs text-destructive">{fieldErrors.branch_id}</p>
+ ) : null}
  <Button
  type="button"
  variant="outline"
@@ -479,9 +584,33 @@ export default function NewGroupPage() {
  >
  {branchesLoading ? "Refreshing…" : "Refresh branch list"}
  </Button>
+ </>
+ )}
  </div>
  <div className="space-y-2 sm:col-span-2">
  <Label htmlFor="loan-officer">Loan officer *</Label>
+ {isCreateOnlyOfficer ? (
+ <>
+ <p className="text-xs text-muted-foreground">
+ You are recorded as the loan officer for this vikundi.
+ </p>
+ <Input
+ id="loan-officer"
+ readOnly
+ value={
+ selectedOfficer
+ ? `${selectedOfficer.full_name || selectedOfficer.email} (${selectedOfficer.id})`
+ : user?.full_name
+ ? `${user.full_name} (${user.id})`
+ : ""
+ }
+ />
+ {fieldErrors.loan_officer_id ? (
+ <p className="text-xs text-destructive">{fieldErrors.loan_officer_id}</p>
+ ) : null}
+ </>
+ ) : (
+ <>
  <p className="text-xs text-muted-foreground">
  Choose a loan officer assigned to the selected branch.
  </p>
@@ -514,6 +643,11 @@ export default function NewGroupPage() {
  <p className="text-xs text-muted-foreground">Loading loan officers…</p>
  ) : null}
  {officersError ? <p className="text-xs text-destructive">{officersError}</p> : null}
+ {fieldErrors.loan_officer_id ? (
+ <p className="text-xs text-destructive">{fieldErrors.loan_officer_id}</p>
+ ) : null}
+ </>
+ )}
  </div>
 <div className="space-y-2">
  <Label>Formation date *</Label>

@@ -674,7 +674,9 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
  'loans.view', 'loans.create',
  'payments.view', 'payments.create',
  'collections.view',
- 'reports.view'
+ 'reports.view',
+ 'groups.view',
+ 'groups.create',
  ],
  credit_analyst: [
  'dashboard.view',
