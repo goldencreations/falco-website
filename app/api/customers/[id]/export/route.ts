@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { adaptApiCustomerRowToCustomer, extractCustomerDetail } from "@/lib/customer-adapters";
 import { requireApiUser, ensureResourceBranchAllowed } from "@/lib/authorization";
 import { loadCustomerPortfolioData } from "@/lib/customer-portfolio-detail";
+import { resolveLoanRepaymentTruth } from "@/lib/loan-repayment-truth";
 import { falcoServerFetch } from "@/lib/server-falco";
 import type { Branch } from "@/lib/types";
 
@@ -58,6 +59,11 @@ export async function GET(
  total_loans: 0,
  total_borrowed: 0,
  total_paid: 0,
+ cash_received: 0,
+ applied_to_contract: 0,
+ penalties_charged: 0,
+ penalties_paid: 0,
+ penalties_outstanding: 0,
  total_outstanding: 0,
  total_payments: 0,
  };
@@ -108,21 +114,35 @@ export async function GET(
  total_loans: summary.total_loans,
  total_borrowed: summary.total_borrowed,
  total_paid: summary.total_paid,
+ cash_received: summary.cash_received ?? summary.total_paid,
+ applied_to_contract: summary.applied_to_contract ?? 0,
+ penalties_charged: summary.penalties_charged ?? 0,
+ penalties_paid: summary.penalties_paid ?? 0,
+ penalties_outstanding: summary.penalties_outstanding ?? 0,
  total_outstanding: summary.total_outstanding,
  total_payments: summary.total_payments,
  },
- loans: loans.map((loan) => ({
+ loans: loans.map((loan) => {
+ const truth = resolveLoanRepaymentTruth(loan);
+ return {
  loan_number: loan.loan_number,
  status: loan.status,
  product_name: loan.productName || loan.product_id,
  principal_amount: loan.principal_amount,
- total_paid: loan.total_paid,
- total_outstanding: loan.total_outstanding,
+ contractual_total: truth.contractualTotal,
+ contractual_paid: truth.contractualPaid,
+ contractual_progress: truth.contractualProgress,
+ total_paid: truth.contractualPaid,
+ total_outstanding: truth.totalOutstanding,
+ penalties_charged: truth.penaltiesCharged,
+ penalties_paid: truth.penaltiesPaid,
+ penalty_outstanding: truth.penaltyOutstanding,
  disbursement_date: loan.disbursement_date,
  maturity_date: loan.maturity_date,
  follow_up_loan_officer: loan.loanOfficerDisplayName || "—",
  branch_manager: "—",
- })),
+ };
+ }),
  payments: payments.map((payment) => ({
  payment_number: payment.payment_number,
  amount: payment.amount,

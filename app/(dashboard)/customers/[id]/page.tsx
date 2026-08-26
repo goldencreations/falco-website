@@ -101,7 +101,12 @@ import { customerToFormPayload } from "@/lib/customer-payload";
 import type { CustomerPortfolioData } from "@/lib/customer-portfolio-detail";
 import { formatReferenceRelationship } from "@/lib/customer-references";
 import type { LoanListRow } from "@/lib/loan-adapters";
-import { effectiveCustomerTotalPaid, effectivePaidPercent } from "@/lib/loan-display";
+import {
+  CONTRACT_PROGRESS_TOOLTIP,
+  resolveLoanRepaymentTruth,
+  summarizeCustomerLoanTruth,
+  summarizeCustomerPaymentAllocations,
+} from "@/lib/loan-repayment-truth";
 import { useSessionUser } from "@/lib/use-session-user";
 import type { Customer, Payment, RiskGrade, LoanStatus } from "@/lib/types";
 
@@ -175,6 +180,11 @@ type CustomerExportPayload = {
  total_loans: number;
  total_borrowed: number;
  total_paid: number;
+ cash_received?: number;
+ applied_to_contract?: number;
+ penalties_charged?: number;
+ penalties_paid?: number;
+ penalties_outstanding?: number;
  total_outstanding: number;
  total_payments: number;
  };
@@ -183,8 +193,14 @@ type CustomerExportPayload = {
  status: string;
  product_name: string;
  principal_amount: number;
+ contractual_total?: number;
+ contractual_paid?: number;
+ contractual_progress?: number;
  total_paid: number;
  total_outstanding: number;
+ penalties_charged?: number;
+ penalties_paid?: number;
+ penalty_outstanding?: number;
  disbursement_date: string;
  maturity_date: string;
  follow_up_loan_officer: string;
@@ -484,11 +500,18 @@ export default function CustomerDetailPage() {
  }
 
  const risk = riskGradeConfig[customer.risk_grade];
- const totalBorrowed = customerLoans.reduce((sum, l) => sum + l.principal_amount, 0);
- const totalOutstanding = customerLoans.reduce((sum, l) => sum + l.total_outstanding, 0);
- const totalPaid = effectiveCustomerTotalPaid(customerLoans, customerPayments);
+ const loanTruthSummary = summarizeCustomerLoanTruth(customerLoans);
+ const paymentAlloc = summarizeCustomerPaymentAllocations(
+  portfolioLoading ? null : customerPayments
+ );
+ const totalBorrowed = loanTruthSummary.totalBorrowed;
+ const totalOutstanding = loanTruthSummary.totalOutstanding;
+ const cashReceived = paymentAlloc.paymentsUnavailable ? null : paymentAlloc.cashReceived;
+ const appliedToContract = paymentAlloc.paymentsUnavailable
+  ? null
+  : paymentAlloc.appliedToContract;
  const activeLoans = customerLoans.filter((l) => l.status === "active" || l.status === "in_arrears");
- const completedLoans = customerLoans.filter((l) => l.status === "paid_off");
+ const completedLoans = loanTruthSummary.completedLoans;
  const onTimePayments = customerPayments.filter((p) => p.status === "completed").length;
  const repaymentRate = customerPayments.length > 0 ? (onTimePayments / customerPayments.length) * 100 : 0;
 
@@ -546,7 +569,11 @@ export default function CustomerDetailPage() {
  body: [
  ["Total Loans", data.summary.total_loans.toString()],
  ["Total Borrowed", formatCurrency(data.summary.total_borrowed)],
- ["Total Paid", formatCurrency(data.summary.total_paid)],
+ ["Cash Received", formatCurrency(data.summary.cash_received ?? data.summary.total_paid)],
+ ["Applied to Contract", formatCurrency(data.summary.applied_to_contract ?? 0)],
+ ["Penalties Charged", formatCurrency(data.summary.penalties_charged ?? 0)],
+ ["Penalties Paid", formatCurrency(data.summary.penalties_paid ?? 0)],
+ ["Penalties Outstanding", formatCurrency(data.summary.penalties_outstanding ?? 0)],
  ["Total Outstanding", formatCurrency(data.summary.total_outstanding)],
  ["Payments Recorded", data.summary.total_payments.toString()],
  ],
@@ -563,18 +590,22 @@ export default function CustomerDetailPage() {
  "Product",
  "Status",
  "Principal",
+ "Contract paid",
+ "Progress",
  "Outstanding",
+ "Penalties charged",
  "Follow-up Officer",
- "Branch Manager",
  ]],
  body: data.loans.map((loan) => [
  loan.loan_number,
  loan.product_name,
  loan.status,
  formatCurrency(loan.principal_amount),
+ formatCurrency(loan.contractual_paid ?? loan.total_paid),
+ `${Number(loan.contractual_progress ?? 0).toFixed(2)}%`,
  formatCurrency(loan.total_outstanding),
+ formatCurrency(loan.penalties_charged ?? 0),
  loan.follow_up_loan_officer,
- loan.branch_manager,
  ]),
  });
 
@@ -757,50 +788,78 @@ export default function CustomerDetailPage() {
  </div>
 
  {/* Key Metrics */}
- <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
+ <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
  <CustomerProfileStatCard
  title="Total borrowed"
- value={formatCurrency(totalBorrowed)}
+ value={portfolioLoading ? "…" : formatCurrency(totalBorrowed)}
  hint={`${customerLoans.length} loans`}
  icon={Wallet}
  tone="cyan"
  />
  <CustomerProfileStatCard
- title="Total repaid"
- value={formatCurrency(totalPaid)}
- hint={
- <span className="inline-flex items-center gap-1">
- <TrendingUp className="h-3 w-3 shrink-0" />
- {totalBorrowed > 0
- ? `${((totalPaid / (totalBorrowed + totalBorrowed * 0.15)) * 100).toFixed(0)}% repaid`
- : "0% repaid"}
- </span>
+ title="Cash received"
+ value={
+  portfolioLoading || cashReceived == null
+   ? "…"
+   : formatCurrency(cashReceived)
  }
+ hint="Settled payments (includes penalties)"
  icon={CheckCircle2}
  tone="emerald"
  />
  <CustomerProfileStatCard
+ title="Applied to contract"
+ value={
+  portfolioLoading || appliedToContract == null
+   ? "…"
+   : formatCurrency(appliedToContract)
+ }
+ hint="Principal + interest + fees only"
+ icon={TrendingUp}
+ tone="teal"
+ />
+ <CustomerProfileStatCard
+ title="Penalties paid"
+ value={
+  portfolioLoading
+   ? "…"
+   : formatCurrency(loanTruthSummary.penaltiesPaid)
+ }
+ hint={
+  loanTruthSummary.penaltiesCharged > 0
+   ? `Charged ${formatCurrency(loanTruthSummary.penaltiesCharged)} · Outstanding ${formatCurrency(loanTruthSummary.penaltiesOutstanding)}`
+   : "No penalties assessed"
+ }
+ icon={Clock}
+ tone="amber"
+ />
+ <CustomerProfileStatCard
  title="Outstanding"
- value={formatCurrency(totalOutstanding)}
+ value={portfolioLoading ? "…" : formatCurrency(totalOutstanding)}
  hint={`${activeLoans.length} active loans`}
  icon={Clock}
  tone="amber"
  />
  <CustomerProfileStatCard
- title="Repayment rate"
- value={`${repaymentRate.toFixed(0)}%`}
- hint={`${onTimePayments} on-time payments`}
+ title="On-time payment rate"
+ value={portfolioLoading ? "…" : `${repaymentRate.toFixed(0)}%`}
+ hint={`${onTimePayments} completed payments`}
  icon={TrendingUp}
  tone="violet"
  />
  <CustomerProfileStatCard
  title="Completed loans"
- value={String(completedLoans.length)}
- hint="Successfully paid off"
+ value={portfolioLoading ? "…" : String(completedLoans)}
+ hint="Paid off with zero outstanding"
  icon={CreditCard}
  tone="teal"
  />
  </div>
+ {loanTruthSummary.penaltiesCharged > 0 && loanTruthSummary.penaltiesOutstanding <= 0.01 ? (
+ <p className="text-sm text-muted-foreground">
+ All assessed penalties have been paid. These payments did not necessarily reduce principal.
+ </p>
+ ) : null}
  </CardContent>
  </Card>
 
@@ -1169,7 +1228,9 @@ export default function CustomerDetailPage() {
  <TableHead>Product</TableHead>
  <TableHead className="text-right">Principal</TableHead>
  <TableHead className="text-right">Outstanding</TableHead>
- <TableHead>Progress</TableHead>
+ <TableHead className="text-right">Principal left</TableHead>
+ <TableHead className="text-right">Penalty left</TableHead>
+ <TableHead>Contract progress</TableHead>
  <TableHead>Status</TableHead>
  <TableHead>Maturity</TableHead>
  </TableRow>
@@ -1177,31 +1238,50 @@ export default function CustomerDetailPage() {
  <TableBody>
  {customerLoans.length === 0 ? (
  <TableRow>
- <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+ <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
  No loans found for this customer
  </TableCell>
  </TableRow>
  ) : (
  customerLoans.map((loan) => {
  const productLabel = loan.productName || loan.product_id || "—";
+ const truth = resolveLoanRepaymentTruth(loan);
  const status = loanStatusConfig[loan.status];
- const progress = effectivePaidPercent(loan);
+ const progress = truth.contractualProgress;
  return (
  <TableRow key={loan.id} className="hover:bg-slate-50">
  <TableCell className="font-mono text-sm">{loan.loan_number}</TableCell>
  <TableCell>{productLabel}</TableCell>
  <TableCell className="text-right">{formatCurrency(loan.principal_amount)}</TableCell>
- <TableCell className="text-right font-medium">{formatCurrency(loan.total_outstanding)}</TableCell>
+ <TableCell className="text-right font-medium">{formatCurrency(truth.totalOutstanding)}</TableCell>
+ <TableCell className="text-right">{formatCurrency(truth.principalOutstanding)}</TableCell>
+ <TableCell className="text-right">{formatCurrency(truth.penaltyOutstanding)}</TableCell>
  <TableCell>
- <div className="w-28">
- <Progress value={progress} className="h-2" />
- <p className="text-xs text-muted-foreground mt-1">{progress.toFixed(0)}% paid</p>
+ <div className="w-32" title={CONTRACT_PROGRESS_TOOLTIP}>
+ <Progress
+  value={progress}
+  className={`h-2 ${loan.status === "in_arrears" ? "[&_[data-slot=progress-indicator]]:bg-amber-500" : ""}`}
+ />
+ <p className="text-xs text-muted-foreground mt-1">
+ {progress.toFixed(2)}% of contract
+ </p>
  </div>
  </TableCell>
  <TableCell>
- <Badge variant={status.variant} className={status.variant === "default" ? "bg-emerald-600" : ""}>
- {status.label}
+ <div className="flex flex-col gap-1">
+ {truth.dataRequiresReview ? (
+ <Badge variant="outline" className="border-amber-400 text-amber-800">
+ Data requires review
  </Badge>
+ ) : (
+ <Badge variant={status.variant} className={status.variant === "default" ? "bg-emerald-600" : ""}>
+ {truth.displayStatus}
+ </Badge>
+ )}
+ {truth.daysInArrears > 0 ? (
+ <span className="text-xs text-destructive">{truth.daysInArrears}d in arrears</span>
+ ) : null}
+ </div>
  </TableCell>
  <TableCell>{formatDate(loan.maturity_date)}</TableCell>
  </TableRow>

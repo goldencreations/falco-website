@@ -39,13 +39,15 @@ import { Progress } from "@/components/ui/progress";
 import { parseLoansFromApiResponse, type LoanListRow } from "@/lib/loan-adapters";
 import { extractCustomersList } from "@/lib/customer-adapters";
 import {
- effectiveLoanTotalPaid,
- effectivePaidPercent,
  loanAcceptsPayment,
  loanCustomerLabel,
  loanProductLabel,
  PAYMENT_BLOCKED_HELP_TEXT,
 } from "@/lib/loan-display";
+import {
+ CONTRACT_PROGRESS_TOOLTIP,
+ resolveLoanRepaymentTruth,
+} from "@/lib/loan-repayment-truth";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import type { LoanStatus, RiskClassification } from "@/lib/types";
 import { loanMatchesOfficerPortfolio } from "@/lib/loan-officer-portfolio";
@@ -349,9 +351,10 @@ export default function LoansPage() {
  const status = statusConfig[loan.status];
  const riskRow = riskConfig[loan.risk_classification] ?? riskConfig.current;
  const StatusIcon = status.icon;
- const paidPercent = effectivePaidPercent(loan);
- const totalPaidDisplay = effectiveLoanTotalPaid(loan);
- const penaltyOutstanding = loan.penalty_outstanding ?? loan.penalty ?? 0;
+ const truth = resolveLoanRepaymentTruth(loan);
+ const paidPercent = truth.contractualProgress;
+ const contractualPaidDisplay = truth.contractualPaid;
+ const penaltyOutstanding = truth.penaltyOutstanding;
 
  return (
  <div
@@ -365,7 +368,7 @@ export default function LoansPage() {
  <p className="font-mono text-xs font-medium">{loan.loan_number}</p>
  <Badge variant={status.variant} className="gap-1 shrink-0">
  <StatusIcon className="h-3 w-3" />
- {status.label}
+ {truth.displayStatus}
  </Badge>
  </div>
  <p className="mt-2 font-medium">{loanCustomerLabel(loan)}</p>
@@ -378,28 +381,42 @@ export default function LoansPage() {
  </div>
  <div className="rounded-md border border-emerald-100 bg-background/80 px-2 py-1.5">
  <p className="text-muted-foreground">Outstanding</p>
- <p className="font-semibold">{formatCurrency(loan.total_outstanding)}</p>
+ <p className="font-semibold">{formatCurrency(truth.totalOutstanding)}</p>
+ </div>
+ <div className="rounded-md border border-emerald-100 bg-background/80 px-2 py-1.5">
+ <p className="text-muted-foreground">Contract total</p>
+ <p className="font-semibold">{formatCurrency(truth.contractualTotal)}</p>
+ </div>
+ <div className="rounded-md border border-emerald-100 bg-background/80 px-2 py-1.5">
+ <p className="text-muted-foreground">Applied to contract</p>
+ <p className="font-semibold">{formatCurrency(contractualPaidDisplay)}</p>
  </div>
  </div>
- {penaltyOutstanding > 0 ? (
- <p className="mt-2 text-xs font-medium text-destructive">
- Penalty {formatCurrency(penaltyOutstanding)}
+ {truth.penaltiesCharged > 0 ? (
+ <p className="mt-2 text-xs text-muted-foreground">
+ Penalties charged {formatCurrency(truth.penaltiesCharged)}
+ {penaltyOutstanding > 0
+  ? ` · outstanding ${formatCurrency(penaltyOutstanding)}`
+  : " · all paid"}
  {loan.daily_penalty_rate ? ` · ${formatCurrency(loan.daily_penalty_rate)}/day` : ""}
  </p>
  ) : null}
- <div className="mt-3">
- <Progress value={Math.min(100, paidPercent)} className="h-2" />
+ <div className="mt-3" title={CONTRACT_PROGRESS_TOOLTIP}>
+ <Progress
+  value={Math.min(100, paidPercent)}
+  className={`h-2 ${loan.status === "in_arrears" ? "[&_[data-slot=progress-indicator]]:bg-amber-500" : ""}`}
+ />
  <p className="mt-1 text-xs text-muted-foreground">
- {paidPercent.toFixed(0)}% paid
- {totalPaidDisplay > 0 ? ` · ${formatCurrency(totalPaidDisplay)}` : ""}
+ {paidPercent.toFixed(2)}% of contract
+ {contractualPaidDisplay > 0 ? ` · ${formatCurrency(contractualPaidDisplay)} applied` : ""}
  </p>
  </div>
  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
  <div className="flex items-center gap-1.5">
  <div className={`h-2 w-2 rounded-full ${riskRow.color}`} />
  <span>{riskRow.label}</span>
- {loan.days_in_arrears > 0 ? (
- <span className="text-destructive">({loan.days_in_arrears}d)</span>
+ {truth.daysInArrears > 0 ? (
+ <span className="text-destructive">({truth.daysInArrears}d in arrears)</span>
  ) : null}
  </div>
  <span>·</span>
@@ -481,8 +498,9 @@ export default function LoansPage() {
  const status = statusConfig[loan.status];
  const riskRow = riskConfig[loan.risk_classification] ?? riskConfig.current;
  const StatusIcon = status.icon;
- const paidPercent = effectivePaidPercent(loan);
- const totalPaidDisplay = effectiveLoanTotalPaid(loan);
+ const truth = resolveLoanRepaymentTruth(loan);
+ const paidPercent = truth.contractualProgress;
+ const contractualPaidDisplay = truth.contractualPaid;
 
  return (
  <TableRow
@@ -499,12 +517,15 @@ export default function LoansPage() {
  </TableCell>
  <TableCell>{loanProductLabel(loan)}</TableCell>
  <TableCell className="text-right">{formatCurrency(loan.principal_amount)}</TableCell>
- <TableCell className="text-right font-medium">{formatCurrency(loan.total_outstanding)}</TableCell>
+ <TableCell className="text-right font-medium">{formatCurrency(truth.totalOutstanding)}</TableCell>
  <TableCell className="text-right">
- {(loan.penalty_outstanding ?? loan.penalty ?? 0) > 0 ? (
+ {truth.penaltiesCharged > 0 || truth.penaltyOutstanding > 0 ? (
  <div>
  <p className="font-medium text-destructive">
- {formatCurrency(loan.penalty_outstanding ?? loan.penalty ?? 0)}
+ {formatCurrency(truth.penaltyOutstanding)}
+ </p>
+ <p className="text-xs text-muted-foreground">
+ charged {formatCurrency(truth.penaltiesCharged)}
  </p>
  {loan.daily_penalty_rate ? (
  <p className="text-xs text-muted-foreground">
@@ -516,32 +537,44 @@ export default function LoansPage() {
  <span className="text-muted-foreground">—</span>
  )}
  </TableCell>
-                      <TableCell>
-                        <div className="w-24">
-                          <Progress value={Math.min(100, paidPercent)} className="h-2" />
-                          <p className="mt-1 text-xs text-muted-foreground leading-tight">
-                            {paidPercent.toFixed(0)}% paid
-                          </p>
-                          {totalPaidDisplay > 0 ? (
-                            <p className="text-xs text-muted-foreground leading-tight">
-                              {formatCurrency(totalPaidDisplay)}
-                            </p>
-                          ) : null}
-                        </div>
-                      </TableCell>
  <TableCell>
+ <div className="w-28" title={CONTRACT_PROGRESS_TOOLTIP}>
+ <Progress
+  value={Math.min(100, paidPercent)}
+  className={`h-2 ${loan.status === "in_arrears" ? "[&_[data-slot=progress-indicator]]:bg-amber-500" : ""}`}
+ />
+ <p className="mt-1 text-xs text-muted-foreground leading-tight">
+ {paidPercent.toFixed(2)}% of contract
+ </p>
+ {contractualPaidDisplay > 0 ? (
+ <p className="text-xs text-muted-foreground leading-tight">
+ {formatCurrency(contractualPaidDisplay)}
+ </p>
+ ) : null}
+ </div>
+ </TableCell>
+ <TableCell>
+ <div className="flex flex-col gap-1">
+ {truth.dataRequiresReview ? (
+ <Badge variant="outline" className="border-amber-400 text-amber-800 gap-1">
+ <StatusIcon className="h-3 w-3" />
+ Data requires review
+ </Badge>
+ ) : (
  <Badge variant={status.variant} className="gap-1">
  <StatusIcon className="h-3 w-3" />
- {status.label}
+ {truth.displayStatus}
  </Badge>
+ )}
+ {truth.daysInArrears > 0 ? (
+ <span className="text-xs text-destructive">{truth.daysInArrears}d in arrears</span>
+ ) : null}
+ </div>
  </TableCell>
  <TableCell>
  <div className="flex items-center gap-2">
  <div className={`h-2 w-2 rounded-full ${riskRow.color}`} />
  <span className="text-sm">{riskRow.label}</span>
- {loan.days_in_arrears > 0 && (
- <span className="text-xs text-destructive">({loan.days_in_arrears}d)</span>
- )}
  </div>
  </TableCell>
  <TableCell className="text-sm">{formatDate(loan.maturity_date)}</TableCell>

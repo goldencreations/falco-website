@@ -22,7 +22,15 @@ import {
  TableHeader,
  TableRow,
 } from "@/components/ui/table";
-import { effectiveLoanTotalPaid, loanCustomerLabel, loanProductLabel } from "@/lib/loan-display";
+import { loanCustomerLabel, loanProductLabel } from "@/lib/loan-display";
+import {
+ CONTRACT_PROGRESS_TOOLTIP,
+ isSettledPayment,
+ resolveLoanRepaymentTruth,
+ resolveScheduleInstallmentTruth,
+ summarizeCustomerPaymentAllocations,
+} from "@/lib/loan-repayment-truth";
+import { Progress } from "@/components/ui/progress";
 import type { LoanListRow } from "@/lib/loan-adapters";
 import type { PaymentViewRow } from "@/lib/payment-adapters";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/formatters";
@@ -170,13 +178,12 @@ export function LoanDetailPanel({
  collectionActivityCount,
  loading = false,
 }: LoanDetailPanelProps) {
- const viewPaymentsCompleted = payments.filter((p) => p.status === "completed");
+ const viewPaymentsCompleted = payments.filter((p) => isSettledPayment(p));
  const paidInstallments = schedule.filter((item) => item.is_paid).length;
  const overdueInstallments = schedule.filter((item) => !item.is_paid && item.days_overdue > 0).length;
- const totalCollected = Math.max(
- effectiveLoanTotalPaid(loan),
- viewPaymentsCompleted.reduce((sum, p) => sum + p.amount, 0)
- );
+ const paymentAlloc = summarizeCustomerPaymentAllocations(payments);
+ const truth = resolveLoanRepaymentTruth(loan);
+ const grossCashReceived = paymentAlloc.cashReceived;
  const interestCollected = viewPaymentsCompleted.reduce((sum, p) => sum + p.interest_allocated, 0);
  const feeCollected = viewPaymentsCompleted.reduce((sum, p) => sum + p.fees_allocated, 0);
  const penaltyCollected = viewPaymentsCompleted.reduce((sum, p) => sum + p.penalty_allocated, 0);
@@ -312,26 +319,109 @@ export function LoanDetailPanel({
 
  <Card className={plainCardClass}>
  <CardHeader className="pb-2">
- <CardTitle className="text-base">Balances</CardTitle>
+ <CardTitle className="text-base">Repayment breakdown</CardTitle>
  </CardHeader>
- <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+ <CardContent className="space-y-4">
+ {truth.dataRequiresReview ? (
+ <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+ Data requires review — backend status and outstanding balance do not agree on completion.
+ </p>
+ ) : null}
+ <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
  <div className="rounded-lg border border-border p-3">
- <p className="text-xs text-muted-foreground">Collections to date</p>
- <p className="text-lg font-semibold">{formatCurrency(totalCollected)}</p>
+ <p className="text-xs text-muted-foreground">Original principal</p>
+ <p className="text-lg font-semibold">{formatCurrency(truth.principal)}</p>
  </div>
  <div className="rounded-lg border border-border p-3">
- <p className="text-xs text-muted-foreground">Outstanding balance</p>
- <p className="text-lg font-semibold">{formatCurrency(loan.total_outstanding)}</p>
+ <p className="text-xs text-muted-foreground">Contract total</p>
+ <p className="text-lg font-semibold">{formatCurrency(truth.contractualTotal)}</p>
+ </div>
+ <div className="rounded-lg border border-border p-3" title={CONTRACT_PROGRESS_TOOLTIP}>
+ <p className="text-xs text-muted-foreground">Contract progress</p>
+ <Progress
+  value={truth.contractualProgress}
+  className={`mt-2 h-2 ${loan.status === "in_arrears" ? "[&_[data-slot=progress-indicator]]:bg-amber-500" : ""}`}
+ />
+ <p className="mt-1 text-sm font-medium">{truth.contractualProgress.toFixed(2)}%</p>
  </div>
  <div className="rounded-lg border border-border p-3">
- <p className="text-xs text-muted-foreground">Outstanding penalty</p>
- <p className="text-lg font-semibold text-destructive">
- {formatCurrency(loan.penalty_outstanding ?? loan.penalty ?? 0)}
+ <p className="text-xs text-muted-foreground">Principal paid / outstanding</p>
+ <p className="text-lg font-semibold">
+ {formatCurrency(truth.principalPaid)} / {formatCurrency(truth.principalOutstanding)}
+ </p>
+ </div>
+ <div className="rounded-lg border border-border p-3">
+ <p className="text-xs text-muted-foreground">Interest paid / outstanding</p>
+ <p className="text-lg font-semibold">
+ {formatCurrency(truth.interestPaid)} / {formatCurrency(truth.interestOutstanding)}
+ </p>
+ </div>
+ <div className="rounded-lg border border-border p-3">
+ <p className="text-xs text-muted-foreground">Fees paid / outstanding</p>
+ <p className="text-lg font-semibold">
+ {formatCurrency(truth.feesPaid)} / {formatCurrency(truth.feesOutstanding)}
+ </p>
+ </div>
+ <div className="rounded-lg border border-border p-3">
+ <p className="text-xs text-muted-foreground">Penalties charged / paid / outstanding</p>
+ <p className="text-lg font-semibold">
+ {formatCurrency(truth.penaltiesCharged)} / {formatCurrency(truth.penaltiesPaid)} /{" "}
+ {formatCurrency(truth.penaltyOutstanding)}
+ </p>
+ </div>
+ <div className="rounded-lg border border-border p-3">
+ <p className="text-xs text-muted-foreground">Gross cash received</p>
+ <p className="text-lg font-semibold">{formatCurrency(grossCashReceived)}</p>
+ </div>
+ <div className="rounded-lg border border-border p-3">
+ <p className="text-xs text-muted-foreground">Applied to contract</p>
+ <p className="text-lg font-semibold">{formatCurrency(truth.contractualPaid)}</p>
+ </div>
+ <div className="rounded-lg border border-border p-3">
+ <p className="text-xs text-muted-foreground">Total outstanding</p>
+ <p className="text-lg font-semibold">{formatCurrency(truth.totalOutstanding)}</p>
+ </div>
+ <div className="rounded-lg border border-border p-3">
+ <p className="text-xs text-muted-foreground">Backend status</p>
+ <p className="text-lg font-semibold">{truth.displayStatus}</p>
+ </div>
+ <div className="rounded-lg border border-border p-3">
+ <p className="text-xs text-muted-foreground">Days in arrears</p>
+ <p className="text-lg font-semibold">
+ {truth.daysInArrears > 0 ? truth.daysInArrears : "—"}
  </p>
  </div>
  <div className="rounded-lg border border-border p-3">
  <p className="text-xs text-muted-foreground">Daily late penalty</p>
  <p className="text-lg font-semibold">{formatCurrency(loan.daily_penalty_rate ?? 0)}/day</p>
+ </div>
+ </div>
+ {truth.penaltiesCharged > 0 && truth.penaltyOutstanding <= 0.01 ? (
+ <p className="text-sm text-muted-foreground">
+ All assessed penalties have been paid. These payments did not necessarily reduce principal.
+ </p>
+ ) : null}
+ </CardContent>
+ </Card>
+
+ <Card className={plainCardClass}>
+ <CardHeader className="pb-2">
+ <CardTitle className="text-base">Balances</CardTitle>
+ </CardHeader>
+ <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+ <div className="rounded-lg border border-border p-3">
+ <p className="text-xs text-muted-foreground">Gross cash received</p>
+ <p className="text-lg font-semibold">{formatCurrency(grossCashReceived)}</p>
+ </div>
+ <div className="rounded-lg border border-border p-3">
+ <p className="text-xs text-muted-foreground">Outstanding balance</p>
+ <p className="text-lg font-semibold">{formatCurrency(truth.totalOutstanding)}</p>
+ </div>
+ <div className="rounded-lg border border-border p-3">
+ <p className="text-xs text-muted-foreground">Outstanding penalty</p>
+ <p className="text-lg font-semibold text-destructive">
+ {formatCurrency(truth.penaltyOutstanding)}
+ </p>
  </div>
  </CardContent>
  </Card>
@@ -418,29 +508,31 @@ export function LoanDetailPanel({
  <TableHeader>
  <TableRow>
  <TableHead>Due date</TableHead>
- <TableHead className="text-right">Installment</TableHead>
- <TableHead className="text-right">Installment paid</TableHead>
- <TableHead className="text-right">Balance</TableHead>
+ <TableHead className="text-right">Contractual installment</TableHead>
+ <TableHead className="text-right">Contractual paid</TableHead>
+ <TableHead className="text-right">Contractual outstanding</TableHead>
  <TableHead className="text-right">Days overdue</TableHead>
- <TableHead className="text-right">Penalty</TableHead>
+ <TableHead className="text-right">Penalty charged</TableHead>
  <TableHead className="text-right">Penalty paid</TableHead>
- <TableHead className="text-right">Penalty left</TableHead>
+ <TableHead className="text-right">Penalty outstanding</TableHead>
+ <TableHead className="text-right">Total currently due</TableHead>
  </TableRow>
  </TableHeader>
  <TableBody>
  {schedule.map((row) => {
- const installment =
- row.total_due || row.principal_due + row.interest_due + row.fees_due;
- const installmentPaid = row.total_paid;
- const balance = row.balance_due ?? row.balance;
+ const installmentTruth = resolveScheduleInstallmentTruth(row);
  return (
  <TableRow key={row.id}>
  <TableCell className="text-sm">{formatDate(row.due_date)}</TableCell>
- <TableCell className="text-right font-medium">{formatCurrency(installment)}</TableCell>
- <TableCell className="text-right">{formatCurrency(installmentPaid)}</TableCell>
+ <TableCell className="text-right font-medium">
+ {formatCurrency(installmentTruth.contractualInstallment)}
+ </TableCell>
+ <TableCell className="text-right">{formatCurrency(installmentTruth.contractualPaid)}</TableCell>
  <TableCell className="text-right">
- {balance > 0 ? (
- <span className="font-medium text-destructive">{formatCurrency(balance)}</span>
+ {installmentTruth.contractualOutstanding > 0 ? (
+ <span className="font-medium text-destructive">
+ {formatCurrency(installmentTruth.contractualOutstanding)}
+ </span>
  ) : (
  <span className="text-muted-foreground">{formatCurrency(0)}</span>
  )}
@@ -452,9 +544,12 @@ export function LoanDetailPanel({
  <span className="text-muted-foreground">0</span>
  )}
  </TableCell>
- <TableCell className="text-right">{formatCurrency(row.penalty_due)}</TableCell>
- <TableCell className="text-right">{formatCurrency(row.penalty_paid)}</TableCell>
- <TableCell className="text-right">{formatCurrency(row.penalty_outstanding)}</TableCell>
+ <TableCell className="text-right">{formatCurrency(installmentTruth.penaltyCharged)}</TableCell>
+ <TableCell className="text-right">{formatCurrency(installmentTruth.penaltyPaid)}</TableCell>
+ <TableCell className="text-right">{formatCurrency(installmentTruth.penaltyOutstanding)}</TableCell>
+ <TableCell className="text-right font-medium">
+ {formatCurrency(installmentTruth.totalCurrentlyDue)}
+ </TableCell>
  </TableRow>
  );
  })}

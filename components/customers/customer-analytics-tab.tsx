@@ -31,6 +31,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import type { CustomerPortfolioData } from "@/lib/customer-portfolio-detail";
 import { formatCurrency } from "@/lib/formatters";
 import type { LoanListRow } from "@/lib/loan-adapters";
+import { summarizeCustomerLoanTruth } from "@/lib/loan-repayment-truth";
 import type { Customer, Payment } from "@/lib/types";
 
 const CHART_COLORS = ["#0d9488", "#0891b2", "#6366f1", "#f59e0b", "#ef4444"];
@@ -74,10 +75,10 @@ export function CustomerAnalyticsTab({
   risk,
   portfolioLoading,
 }: Props) {
-  const totalPenaltyOutstanding = customerLoans.reduce(
-    (sum, loan) => sum + (loan.penalty_outstanding ?? loan.penalty ?? 0),
-    0
-  );
+  const loanTruth = summarizeCustomerLoanTruth(customerLoans);
+  const totalPenaltyOutstanding = loanTruth.penaltiesOutstanding;
+  const totalPenaltiesCharged = loanTruth.penaltiesCharged;
+  const totalPenaltiesPaid = loanTruth.penaltiesPaid;
 
   if (portfolioLoading) {
     return (
@@ -99,14 +100,30 @@ export function CustomerAnalyticsTab({
         <CardHeader className="pb-2">
           <CardTitle className="flex items-center gap-2 text-base text-red-900">
             <AlertTriangle className="h-5 w-5 text-red-600" />
-            Penalty owed
+            Penalties
           </CardTitle>
-          <CardDescription>Currently unpaid penalties on this customer&apos;s loans</CardDescription>
+          <CardDescription>
+            Lifetime penalties charged, paid, and still outstanding on this customer&apos;s loans
+          </CardDescription>
         </CardHeader>
-        <CardContent>
-          <p className="text-2xl font-bold text-red-700">
-            {formatCurrency(totalPenaltyOutstanding)}
-          </p>
+        <CardContent className="grid gap-3 sm:grid-cols-3">
+          <div>
+            <p className="text-xs text-red-800/80">Penalties charged</p>
+            <p className="text-xl font-bold text-red-700">{formatCurrency(totalPenaltiesCharged)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-red-800/80">Penalties paid</p>
+            <p className="text-xl font-bold text-red-700">{formatCurrency(totalPenaltiesPaid)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-red-800/80">Penalties outstanding</p>
+            <p className="text-xl font-bold text-red-700">{formatCurrency(totalPenaltyOutstanding)}</p>
+          </div>
+          {totalPenaltiesCharged > 0 && totalPenaltyOutstanding <= 0.01 ? (
+            <p className="sm:col-span-3 text-sm text-red-900/80">
+              All assessed penalties have been paid. These payments did not necessarily reduce principal.
+            </p>
+          ) : null}
         </CardContent>
       </Card>
 
@@ -380,7 +397,19 @@ export function CustomerAnalyticsTab({
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Penalty Owed</span>
+                  <span className="text-muted-foreground">Penalties charged</span>
+                  <span className="font-semibold text-red-600">
+                    {formatCurrency(totalPenaltiesCharged)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Penalties paid</span>
+                  <span className="font-semibold text-red-600">
+                    {formatCurrency(totalPenaltiesPaid)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Penalties outstanding</span>
                   <span className="font-semibold text-red-600">
                     {formatCurrency(totalPenaltyOutstanding)}
                   </span>
