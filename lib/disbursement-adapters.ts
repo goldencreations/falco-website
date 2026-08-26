@@ -655,14 +655,14 @@ export function buildEligibleLoansFromLoansListJson(
  return fallback;
 }
 
-/** Merge API `eligible_loans` with `/loans` fallbacks; prefer higher `remaining` per loan id. */
+/** Merge API `eligible_loans` with `/loans` fallbacks; keep the safest verified remaining amount. */
 export function mergeEligibleLoanLists(...lists: EligibleLoanRow[][]): EligibleLoanRow[] {
  const byId = new Map<string, EligibleLoanRow>();
  for (const list of lists) {
  for (const row of list) {
  if (!row.id) continue;
  const prev = byId.get(row.id);
- if (!prev || row.remaining > prev.remaining) {
+ if (!prev || row.remaining < prev.remaining) {
  byId.set(row.id, row);
  } else if (prev && !prev.customer_display_name && row.customer_display_name) {
  byId.set(row.id, { ...prev, customer_display_name: row.customer_display_name });
