@@ -425,6 +425,40 @@ export function buildSelectableLoansFromApplications(
  return rows.sort((a, b) => a.loan_number.localeCompare(b.loan_number));
 }
 
+/**
+ * Require the backend console to confirm that a linked loan is currently eligible.
+ * Discovering a loan through `/loans` is not sufficient because it may already have
+ * a payout in flight.
+ */
+export function constrainApplicationsToEligibleLoans(
+ applications: EligibleApplicationRow[],
+ eligibleLoans: EligibleLoanRow[]
+): EligibleApplicationRow[] {
+ const eligibleLoanIds = new Set(eligibleLoans.map((loan) => normalizeId(loan.id)).filter(Boolean));
+
+ return applications.map((application) => {
+ const loanId = normalizeId(application.loan_id);
+ if (loanId && eligibleLoanIds.has(loanId)) {
+ return {
+ ...application,
+ ready_for_disbursement: true,
+ needs_final_approval: false,
+ };
+ }
+
+ if (!application.loan_id && !application.ready_for_disbursement) {
+ return application;
+ }
+
+ return {
+ ...application,
+ loan_id: undefined,
+ loan_number: undefined,
+ ready_for_disbursement: false,
+ };
+ });
+}
+
 export async function resolveEligibleDisbursementTargets(
  user: SessionUser,
  branchId: string | undefined
@@ -446,7 +480,11 @@ export async function resolveEligibleDisbursementTargets(
 
  let eligible_applications = await fetchPipelineApplications(user, branchId, loansByAppId);
 
- const mergedLoans = mergeEligibleLoanLists(fromConsole, Array.from(loansByAppId.values()));
+ const authoritativeLoanIds = new Set(fromConsole.map((loan) => normalizeId(loan.id)));
+ const verifiedLoanDetails = Array.from(loansByAppId.values()).filter((loan) =>
+ authoritativeLoanIds.has(normalizeId(loan.id))
+ );
+ const mergedLoans = mergeEligibleLoanLists(fromConsole, verifiedLoanDetails);
 
  eligible_applications = linkApplicationsFromLoans(eligible_applications, mergedLoans);
 
@@ -469,7 +507,11 @@ export async function resolveEligibleDisbursementTargets(
  );
 
  eligible_applications = eligible_applications.filter(
-  (application) => !application.loan_id || !blockingLoanIds.has(application.loan_id)
+ (application) => !application.loan_id || !blockingLoanIds.has(application.loan_id)
+ );
+ eligible_applications = constrainApplicationsToEligibleLoans(
+ eligible_applications,
+ mergedLoans
  );
 
  const enriched_loans = enrichLoansWithApplications(
@@ -477,15 +519,8 @@ export async function resolveEligibleDisbursementTargets(
   eligible_applications,
   blockingLoanIds
  );
- const fromApps = buildSelectableLoansFromApplications(
- eligible_applications,
- new Map(enriched_loans.map((l) => [l.id, l])),
- blockingLoanIds
- );
- const final_loans = mergeEligibleLoanLists(enriched_loans, fromApps);
-
  return {
- eligible_loans: final_loans,
+ eligible_loans: enriched_loans,
  eligible_applications,
  branch_scope: isBranchDataScoped(user) ? scope : scope,
  };
