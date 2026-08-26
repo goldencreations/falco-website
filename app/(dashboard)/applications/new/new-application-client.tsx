@@ -218,6 +218,9 @@ export default function NewApplicationPageClient() {
  const [selectedProduct, setSelectedProduct] = useState<LoanProduct | null>(null);
  const [loanMode, setLoanMode] = useState<LoanMode>("individual");
  const [customerSearch, setCustomerSearch] = useState("");
+ const [customerSearchResults, setCustomerSearchResults] = useState<Customer[]>([]);
+ const [customerSearchLoading, setCustomerSearchLoading] = useState(false);
+ const [customerSearchError, setCustomerSearchError] = useState("");
  const [groupSelectLoading, setGroupSelectLoading] = useState(false);
  const [groupSelectError, setGroupSelectError] = useState("");
  const [editLoading, setEditLoading] = useState(Boolean(editId));
@@ -248,6 +251,59 @@ export default function NewApplicationPageClient() {
  });
 
  const [editAppDetail, setEditAppDetail] = useState<Record<string, unknown> | null>(null);
+
+ useEffect(() => {
+  const query = customerSearch.trim();
+
+  if (loanMode !== "individual" || selectedCustomer || query.length < 2) {
+   setCustomerSearchResults([]);
+   setCustomerSearchLoading(false);
+   setCustomerSearchError("");
+   return;
+  }
+
+  const controller = new AbortController();
+  setCustomerSearchLoading(true);
+  setCustomerSearchError("");
+  const timeoutId = window.setTimeout(() => {
+   const params = new URLSearchParams({
+    q: query,
+    page: "1",
+    page_size: "20",
+    is_active: "true",
+   });
+   if (scopeBranchId) params.set("branch_id", scopeBranchId);
+
+   void fetch(`/api/customers?${params.toString()}`, {
+    credentials: "include",
+    cache: "no-store",
+    signal: controller.signal,
+   })
+    .then(async (response) => {
+     const json = (await response.json()) as unknown;
+     if (!response.ok) {
+      const error = json as { message?: string; error?: string };
+      throw new Error(error.message ?? error.error ?? `Customer search failed (${response.status})`);
+     }
+     setCustomerSearchResults(extractCustomersList(json));
+    })
+    .catch((error: unknown) => {
+     if (controller.signal.aborted) return;
+     setCustomerSearchResults([]);
+     setCustomerSearchError(
+      error instanceof Error ? error.message : "Could not search customers. Please try again."
+     );
+    })
+    .finally(() => {
+     if (!controller.signal.aborted) setCustomerSearchLoading(false);
+    });
+  }, 300);
+
+  return () => {
+   window.clearTimeout(timeoutId);
+   controller.abort();
+  };
+ }, [customerSearch, loanMode, scopeBranchId, selectedCustomer]);
 
  const loadCustomerGuarantors = useCallback(async (customerId: string) => {
   try {
@@ -432,10 +488,6 @@ export default function NewApplicationPageClient() {
  [resolveChairpersonCustomer]
  );
 
- const visibleCustomers = scopeBranchId
- ? customers.filter((customer) => customer.branch_id === scopeBranchId)
- : customers;
-
  const visibleGroups = useMemo(() => {
  let list = groups.filter((g) => g.status === "active" && g.chairperson_customer_id);
  if (scopeBranchId) {
@@ -447,13 +499,29 @@ export default function NewApplicationPageClient() {
  return list;
  }, [groups, scopeBranchId, user]);
 
- const filteredCustomers = visibleCustomers.filter(
- (c) =>
- c.is_active &&
- !c.is_blacklisted &&
- (c.first_name.toLowerCase().includes(customerSearch.toLowerCase()) ||
- c.last_name.toLowerCase().includes(customerSearch.toLowerCase()) ||
- c.customer_number.toLowerCase().includes(customerSearch.toLowerCase()))
+ const filteredCustomers = customerSearchResults.filter(
+ (customer) => {
+  const searchableCustomer = [
+   customer.first_name,
+   customer.middle_name,
+   customer.last_name,
+   customer.customer_number,
+   customer.phone_primary,
+  ]
+   .filter(Boolean)
+   .join(" ")
+   .toLowerCase();
+
+  return (
+   customer.is_active &&
+   !customer.is_blacklisted &&
+   customerSearch
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .every((term) => searchableCustomer.includes(term))
+  );
+ }
  );
 
  const filteredGroups = visibleGroups.filter((g) => {
@@ -1041,8 +1109,16 @@ Legacy group-level draft. Prefer creating new member loans from Vikundi member r
  className="pl-9"
  />
  </div>
- {customerSearch && (
+ {customerSearch.trim().length >= 2 && (
  <div className="max-h-48 space-y-2 overflow-auto">
+ {customerSearchLoading ? (
+ <p className="py-4 text-center text-sm text-muted-foreground">Searching all customers…</p>
+ ) : null}
+ {customerSearchError ? (
+ <p className="py-4 text-center text-sm text-destructive">{customerSearchError}</p>
+ ) : null}
+ {!customerSearchLoading && !customerSearchError ? (
+ <>
  {filteredCustomers.map((customer) => (
  <button
  key={customer.id}
@@ -1079,6 +1155,8 @@ Legacy group-level draft. Prefer creating new member loans from Vikundi member r
  No customers found
  </p>
  )}
+ </>
+ ) : null}
  </div>
  )}
  </>
