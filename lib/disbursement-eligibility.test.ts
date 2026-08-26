@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   applyInFlightRemaining,
   buildSelectableLoansFromApplications,
+  constrainApplicationsToEligibleLoans,
   type EligibleApplicationRow,
 } from "./disbursement-eligible";
 import { mergeEligibleLoanLists, type EligibleLoanRow } from "./disbursement-adapters";
@@ -55,4 +56,24 @@ test("an application with a blocking disbursement is not rebuilt as eligible", (
   );
 
   assert.deepEqual(rows, []);
+});
+
+test("a discovered loan cannot make an application selectable when backend eligibility omits it", () => {
+  const applications = constrainApplicationsToEligibleLoans([application], []);
+
+  assert.deepEqual(applications, [
+    {
+      ...application,
+      loan_id: undefined,
+      loan_number: undefined,
+      ready_for_disbursement: false,
+    },
+  ]);
+});
+
+test("an application stays selectable when backend eligibility includes its loan", () => {
+  const applications = constrainApplicationsToEligibleLoans([application], [loan]);
+
+  assert.equal(applications[0]?.loan_id, "42");
+  assert.equal(applications[0]?.ready_for_disbursement, true);
 });
