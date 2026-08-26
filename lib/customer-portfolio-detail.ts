@@ -7,7 +7,10 @@ import {
  type LoanListRow,
 } from "@/lib/loan-adapters";
 import { applyPaymentTotalsToLoans } from "@/lib/loan-enrichment";
-import { effectiveCustomerTotalPaid } from "@/lib/loan-display";
+import {
+  summarizeCustomerLoanTruth,
+  summarizeCustomerPaymentAllocations,
+} from "@/lib/loan-repayment-truth";
 import { extractPaymentsPayload, type PaymentViewRow } from "@/lib/payment-adapters";
 import { falcoServerFetch } from "@/lib/server-falco";
 import type { ApplicationViewRow } from "@/lib/application-adapters";
@@ -47,7 +50,13 @@ export type CustomerPortfolioData = {
  summary: {
  total_loans: number;
  total_borrowed: number;
+ /** Gross cash from settled payments (includes penalties). */
  total_paid: number;
+ cash_received: number;
+ applied_to_contract: number;
+ penalties_charged: number;
+ penalties_paid: number;
+ penalties_outstanding: number;
  total_outstanding: number;
  total_payments: number;
  active_loans: number;
@@ -134,8 +143,13 @@ export function buildCreditScoreHistory(
 }
 
 export function buildBalanceSnapshot(loans: LoanListRow[], payments: Payment[] = []): BalanceSnapshotPoint[] {
- const paid = effectiveCustomerTotalPaid(loans, payments);
- const outstanding = loans.reduce((sum, l) => sum + l.total_outstanding, 0);
+ const alloc = summarizeCustomerPaymentAllocations(payments);
+ const loanTruth = summarizeCustomerLoanTruth(loans);
+ // Chart "paid" = applied to contract (not gross cash with penalties).
+ const paid = alloc.paymentsUnavailable
+  ? loanTruth.appliedToContractFromLoans
+  : alloc.appliedToContract;
+ const outstanding = loanTruth.totalOutstanding;
  return [{ name: "Portfolio", paid, outstanding }];
 }
 
@@ -288,19 +302,24 @@ async function loadCustomerPayments(
 }
 
 export function summarizePortfolio(loans: LoanListRow[], payments: Payment[]) {
- const total_borrowed = loans.reduce((sum, l) => sum + l.principal_amount, 0);
- const total_paid = effectiveCustomerTotalPaid(loans, payments);
- const total_outstanding = loans.reduce((sum, l) => sum + l.total_outstanding, 0);
+ const loanTruth = summarizeCustomerLoanTruth(loans);
+ const alloc = summarizeCustomerPaymentAllocations(payments);
  const active_loans = loans.filter((l) => l.status === "active" || l.status === "in_arrears").length;
- const completed_loans = loans.filter((l) => l.status === "paid_off").length;
  return {
  total_loans: loans.length,
- total_borrowed,
- total_paid,
- total_outstanding,
+ total_borrowed: loanTruth.totalBorrowed,
+ total_paid: alloc.cashReceived,
+ cash_received: alloc.cashReceived,
+ applied_to_contract: alloc.paymentsUnavailable
+  ? loanTruth.appliedToContractFromLoans
+  : alloc.appliedToContract,
+ penalties_charged: loanTruth.penaltiesCharged,
+ penalties_paid: Math.max(loanTruth.penaltiesPaid, alloc.penaltiesPaid),
+ penalties_outstanding: loanTruth.penaltiesOutstanding,
+ total_outstanding: loanTruth.totalOutstanding,
  total_payments: payments.length,
  active_loans,
- completed_loans,
+ completed_loans: loanTruth.completedLoans,
  };
 }
 

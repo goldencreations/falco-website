@@ -370,15 +370,18 @@ export function applyPaymentTotalsToLoans(
  if (!row || row.total <= 0) return loan;
 
  const payments_recorded_total = row.total;
- const total_paid = Math.max(Number(loan.total_paid ?? 0), payments_recorded_total);
 
  return {
  ...loan,
  payments_recorded_total,
  payment_count: row.count,
  last_payment_date: row.lastDate ?? loan.last_payment_date,
- total_paid,
- principal_paid: Math.max(Number(loan.principal_paid ?? 0), payments_recorded_total),
+ // Do not overwrite total_paid / principal_paid with gross cash — that includes
+ // penalties and falsely drives "100% paid". Keep payments_recorded_total for diagnostics.
+ total_paid: Math.max(
+  Number(loan.total_paid ?? 0),
+  Number(loan.principal_paid ?? 0) + Number(loan.interest_paid ?? 0) + Number(loan.fees_paid ?? 0)
+ ),
  };
  });
 }

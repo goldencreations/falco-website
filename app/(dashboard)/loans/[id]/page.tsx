@@ -106,7 +106,7 @@ export default function LoanDetailPage() {
  setLoan({
  ...loanRow,
  payments_recorded_total: paidFromPayments,
- total_paid: Math.max(loanRow.total_paid, paidFromPayments),
+ // Keep LMS total_paid (contractual buckets). Gross cash is shown separately in the panel.
  payment_count: paymentRows.length,
  });
  }
