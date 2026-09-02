@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
  ArrowLeft,
@@ -251,6 +251,7 @@ export default function NewApplicationPageClient() {
  });
 
  const [editAppDetail, setEditAppDetail] = useState<Record<string, unknown> | null>(null);
+ const initializedEditApplicationId = useRef<string | null>(null);
 
  useEffect(() => {
   const query = customerSearch.trim();
@@ -389,6 +390,8 @@ export default function NewApplicationPageClient() {
  useEffect(() => {
  if (!editAppDetail) return;
  const app = editAppDetail;
+ const appId = String(app.id ?? editId ?? "");
+ const formAlreadyInitialized = Boolean(appId && initializedEditApplicationId.current === appId);
  const customerId = String(app.customer_id ?? "");
  const productId = String(app.product_id ?? "");
  const cust = customers.find((c) => c.id === customerId);
@@ -408,7 +411,7 @@ export default function NewApplicationPageClient() {
    : null;
  const editLatitude = loc?.latitude != null ? String(loc.latitude) : "";
  const editLongitude = loc?.longitude != null ? String(loc.longitude) : "";
- setFormData((prev) => ({
+ if (!formAlreadyInitialized) setFormData((prev) => ({
  ...prev,
  amount: app.requested_amount
  ? formatMoneyFromNumber(Number(app.requested_amount))
@@ -424,6 +427,7 @@ export default function NewApplicationPageClient() {
  locationLabel:
   editLatitude && editLongitude ? "Saved on this application" : "",
  }));
+ if (appId) initializedEditApplicationId.current = appId;
  }, [editAppDetail, customers, loanProducts, groups]);
 
  const resolveChairpersonCustomer = useCallback(
@@ -771,6 +775,7 @@ export default function NewApplicationPageClient() {
  return;
  }
 
+ const submittedFrequency = normalizeApplicationRepaymentFrequency(formData.repaymentFrequency);
  const body = mapApplicationFormToFalcoBody({
  customer_id: selectedCustomer.id,
  product_id: selectedProduct.id,
@@ -779,10 +784,7 @@ export default function NewApplicationPageClient() {
  requested_amount: amount,
  term_days: termDays,
  purpose: formData.purpose.trim() || "Working capital",
- repayment_frequency: normalizeApplicationRepaymentFrequency(
-  formData.repaymentFrequency,
-  selectedProduct.repayment_frequency
- ),
+ repayment_frequency: submittedFrequency,
  collaterals: collateralsPayload,
  guarantors: guarantorsPayload,
  references: referencesPayload,
@@ -830,6 +832,27 @@ export default function NewApplicationPageClient() {
  router.push(applicationsBasePath);
  return;
  }
+
+ let savedApplication = extractApplicationDetail(data);
+ if (!savedApplication?.repayment_frequency) {
+  const detailResponse = await fetch(`/api/applications/${encodeURIComponent(applicationId)}`, {
+   credentials: "include",
+   cache: "no-store",
+  });
+  const detailData = await detailResponse.json().catch(() => ({}));
+  if (!detailResponse.ok) {
+   alert(formatClientApiError(detailData, "Application saved, but could not verify repayment frequency."));
+   return;
+  }
+  savedApplication = extractApplicationDetail(detailData);
+ }
+ const savedFrequency = savedApplication?.repayment_frequency;
+ if (savedFrequency !== submittedFrequency) {
+  alert("The server did not preserve the selected repayment frequency. The application was not confirmed as saved.");
+  return;
+ }
+ setEditAppDetail(savedApplication);
+ setFormData((prev) => ({ ...prev, repaymentFrequency: submittedFrequency }));
 
  const isNewApplication = !editingApplicationId;
  if (isNewApplication) {
@@ -1341,6 +1364,8 @@ Legacy group-level draft. Prefer creating new member loans from Vikundi member r
  ? "Daily"
  : frequency === "weekly"
  ? "Weekly"
+ : frequency === "bi_weekly"
+ ? "Bi-weekly"
  : "Monthly"}
  </SelectItem>
  ))}
