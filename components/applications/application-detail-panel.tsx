@@ -15,6 +15,7 @@ import {
 } from "@/lib/application-documents";
 import {
   buildApplicationChecklist,
+  canEditApplicationLoanDetails,
   canDeleteApplication,
   getApplicationWorkflowActions,
   type ApplicationWorkflowAction,
@@ -210,6 +211,8 @@ export function ApplicationDetailPanel({
     effectiveRole as Parameters<typeof resolvePortalPath>[0],
     `/customers/${application.customer_id}`
   );
+  const canEditLoanDetails = canEditApplicationLoanDetails(application);
+  const editLoanDetailsHref = `${applicationsNewPath}?edit=${encodeURIComponent(application.id)}&mode=loan-details`;
 
   const collaterals = useMemo(
     () => dedupeCollateralRows(application.collaterals ?? []),
@@ -329,12 +332,22 @@ export function ApplicationDetailPanel({
                 </Button>
               </div>
             </div>
-            {detailLoading ? (
-              <Badge variant="secondary" className="w-fit gap-1">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                Updating
-              </Badge>
-            ) : null}
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              {canEditLoanDetails ? (
+                <Button variant="outline" size="sm" asChild>
+                  <Link href={editLoanDetailsHref}>
+                    <Pencil className="mr-2 h-4 w-4" />
+                    Edit application
+                  </Link>
+                </Button>
+              ) : null}
+              {detailLoading ? (
+                <Badge variant="secondary" className="w-fit gap-1">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Updating
+                </Badge>
+              ) : null}
+            </div>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -879,14 +892,6 @@ export function ApplicationDetailPanel({
       {/* Actions */}
       <Card className="border-border/80 py-0 shadow-sm">
         <CardFooter className="flex flex-col-reverse gap-2 px-4 py-4 sm:flex-row sm:flex-wrap sm:justify-end sm:gap-3 sm:px-5">
-          {application.status === "draft" ? (
-            <Button asChild variant="secondary">
-              <Link href={`${applicationsNewPath}?edit=${application.id}`}>
-                <Pencil className="mr-2 h-4 w-4" />
-                Continue draft
-              </Link>
-            </Button>
-          ) : null}
           {application.status === "pending_disbursement" ? (
             <Button className="bg-emerald-600 hover:bg-emerald-700" asChild>
               <Link
