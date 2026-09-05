@@ -251,8 +251,25 @@ export function LoanDetailPanel({
  </div>
  <div className="flex items-center gap-2 text-sm">
  <CalendarRange className="h-4 w-4 text-muted-foreground" />
- <span>Due: {formatDate(loan.maturity_date)}</span>
+ <span>Maturity: {formatDate(loan.maturity_date)}</span>
  </div>
+ {loan.oldest_overdue_date ? (
+ <div className="flex items-center gap-2 text-sm text-destructive">
+ <CalendarRange className="h-4 w-4" />
+ <span>
+ Oldest overdue: {formatDate(loan.oldest_overdue_date)}
+ {loan.overdue_amount != null ? ` · ${formatCurrency(loan.overdue_amount)}` : ""}
+ </span>
+ </div>
+ ) : loan.next_due_date ? (
+ <div className="flex items-center gap-2 text-sm">
+ <CalendarRange className="h-4 w-4 text-muted-foreground" />
+ <span>
+ Next installment: {formatDate(loan.next_due_date)}
+ {loan.next_due_amount != null ? ` · ${formatCurrency(loan.next_due_amount)}` : ""}
+ </span>
+ </div>
+ ) : null}
  </CardContent>
  </Card>
  </div>
