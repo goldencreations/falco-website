@@ -1281,6 +1281,16 @@ export default function CustomerDetailPage() {
  {truth.daysInArrears > 0 ? (
  <span className="text-xs text-destructive">{truth.daysInArrears}d in arrears</span>
  ) : null}
+ {loan.oldest_overdue_date ? (
+ <span className="text-xs text-destructive">
+ Oldest overdue {formatDate(loan.oldest_overdue_date)}
+ {loan.overdue_amount != null ? ` · ${formatCurrency(loan.overdue_amount)}` : ""}
+ </span>
+ ) : loan.next_due_date ? (
+ <span className="text-xs text-muted-foreground">
+ Next {formatDate(loan.next_due_date)}
+ </span>
+ ) : null}
  </div>
  </TableCell>
  <TableCell>{formatDate(loan.maturity_date)}</TableCell>
