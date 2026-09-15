@@ -139,7 +139,7 @@ function leadCreatorRoleLabel(lead: LeadView): string | null {
 }
 
 function leadDateAddedLabel(lead: LeadView): string {
-  const dateAdded = lead.followUpDate || lead.createdAt;
+  const dateAdded = lead.dateAdded || lead.createdAt;
   if (!dateAdded) return "-";
   return dateAdded.slice(0, 10);
 }

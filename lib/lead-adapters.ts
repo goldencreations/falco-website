@@ -25,6 +25,7 @@ export type LeadView = {
  createdBy?: string;
  createdByName?: string;
  createdByRole?: string;
+ dateAdded: string;
  createdAt: string;
  convertedAt?: string;
 };
@@ -100,6 +101,7 @@ export function adaptApiLeadRow(raw: Record<string, unknown>): LeadView {
  const locationType = parseLocationTypeFromNotes(rawNotes);
  const notes = stripLocationTagFromNotes(rawNotes);
  const createdByUser = readLeadCreator(inner);
+ const createdAt = str(inner.created_at ?? new Date().toISOString());
 
  return {
  id: str(inner.id),
@@ -133,7 +135,8 @@ export function adaptApiLeadRow(raw: Record<string, unknown>): LeadView {
  (inner.created_by_role != null && String(inner.created_by_role).trim()
  ? str(inner.created_by_role)
  : undefined),
- createdAt: str(inner.created_at ?? new Date().toISOString()),
+ dateAdded: str(inner.date_added ?? createdAt),
+ createdAt,
  convertedAt: inner.converted_at ? str(inner.converted_at) : undefined,
  };
 }
