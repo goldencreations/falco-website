@@ -4,6 +4,8 @@ import { requireApiUser, resolvedBranchIdForListQuery } from "@/lib/authorizatio
 import { canPrepareDisbursement } from "@/lib/disbursement-permissions";
 import { resolveEligibleDisbursementTargets } from "@/lib/disbursement-eligible";
 
+export const dynamic = "force-dynamic";
+
 /** Eligible loans and applications for the create-disbursement form (branch-scoped). */
 export async function GET(request: Request) {
  try {

@@ -331,6 +331,10 @@ export interface Loan {
  disbursement_date: string;
  first_payment_date: string;
  maturity_date: string;
+ oldest_overdue_date?: string;
+ overdue_amount?: number;
+ next_due_date?: string;
+ next_due_amount?: number;
  last_payment_date?: string;
  
  // Status

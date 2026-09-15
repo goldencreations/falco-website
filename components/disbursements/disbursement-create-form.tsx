@@ -141,7 +141,10 @@ export function DisbursementCreateForm() {
   const loadEligibleLoans = useCallback(async () => {
     setEligibleLoading(true);
     try {
-      const res = await fetch("/api/disbursements/eligible-loans", { credentials: "include" });
+      const res = await fetch("/api/disbursements/eligible-loans", {
+        credentials: "include",
+        cache: "no-store",
+      });
       const { data } = await parseJsonResponse<{
         eligible_loans?: EligibleLoanRow[];
         eligible_applications?: EligibleApplicationRow[];
@@ -189,8 +192,7 @@ export function DisbursementCreateForm() {
     () =>
       eligibleApplications.filter(
         (a) =>
-          Boolean(a.loan_id) ||
-          a.ready_for_disbursement ||
+          (Boolean(a.loan_id) && a.ready_for_disbursement) ||
           (Boolean(a.needs_final_approval) && canFinalizeApproval)
       ),
     [eligibleApplications, canFinalizeApproval]
@@ -209,22 +211,6 @@ export function DisbursementCreateForm() {
     for (const loan of eligibleLoans) {
       if (loan.id) byId.set(loan.id, loan);
     }
-    for (const app of selectableApplications) {
-      if (!app.loan_id || byId.has(app.loan_id)) continue;
-      const amount = app.approved_amount > 0 ? app.approved_amount : app.requested_amount;
-      byId.set(app.loan_id, {
-        id: app.loan_id,
-        loan_number: app.loan_number ?? app.loan_id,
-        customer_id: "",
-        branch_id: app.branch_id,
-        principal_amount: amount,
-        remaining: amount,
-        customer_display_name: app.customer_display_name,
-        application_id: app.id,
-        application_number: app.application_number,
-        application_status: app.status,
-      });
-    }
     return Array.from(byId.values()).sort((a, b) =>
       a.loan_number.localeCompare(b.loan_number)
     );
@@ -235,7 +221,7 @@ export function DisbursementCreateForm() {
   );
   const canSelectForDisbursement =
     selectableLoans.length > 0 ||
-    selectableApplications.some((a) => a.loan_id || a.ready_for_disbursement) ||
+    selectableApplications.some((a) => a.loan_id && a.ready_for_disbursement) ||
     approvedAwaitingLoan.length > 0;
 
   useEffect(() => {
@@ -250,21 +236,7 @@ export function DisbursementCreateForm() {
     if (!formLoan) return undefined;
     const fromLoans = selectableLoans.find((l) => l.id === formLoan);
     if (fromLoans) return fromLoans;
-    const app = eligibleApplications.find((a) => a.loan_id === formLoan);
-    if (!app?.loan_id) return undefined;
-    const amount = app.approved_amount > 0 ? app.approved_amount : app.requested_amount;
-    return {
-      id: app.loan_id,
-      loan_number: app.loan_number ?? app.loan_id,
-      customer_id: "",
-      branch_id: app.branch_id,
-      principal_amount: amount,
-      remaining: amount,
-      customer_display_name: app.customer_display_name,
-      application_id: app.id,
-      application_number: app.application_number,
-      application_status: app.status,
-    };
+    return undefined;
   }, [formLoan, selectableLoans, eligibleApplications]);
 
   const addLoanToFormState = useCallback(
@@ -615,10 +587,9 @@ export function DisbursementCreateForm() {
                       </TableHeader>
                       <TableBody>
                         {eligibleApplications.map((app) => {
-                          const hasLinkedLoan =
-                            Boolean(app.loan_id) ||
-                            selectableLoans.some(
+                          const hasLinkedLoan = selectableLoans.some(
                               (l) =>
+                                l.id === app.loan_id ||
                                 l.application_id === app.id ||
                                 l.application_number?.toLowerCase() ===
                                   app.application_number.toLowerCase()
@@ -628,8 +599,7 @@ export function DisbursementCreateForm() {
                             !hasLinkedLoan &&
                             !canFinalizeApproval;
                           const canSelect =
-                            hasLinkedLoan ||
-                            app.ready_for_disbursement ||
+                            (hasLinkedLoan && app.ready_for_disbursement) ||
                             (Boolean(app.needs_final_approval) && canFinalizeApproval);
                           const isPreparing = preparingApplicationId === app.id;
                           return (

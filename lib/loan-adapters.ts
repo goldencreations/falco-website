@@ -170,8 +170,6 @@ export type LoanListRow = Loan & {
  productName: string;
  branchName: string;
  loanOfficerDisplayName: string;
- /** Next unpaid installment due date (from schedule when enriched). */
- next_due_date?: string;
  /** Completed payments recorded in LMS for this loan (from payments API). */
  payment_count?: number;
  payments_recorded_total?: number;
@@ -336,7 +334,10 @@ export function adaptApiLoanRow(raw: Record<string, unknown>): LoanListRow {
    row.first_payment_date ?? row.first_due_date ?? row.first_repayment_date,
   repayment_frequency,
  }),
- next_due_date: scheduleNextDue,
+ oldest_overdue_date: row.oldest_overdue_date ? str(row.oldest_overdue_date) : undefined,
+ overdue_amount: row.overdue_amount != null ? num(row.overdue_amount) : undefined,
+ next_due_date: row.next_due_date ? str(row.next_due_date) : scheduleNextDue,
+ next_due_amount: row.next_due_amount != null ? num(row.next_due_amount) : undefined,
  maturity_date: str(row.maturity_date ?? row.maturity_at ?? row.due_date, "1970-01-01"),
  last_payment_date: row.last_payment_date ? str(row.last_payment_date) : undefined,
 

@@ -158,22 +158,22 @@ function synthesizeApplicationFromLoan(
  };
 }
 
-function applyInFlightRemaining(
+export function applyInFlightRemaining(
  rows: EligibleLoanRow[],
  inFlight: Map<string, number>
 ): EligibleLoanRow[] {
  return rows
  .map((row) => {
  const reserved = inFlight.get(row.id) ?? 0;
- const base = row.remaining > 0 ? row.remaining : row.principal_amount;
- const remaining = Math.max(0, base - reserved);
+ const reportedRemaining = row.remaining > 0 ? row.remaining : row.principal_amount;
+ const calculatedRemaining = Math.max(0, row.principal_amount - reserved);
+ const remaining = Math.min(reportedRemaining, calculatedRemaining);
  return {
  ...row,
- remaining:
- remaining > 0.009 ? remaining : row.principal_amount > 0 ? row.principal_amount : remaining,
+ remaining,
  };
  })
- .filter((row) => row.id && row.principal_amount > 0.009);
+ .filter((row) => row.id && row.principal_amount > 0.009 && row.remaining > 0.009);
 }
 
 async function fetchLoansIndexedByApplicationId(
@@ -346,7 +346,8 @@ async function fetchPipelineApplications(
 
 function enrichLoansWithApplications(
  loans: EligibleLoanRow[],
- applications: EligibleApplicationRow[]
+ applications: EligibleApplicationRow[],
+ blockingLoanIds: Set<string>
 ): EligibleLoanRow[] {
  const appById = new Map(applications.map((a) => [a.id, a]));
  const appByLoanId = new Map<string, EligibleApplicationRow>();
@@ -369,7 +370,7 @@ function enrichLoansWithApplications(
  }
 
  for (const app of applications) {
- if (!app.loan_id || byId.has(app.loan_id)) continue;
+ if (!app.loan_id || byId.has(app.loan_id) || blockingLoanIds.has(app.loan_id)) continue;
  const amount = app.approved_amount > 0 ? app.approved_amount : app.requested_amount;
  byId.set(app.loan_id, {
  id: app.loan_id,
@@ -390,11 +391,12 @@ function enrichLoansWithApplications(
 
 export function buildSelectableLoansFromApplications(
  applications: EligibleApplicationRow[],
- loanById: Map<string, EligibleLoanRow>
+ loanById: Map<string, EligibleLoanRow>,
+ blockingLoanIds: Set<string> = new Set()
 ): EligibleLoanRow[] {
  const rows: EligibleLoanRow[] = [];
  for (const app of applications) {
- if (!app.loan_id) continue;
+ if (!app.loan_id || blockingLoanIds.has(app.loan_id)) continue;
  const existing = loanById.get(app.loan_id);
  if (existing) {
  rows.push({
@@ -423,6 +425,40 @@ export function buildSelectableLoansFromApplications(
  return rows.sort((a, b) => a.loan_number.localeCompare(b.loan_number));
 }
 
+/**
+ * Require the backend console to confirm that a linked loan is currently eligible.
+ * Discovering a loan through `/loans` is not sufficient because it may already have
+ * a payout in flight.
+ */
+export function constrainApplicationsToEligibleLoans(
+ applications: EligibleApplicationRow[],
+ eligibleLoans: EligibleLoanRow[]
+): EligibleApplicationRow[] {
+ const eligibleLoanIds = new Set(eligibleLoans.map((loan) => normalizeId(loan.id)).filter(Boolean));
+
+ return applications.map((application) => {
+ const loanId = normalizeId(application.loan_id);
+ if (loanId && eligibleLoanIds.has(loanId)) {
+ return {
+ ...application,
+ ready_for_disbursement: true,
+ needs_final_approval: false,
+ };
+ }
+
+ if (!application.loan_id && !application.ready_for_disbursement) {
+ return application;
+ }
+
+ return {
+ ...application,
+ loan_id: undefined,
+ loan_number: undefined,
+ ready_for_disbursement: false,
+ };
+ });
+}
+
 export async function resolveEligibleDisbursementTargets(
  user: SessionUser,
  branchId: string | undefined
@@ -438,12 +474,17 @@ export async function resolveEligibleDisbursementTargets(
  user,
  branchId
  );
+ const blockingLoanIds = loanIdsWithBlockingDisbursement(disbursements);
 
  const loansByAppId = await fetchLoansIndexedByApplicationId(user, branchId, disbursements);
 
  let eligible_applications = await fetchPipelineApplications(user, branchId, loansByAppId);
 
- const mergedLoans = mergeEligibleLoanLists(fromConsole, Array.from(loansByAppId.values()));
+ const authoritativeLoanIds = new Set(fromConsole.map((loan) => normalizeId(loan.id)));
+ const verifiedLoanDetails = Array.from(loansByAppId.values()).filter((loan) =>
+ authoritativeLoanIds.has(normalizeId(loan.id))
+ );
+ const mergedLoans = mergeEligibleLoanLists(fromConsole, verifiedLoanDetails);
 
  eligible_applications = linkApplicationsFromLoans(eligible_applications, mergedLoans);
 
@@ -465,15 +506,21 @@ export async function resolveEligibleDisbursementTargets(
  })
  );
 
- const enriched_loans = enrichLoansWithApplications(mergedLoans, eligible_applications);
- const fromApps = buildSelectableLoansFromApplications(
- eligible_applications,
- new Map(enriched_loans.map((l) => [l.id, l]))
+ eligible_applications = eligible_applications.filter(
+ (application) => !application.loan_id || !blockingLoanIds.has(application.loan_id)
  );
- const final_loans = mergeEligibleLoanLists(enriched_loans, fromApps);
+ eligible_applications = constrainApplicationsToEligibleLoans(
+ eligible_applications,
+ mergedLoans
+ );
 
+ const enriched_loans = enrichLoansWithApplications(
+  mergedLoans,
+  eligible_applications,
+  blockingLoanIds
+ );
  return {
- eligible_loans: final_loans,
+ eligible_loans: enriched_loans,
  eligible_applications,
  branch_scope: isBranchDataScoped(user) ? scope : scope,
  };

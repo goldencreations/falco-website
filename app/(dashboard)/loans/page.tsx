@@ -420,8 +420,19 @@ export default function LoansPage() {
  ) : null}
  </div>
  <span>·</span>
- <span>Due {formatDate(loan.maturity_date)}</span>
+ <span>Maturity {formatDate(loan.maturity_date)}</span>
  </div>
+ {loan.oldest_overdue_date ? (
+ <p className="mt-1 text-xs font-medium text-destructive">
+ Oldest overdue {formatDate(loan.oldest_overdue_date)}
+ {loan.overdue_amount != null ? ` · ${formatCurrency(loan.overdue_amount)}` : ""}
+ </p>
+ ) : loan.next_due_date ? (
+ <p className="mt-1 text-xs text-muted-foreground">
+ Next installment {formatDate(loan.next_due_date)}
+ {loan.next_due_amount != null ? ` · ${formatCurrency(loan.next_due_amount)}` : ""}
+ </p>
+ ) : null}
  <div className="mt-3 flex flex-wrap gap-2">
  <Button size="sm" variant="outline" className="h-8 flex-1 min-w-[7rem]" asChild>
  <Link href={loanDetailPath(loan.id)}>
@@ -568,6 +579,16 @@ export default function LoansPage() {
  )}
  {truth.daysInArrears > 0 ? (
  <span className="text-xs text-destructive">{truth.daysInArrears}d in arrears</span>
+ ) : null}
+ {loan.oldest_overdue_date ? (
+ <span className="text-xs text-destructive">
+ Oldest overdue {formatDate(loan.oldest_overdue_date)}
+ {loan.overdue_amount != null ? ` · ${formatCurrency(loan.overdue_amount)}` : ""}
+ </span>
+ ) : loan.next_due_date ? (
+ <span className="text-xs text-muted-foreground">
+ Next {formatDate(loan.next_due_date)}
+ </span>
  ) : null}
  </div>
  </TableCell>
