@@ -177,6 +177,14 @@ export async function uploadApplicationDocumentsFromForm(
 
 const NON_DELETABLE_STATUSES: LoanApplicationStatus[] = ["disbursed"];
 
+/** Loan terms may change only before final approval creates a linked loan. */
+export function canEditApplicationLoanDetails(app: {
+ status: LoanApplicationStatus;
+ loan_id?: string | null;
+}): boolean {
+ return !app.loan_id && app.status !== "pending_disbursement" && app.status !== "disbursed";
+}
+
 export function canDeleteApplication(
  role: string,
  app: { status: LoanApplicationStatus; created_by?: string },

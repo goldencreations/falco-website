@@ -109,6 +109,7 @@ export default function NewApplicationPageClient() {
  const pathname = usePathname();
  const searchParams = useSearchParams();
  const editId = searchParams.get("edit")?.trim() || null;
+ const isLoanDetailsEdit = Boolean(editId && searchParams.get("mode") === "loan-details");
  const { user } = useSessionUser();
  const effectiveRole = user?.role ?? "super_admin";
  const isAdminView = effectiveRole === "super_admin";
@@ -776,7 +777,7 @@ export default function NewApplicationPageClient() {
  }
 
  const submittedFrequency = normalizeApplicationRepaymentFrequency(formData.repaymentFrequency);
- const body = mapApplicationFormToFalcoBody({
+ const completeBody = mapApplicationFormToFalcoBody({
  customer_id: selectedCustomer.id,
  product_id: selectedProduct.id,
  loan_mode: loanMode,
@@ -790,6 +791,15 @@ export default function NewApplicationPageClient() {
  references: referencesPayload,
  location,
  });
+ const body = isLoanDetailsEdit
+  ? {
+     product_id: completeBody.product_id,
+     requested_amount: completeBody.requested_amount,
+     term_days: completeBody.term_days,
+     repayment_frequency: completeBody.repayment_frequency,
+     purpose: completeBody.purpose,
+    }
+  : completeBody;
 
  debugApplicationCreate("handleSubmit — payload ready", summarizeApplicationBody(body));
 
@@ -853,6 +863,11 @@ export default function NewApplicationPageClient() {
  }
  setEditAppDetail(savedApplication);
  setFormData((prev) => ({ ...prev, repaymentFrequency: submittedFrequency }));
+
+ if (isLoanDetailsEdit) {
+  router.push(`${applicationsBasePath}/${encodeURIComponent(applicationId)}`);
+  return;
+ }
 
  const isNewApplication = !editingApplicationId;
  if (isNewApplication) {
@@ -987,9 +1002,11 @@ export default function NewApplicationPageClient() {
  return (
  <>
  <DashboardHeader
- title={editingApplicationId ? "Continue loan application" : "New Loan Application"}
+ title={isLoanDetailsEdit ? "Edit application" : editingApplicationId ? "Continue loan application" : "New Loan Application"}
  description={
- editingApplicationId
+ isLoanDetailsEdit
+ ? "Update the loan product, requested amount, term, repayment frequency, or purpose"
+ : editingApplicationId
  ? isAdminView
  ? "Complete required fields, then activate to create the loan for disbursement"
  : "Complete required fields and submit when ready"
@@ -1007,7 +1024,7 @@ export default function NewApplicationPageClient() {
 
  {editLoading ? (
  <div className="rounded-lg border bg-muted/30 px-4 py-6 text-sm text-muted-foreground">
- Loading draft application…
+ Loading application…
  </div>
  ) : null}
 
@@ -1526,17 +1543,19 @@ Legacy group-level draft. Prefer creating new member loans from Vikundi member r
  <Button
  type="button"
  className="w-full"
- onClick={() => void handleSubmit(false)}
+ onClick={() => void handleSubmit(isLoanDetailsEdit)}
  disabled={isSaving || !hasBorrower || !selectedProduct || amount <= 0 || termDays <= 0}
  >
  <Send className="mr-2 h-4 w-4" />
  {isSaving
  ? "Saving…"
+ : isLoanDetailsEdit
+ ? "Save changes"
  : isAdminView
  ? "Activate & create loan"
  : "Submit application"}
  </Button>
- <Button
+ {!isLoanDetailsEdit ? <Button
  type="button"
  variant="outline"
  className="w-full"
@@ -1544,7 +1563,7 @@ Legacy group-level draft. Prefer creating new member loans from Vikundi member r
  disabled={isSaving || !hasBorrower || !selectedProduct}
  >
  {isSaving ? "Saving…" : "Save as draft"}
- </Button>
+ </Button> : null}
  {!hasBorrower || !selectedProduct ? (
  <p className="text-xs text-muted-foreground">
  {isGroupMode

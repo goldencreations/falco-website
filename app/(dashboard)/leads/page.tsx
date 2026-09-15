@@ -138,6 +138,12 @@ function leadCreatorRoleLabel(lead: LeadView): string | null {
   return lead.createdByRole ? roleDisplayLabel(lead.createdByRole) : null;
 }
 
+function leadDateAddedLabel(lead: LeadView): string {
+  const dateAdded = lead.followUpDate || lead.createdAt;
+  if (!dateAdded) return "-";
+  return dateAdded.slice(0, 10);
+}
+
 /** Local calendar date for `<input type="date">` (YYYY-MM-DD). */
 function todayInputDate(): string {
   const d = new Date();
@@ -1029,7 +1035,7 @@ export default function LeadsPage() {
  <span className="text-xs text-muted-foreground">Not captured</span>
  )}
  </TableCell>
- <TableCell>{lead.followUpDate || "-"}</TableCell>
+ <TableCell>{leadDateAddedLabel(lead)}</TableCell>
  <TableCell>
  <div className="flex max-w-56 flex-col">
  <span className="truncate font-medium">{leadCreatorLabel(lead)}</span>
