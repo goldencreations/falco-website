@@ -43,8 +43,8 @@ export async function GET(request: Request) {
     const res = await falcoServerFetch<unknown>("/leads", {
       request,
       query: {
-        follow_up_from: from,
-        follow_up_to: to,
+        date_added_from: from,
+        date_added_to: to,
         branch_id: branchId,
         page: String(page),
         page_size: String(pageSize),

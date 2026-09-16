@@ -333,20 +333,20 @@ export function ApplicationDetailPanel({
               </div>
             </div>
             <div className="flex shrink-0 flex-wrap items-center gap-2">
-              {canEditLoanDetails ? (
-                <Button variant="outline" size="sm" asChild>
-                  <Link href={editLoanDetailsHref}>
-                    <Pencil className="mr-2 h-4 w-4" />
-                    Edit application
-                  </Link>
-                </Button>
-              ) : null}
-              {detailLoading ? (
-                <Badge variant="secondary" className="w-fit gap-1">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  Updating
-                </Badge>
-              ) : null}
+            {canEditLoanDetails ? (
+              <Button variant="outline" size="sm" asChild>
+                <Link href={editLoanDetailsHref}>
+                  <Pencil className="mr-2 h-4 w-4" />
+                  Edit application
+                </Link>
+              </Button>
+            ) : null}
+            {detailLoading ? (
+              <Badge variant="secondary" className="w-fit gap-1">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Updating
+              </Badge>
+            ) : null}
             </div>
           </div>
 

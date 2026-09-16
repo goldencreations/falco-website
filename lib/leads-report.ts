@@ -152,7 +152,7 @@ export async function buildLeadsReportWorkbook(opts: LeadsReportOptions): Promis
     leads.forEach((lead, idx) => {
       const rowNumber = headerRowNumber + 1 + idx;
       const row = sheet.getRow(rowNumber);
-      const dateAdded = lead.followUpDate || lead.createdAt;
+      const dateAdded = lead.dateAdded || lead.createdAt;
       const values: Array<string | number> = [
         idx + 1,
         lead.fullName || "-",

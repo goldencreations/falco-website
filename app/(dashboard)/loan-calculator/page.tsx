@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Calculator, Download, FileSpreadsheet, Loader2, RefreshCcw } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { Button } from "@/components/ui/button";
@@ -27,10 +27,10 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   apiInterestTypeToUi,
-  buildManualCalculatorPreview,
-  buildProductCalculatorPreview,
   extractCalculatorProductDefaults,
+  extractCalculatorResult,
   getProductCalculatorValidationError,
+  mapUiCalculatorPreviewToApi,
   type CalculatorPreviewForm,
   type CalculatorResultView,
 } from "@/lib/calculator-adapters";
@@ -299,6 +299,8 @@ function ResultBreakdown({
 
 export default function LoanCalculatorPage() {
   const [form, setForm] = useState<CalculatorPreviewForm>(defaultForm);
+  const repaymentFrequencyChangedByOfficer = useRef(false);
+  const productDefaultsRequestId = useRef(0);
   const [products, setProducts] = useState<LoanProduct[]>([]);
   const [productDefaults, setProductDefaults] = useState<LoanProduct | null>(null);
   const [result, setResult] = useState<CalculatorResultView | null>(null);
@@ -345,6 +347,7 @@ export default function LoanCalculatorPage() {
   }, []);
 
   const loadProductDefaults = useCallback(async (productId: string) => {
+    const requestId = ++productDefaultsRequestId.current;
     if (!productId) {
       setProductDefaults(null);
       return;
@@ -361,17 +364,21 @@ export default function LoanCalculatorPage() {
       }
       const defaults = extractCalculatorProductDefaults(data);
       if (!defaults) throw new Error("Unexpected product defaults response");
+      if (requestId !== productDefaultsRequestId.current) return;
       setProductDefaults(defaults.product);
       setForm((prev) => ({
         ...prev,
         termDays: String(defaults.product.min_term_days),
-        repaymentFrequency: defaults.product.repayment_frequency,
+        repaymentFrequency: repaymentFrequencyChangedByOfficer.current
+          ? prev.repaymentFrequency
+          : defaults.product.repayment_frequency,
         interestType: apiInterestTypeToUi(defaults.product.interest_type),
         interestRatePerMonth: String(defaults.product.interest_rate_per_month ?? ""),
         processingFeePercent: String(defaults.product.processing_fee_percent ?? ""),
         insuranceFeePercent: String(defaults.product.insurance_fee_percent ?? ""),
       }));
     } catch (e) {
+      if (requestId !== productDefaultsRequestId.current) return;
       setError(e instanceof Error ? e.message : "Failed to load product settings");
       setProductDefaults(null);
     } finally {
@@ -393,6 +400,7 @@ export default function LoanCalculatorPage() {
     key: K,
     value: CalculatorPreviewForm[K]
   ) => {
+    if (key === "repaymentFrequency") repaymentFrequencyChangedByOfficer.current = true;
     setForm((prev) => ({ ...prev, [key]: value }));
     setFieldErrors((prev) => {
       if (!prev[key]) return prev;
@@ -462,25 +470,13 @@ export default function LoanCalculatorPage() {
       return;
     }
 
-    if (form.mode === "manual") {
-      setCalculating(true);
-      setError(null);
-      setFieldErrors({});
-      try {
-        setResult(buildManualCalculatorPreview(form));
-      } finally {
-        setCalculating(false);
-      }
-      return;
-    }
-
     const validationError = getProductCalculatorValidationError(form, activeProduct);
     if (validationError) {
       setError(validationError);
       setResult(null);
       return;
     }
-    if (!activeProduct) {
+    if (form.mode === "product" && !activeProduct) {
       setError("Select a loan product to calculate.");
       setResult(null);
       return;
@@ -490,7 +486,22 @@ export default function LoanCalculatorPage() {
     setError(null);
     setFieldErrors({});
     try {
-      setResult(buildProductCalculatorPreview(form, activeProduct));
+      const payload = mapUiCalculatorPreviewToApi(form, activeProduct);
+      if (!payload) throw new Error("Enter valid calculator values.");
+      const response = await fetch("/api/calculator/preview", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const { data } = await parseJsonResponse<unknown>(response);
+      if (!response.ok) throw new Error(formatApiResponseError(data, "Preview failed"));
+      const preview = extractCalculatorResult(data);
+      if (!preview) throw new Error("Unexpected calculator preview response");
+      setResult(preview);
+    } catch (error) {
+      setResult(null);
+      setError(error instanceof Error ? error.message : "Preview failed");
     } finally {
       setCalculating(false);
     }
@@ -570,6 +581,7 @@ export default function LoanCalculatorPage() {
                           disabled={loadingProducts}
                           onValueChange={(value) => {
                             const product = products.find((item) => item.id === value);
+                            repaymentFrequencyChangedByOfficer.current = false;
                             setForm((prev) => ({
                               ...prev,
                               productId: value,
@@ -603,8 +615,8 @@ export default function LoanCalculatorPage() {
                           />
                           {fieldErrors.principal ? <FieldError>{fieldErrors.principal}</FieldError> : null}
                         </Field>
-                        <Field>
-                          <FieldLabel>Loan term (days)</FieldLabel>
+                      <Field>
+                        <FieldLabel>Loan term (days)</FieldLabel>
                         <Input
                           type="number"
                           min={activeProduct?.min_term_days ?? 1}
@@ -620,6 +632,26 @@ export default function LoanCalculatorPage() {
                           }
                         />
                         {fieldErrors.termDays ? <FieldError>{fieldErrors.termDays}</FieldError> : null}
+                      </Field>
+                      <Field>
+                        <FieldLabel>Repayment frequency</FieldLabel>
+                        <Select
+                          value={form.repaymentFrequency}
+                          onValueChange={(value) =>
+                            updateForm(
+                              "repaymentFrequency",
+                              value as CalculatorPreviewForm["repaymentFrequency"]
+                            )
+                          }
+                        >
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="daily">Daily</SelectItem>
+                            <SelectItem value="weekly">Weekly</SelectItem>
+                            <SelectItem value="bi_weekly">Bi-weekly</SelectItem>
+                            <SelectItem value="monthly">Monthly</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </Field>
                       <Field className="md:col-span-2">
                         <FieldLabel>Start date</FieldLabel>

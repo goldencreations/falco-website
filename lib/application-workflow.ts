@@ -177,19 +177,12 @@ export async function uploadApplicationDocumentsFromForm(
 
 const NON_DELETABLE_STATUSES: LoanApplicationStatus[] = ["disbursed"];
 
-const EDITABLE_APPLICATION_STATUSES: LoanApplicationStatus[] = [
- "draft",
- "submitted",
- "under_review",
- "approved",
-];
-
-/** Loan terms may change only during the backend's pre-loan lifecycle. */
+/** Loan terms may change only before final approval creates a linked loan. */
 export function canEditApplicationLoanDetails(app: {
  status: LoanApplicationStatus;
  loan_id?: string | null;
 }): boolean {
- return !app.loan_id && EDITABLE_APPLICATION_STATUSES.includes(app.status);
+ return !app.loan_id && app.status !== "pending_disbursement" && app.status !== "disbursed";
 }
 
 export function canDeleteApplication(

@@ -224,6 +224,7 @@ export function mapUiCalculatorPreviewToApi(
     }
     payload.product_id = Number(form.productId);
     payload.term_days = termDays;
+    payload.repayment_frequency = form.repaymentFrequency;
     return payload;
   }
 

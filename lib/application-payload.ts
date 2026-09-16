@@ -30,8 +30,13 @@ export type ApplicationFormInput = {
 const APPLICATION_REPAYMENT_FREQUENCIES: RepaymentFrequency[] = [
  "daily",
  "weekly",
+ "bi_weekly",
  "monthly",
 ];
+
+export function isApplicationRepaymentFrequency(value: unknown): value is RepaymentFrequency {
+ return typeof value === "string" && APPLICATION_REPAYMENT_FREQUENCIES.includes(value as RepaymentFrequency);
+}
 
 export function normalizeApplicationRepaymentFrequency(
  value: unknown,
@@ -40,8 +45,7 @@ export function normalizeApplicationRepaymentFrequency(
  const raw = String(value ?? "")
   .trim()
   .toLowerCase();
- if (raw === "daily" || raw === "weekly" || raw === "monthly") return raw;
- if (raw === "bi_weekly") return "weekly";
+ if (isApplicationRepaymentFrequency(raw)) return raw;
  return fallback;
 }
 

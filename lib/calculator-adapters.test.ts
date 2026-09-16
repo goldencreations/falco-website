@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   buildManualCalculatorPreview,
   buildProductCalculatorPreview,
+  mapUiCalculatorPreviewToApi,
   type CalculatorPreviewForm,
 } from "./calculator-adapters";
 import type { LoanProduct } from "./types";
@@ -116,5 +117,24 @@ describe("buildProductCalculatorPreview", () => {
     assert.equal(productResult.repaymentCount, 8);
     assert.equal(productResult.totalRepayment, 409_560);
     assert.equal(productResult.installmentAmount, 51_195);
+  });
+
+  it("sends the officer-selected frequency for a product-backed preview", () => {
+    const form = manualForm({
+      mode: "product",
+      productId: "4",
+      principal: "1000000",
+      termDays: "180",
+      repaymentFrequency: "monthly",
+    });
+    const product = { ...microProduct, id: "4", max_amount: 2_000_000, max_term_days: 180 };
+
+    assert.deepEqual(mapUiCalculatorPreviewToApi(form, product), {
+      product_id: 4,
+      principal: 1_000_000,
+      term_days: 180,
+      repayment_frequency: "monthly",
+      start_date: "2026-08-07",
+    });
   });
 });
