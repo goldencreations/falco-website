@@ -54,6 +54,7 @@ import { loanMatchesOfficerPortfolio } from "@/lib/loan-officer-portfolio";
 import { resolvePortalPath } from "@/lib/portal-paths";
 import { isBranchScopedStaffRole, rolePortalBase } from "@/lib/role-portal";
 import { useSessionUser } from "@/lib/use-session-user";
+import { cachedFetch } from "@/lib/client-fetch-cache";
 import {
   listRowRevealClassName,
   listRowRevealStyle,
@@ -115,7 +116,7 @@ export default function LoansPage() {
  params.set("page_size", "100");
  if (scopeBranchId) params.set("branch_id", scopeBranchId);
 
- const loansPromise = fetch(`/api/loans?${params.toString()}`).then(async (r) => {
+ const loansPromise = cachedFetch(`/api/loans?${params.toString()}`).then(async (r) => {
  if (!r.ok) {
  const j = await r.json().catch(() => ({}));
  throw new Error(typeof j.message === "string" ? j.message : "Failed to load loans");
