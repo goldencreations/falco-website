@@ -57,23 +57,42 @@ function metadataString(entry: Pick<FinancialEntry, "metadata">, key: string): s
   return v == null ? "" : String(v).trim();
 }
 
+/** ClickPesa receipt that belongs in the dedicated investigation workflow, including superseded rows. */
+export function financialEntryIsUnclassifiedClickPesaReceipt(
+  entry: Pick<FinancialEntry, "source" | "category" | "metadata">
+): boolean {
+  if (entry.source !== "clickpesa") return false;
+
+  const classification = metadataString(entry, "classification").toLowerCase();
+  const unmatchedFlag = metadataFlag(entry, "unmatched");
+  if (classification === "classified" || unmatchedFlag === false) return false;
+
+  const category = (entry.category ?? "").trim().toLowerCase();
+  return (
+    unmatchedFlag === true ||
+    classification === "unclassified" ||
+    classification === "unclassified_gateway_income" ||
+    UNCLASSIFIED_CATEGORIES.has(category)
+  );
+}
+
+/** Translate UI direction values to the values accepted by the accounting API. */
+export function mapUiFinancialEntryDirectionToApi(
+  direction: FinancialEntryDirection
+): "inflow" | "outflow" {
+  return direction === "in" ? "inflow" : "outflow";
+}
+
 /** Posted unmatched ClickPesa income that still needs classification (not a failed payment). */
 export function financialEntryIsUnmatchedClickPesa(
   entry: Pick<FinancialEntry, "source" | "category" | "direction" | "status" | "is_reversed" | "metadata">
 ): boolean {
-  if (entry.source !== "clickpesa") return false;
+  if (!financialEntryIsUnclassifiedClickPesaReceipt(entry)) return false;
   if (entry.direction && entry.direction !== "in") return false;
   if (entry.is_reversed) return false;
   const status = String(entry.status ?? "posted").toLowerCase();
   if (status !== "posted") return false;
-  const classification = metadataString(entry, "classification").toLowerCase();
-  if (classification === "classified") return false;
-  const category = (entry.category ?? "").trim().toLowerCase();
-  const unmatchedFlag = metadataFlag(entry, "unmatched");
-  if (unmatchedFlag === false) return false;
-  const unmatched =
-    unmatchedFlag === true || classification === "unclassified_gateway_income" || UNCLASSIFIED_CATEGORIES.has(category);
-  return unmatched;
+  return true;
 }
 
 /** True when this entry still needs classification (unmatched ClickPesa or explicit unclassified markers). */
