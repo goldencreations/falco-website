@@ -63,16 +63,17 @@ export function financialEntryIsUnclassifiedClickPesaReceipt(
 ): boolean {
   if (entry.source !== "clickpesa") return false;
 
+  const category = (entry.category ?? "").trim().toLowerCase();
+  if (UNCLASSIFIED_CATEGORIES.has(category)) return true;
+
   const classification = metadataString(entry, "classification").toLowerCase();
   const unmatchedFlag = metadataFlag(entry, "unmatched");
   if (classification === "classified" || unmatchedFlag === false) return false;
 
-  const category = (entry.category ?? "").trim().toLowerCase();
   return (
     unmatchedFlag === true ||
     classification === "unclassified" ||
-    classification === "unclassified_gateway_income" ||
-    UNCLASSIFIED_CATEGORIES.has(category)
+    classification === "unclassified_gateway_income"
   );
 }
 

@@ -146,6 +146,17 @@ describe("clickpesa cashbook unmatched receipts", () => {
     assert.equal(financialEntryIsUnclassifiedClickPesaReceipt(row), true);
   });
 
+  it("keeps superseded unclassified receipts out of the normal cashbook", () => {
+    const row = adaptApiFinancialEntryRow({
+      ...unmatchedExample,
+      status: "reversed",
+      is_reversed: true,
+      metadata: { ...unmatchedExample.metadata, classification: "superseded", unmatched: false },
+    });
+    assert.equal(financialEntryNeedsClassification(row), false);
+    assert.equal(financialEntryIsUnclassifiedClickPesaReceipt(row), true);
+  });
+
   it("keeps classified ClickPesa income in the normal cashbook", () => {
     const row = adaptApiFinancialEntryRow({
       ...unmatchedExample,
