@@ -87,7 +87,7 @@ import {
  parseLeadCoordinates,
 } from "@/lib/lead-map";
 import { reverseGeocodeNominatim } from "@/lib/nominatim";
-import { apiFetch, apiErrorMessage, isSessionExpiredResponse } from "@/lib/api-client";
+import { apiFetch, apiFetchCached, apiErrorMessage, isSessionExpiredResponse } from "@/lib/api-client";
 import { parseJsonResponse } from "@/lib/parse-json-response";
 import { digitsOnly, TZ_PHONE_MAX_DIGITS } from "@/lib/tz-form-inputs";
 import type { Branch } from "@/lib/types";
@@ -428,7 +428,7 @@ export default function LeadsPage() {
       if (scopeBranchId) leadsParams.set("branch_id", scopeBranchId);
 
       const [leadsRes, branchRes] = await Promise.all([
-        apiFetch(`/api/leads?${leadsParams.toString()}`),
+        apiFetchCached(`/api/leads?${leadsParams.toString()}`),
         user?.role === "super_admin" ? apiFetch("/api/falco/branches") : Promise.resolve(null),
       ]);
 

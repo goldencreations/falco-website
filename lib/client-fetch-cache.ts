@@ -3,6 +3,7 @@ export const FALCO_CACHE_BYPASS_HEADER = "x-falco-cache-bypass";
 
 /** How long cached GET responses stay valid (navigation back uses cache within this window). */
 export const FETCH_CACHE_TTL_MS = 15 * 60 * 1000;
+const LIVE_DATA_CACHE_TTL_MS = 30 * 1000;
 
 type CacheRecord = {
  body: string;
@@ -131,6 +132,22 @@ function setCachedRecord(key: string, record: CacheRecord) {
  writeSessionRecord(key, record);
 }
 
+function cacheTtlMs(url: string): number {
+ try {
+ const pathname = new URL(url, "http://local").pathname;
+ if (
+ ["/api/leads", "/api/loans", "/api/payments", "/api/collections"].some(
+ (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
+ )
+ ) {
+ return LIVE_DATA_CACHE_TTL_MS;
+ }
+ } catch {
+ return FETCH_CACHE_TTL_MS;
+ }
+ return FETCH_CACHE_TTL_MS;
+}
+
 /** Drop cached GET entries. Pass a URL prefix (e.g. `/api/payments`) or omit to clear all. */
 export function invalidateFetchCache(urlPrefix?: string) {
  if (!urlPrefix) {
@@ -194,6 +211,7 @@ async function cachedFetchImpl(
  const method = resolveMethod(input, init);
  const url = resolveUrl(input);
  const bypass = hasBypassHeader(init);
+ const shouldStore = init?.cache !== "no-store";
  const cleanInit = stripBypassHeader(init);
 
  if (method !== "GET") {
@@ -217,7 +235,7 @@ async function cachedFetchImpl(
  }
 
  const key = cacheKey(input, cleanInit);
- if (!bypass) {
+ if (!bypass && shouldStore) {
  const hit = getCachedRecord(key);
  if (hit) return responseFromRecord(hit);
  }
@@ -225,10 +243,10 @@ async function cachedFetchImpl(
  const response = await fetchFn(input, { ...cleanInit, cache: "no-store" });
  const body = await response.clone().text();
 
- if (response.ok) {
+ if (response.ok && shouldStore) {
  setCachedRecord(
  key,
- recordFromResponse(body, response, Date.now() + FETCH_CACHE_TTL_MS)
+ recordFromResponse(body, response, Date.now() + cacheTtlMs(url))
  );
  }
 

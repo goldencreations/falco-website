@@ -1,4 +1,4 @@
-import { rawFetch, withCacheBypass } from "@/lib/client-fetch-cache";
+import { cachedFetch, rawFetch, withCacheBypass } from "@/lib/client-fetch-cache";
 
 /** Authenticated calls to this app's `/api/*` routes (cookies + no stale GET cache). */
 export function apiFetch(input: string, init?: RequestInit): Promise<Response> {
@@ -11,6 +11,14 @@ export function apiFetch(input: string, init?: RequestInit): Promise<Response> {
  headers: init?.headers,
  })
  );
+}
+
+/** Authenticated GET requests that can reuse the short-lived client cache. */
+export function apiFetchCached(input: string, init?: RequestInit): Promise<Response> {
+ return cachedFetch(input, {
+ credentials: "include",
+ ...init,
+ });
 }
 
 /**
