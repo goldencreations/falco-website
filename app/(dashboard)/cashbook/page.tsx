@@ -77,6 +77,7 @@ import { extractCustomersList } from "@/lib/customer-adapters";
 import {
   financialEntryCategoryLabel,
   financialEntryDisplayLabel,
+  financialEntryIsUnclassifiedClickPesaReceipt,
   financialEntryIsReversible,
   financialEntryMethodLabel,
   FINANCIAL_ENTRY_TYPE_OPTIONS,
@@ -84,7 +85,6 @@ import {
   financialEntryOrderReference,
   financialEntryPayerHint,
   financialEntrySourceBadgeLabel,
-  mergeFinancialEntriesById,
   sortFinancialEntriesChronologically,
 } from "@/lib/financial-entry-adapters";
 import { formatApiResponseError } from "@/lib/falco-api";
@@ -126,7 +126,6 @@ type CashbookSavedView =
 
 const CASHBOOK_SAVED_VIEWS: { value: CashbookSavedView; label: string }[] = [
   { value: "all", label: "All" },
-  { value: "unmatched", label: "Unmatched / Needs investigation" },
   { value: "auto_loan_repayments", label: "Automatic loan repayments" },
   { value: "auto_registration_fees", label: "Automatic registration fees" },
   { value: "superseded_legacy", label: "Superseded legacy receipts" },
@@ -187,7 +186,7 @@ export default function CashbookPage() {
   const [directionFilter, setDirectionFilter] = useState<"all" | FinancialEntryDirection>("all");
   const [sourceFilter, setSourceFilter] = useState<"all" | FinancialEntrySource>("all");
   const [categoryFilter, setCategoryFilter] = useState<
-    "all" | "loan_repayment" | "registration_fee" | "unclassified_gateway_income"
+    "all" | "loan_repayment" | "registration_fee"
   >("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "posted" | "reversed">("all");
   const [unclassifiedOnly, setUnclassifiedOnly] = useState(false);
@@ -311,14 +310,11 @@ export default function CashbookPage() {
       }
 
       const mainRows = data?.entries ?? data?.data ?? [];
-      let merged = sortFinancialEntriesChronologically(mainRows);
-      if (canViewUnmatchedQueue) {
-        const unmatchedResult = await refreshUnmatchedQueue();
-        if (!unmatchedResult.error) {
-          merged = mergeFinancialEntriesById(mainRows, unmatchedResult.entries);
-        }
-      }
-      setEntries(merged);
+      const visibleRows =
+        savedView === "superseded_legacy"
+          ? mainRows.filter(financialEntryIsUnclassifiedClickPesaReceipt)
+          : mainRows.filter((entry) => !financialEntryIsUnclassifiedClickPesaReceipt(entry));
+      setEntries(sortFinancialEntriesChronologically(visibleRows));
       setCashbook(data?.cashbook ?? null);
       bumpListReveal();
     } catch (e) {
@@ -337,6 +333,7 @@ export default function CashbookPage() {
     sourceFilter,
     categoryFilter,
     statusFilter,
+    savedView,
     unclassifiedOnly,
     ledgerBranchId,
     bumpListReveal,
@@ -360,7 +357,7 @@ export default function CashbookPage() {
   const pagedEntries = useMemo(() => paginateItems(entries, page, PAGE_SIZE), [entries, page]);
 
   const applySavedView = (view: CashbookSavedView) => {
-    setSavedView(view);
+    setSavedView(view === "unmatched" ? "all" : view);
     switch (view) {
       case "auto_loan_repayments":
         setUnclassifiedOnly(false);
@@ -379,7 +376,7 @@ export default function CashbookPage() {
       case "unmatched":
         setUnclassifiedOnly(true);
         setSourceFilter("clickpesa");
-        setCategoryFilter("unclassified_gateway_income");
+        setCategoryFilter("all");
         setStatusFilter("posted");
         setDirectionFilter("all");
         break;
@@ -765,12 +762,9 @@ export default function CashbookPage() {
                   <SelectValue placeholder="Saved view" />
                 </SelectTrigger>
                 <SelectContent>
-                  {CASHBOOK_SAVED_VIEWS.filter(
-                    (view) => view.value !== "unmatched" || canViewUnmatchedQueue
-                  ).map((view) => (
+                  {CASHBOOK_SAVED_VIEWS.map((view) => (
                     <SelectItem key={view.value} value={view.value}>
                       {view.label}
-                      {view.value === "unmatched" && unmatchedCount > 0 ? ` (${unmatchedCount})` : ""}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -827,7 +821,7 @@ export default function CashbookPage() {
                 onValueChange={(v) => {
                   setSavedView("all");
                   setCategoryFilter(
-                    v as "all" | "loan_repayment" | "registration_fee" | "unclassified_gateway_income"
+                    v as "all" | "loan_repayment" | "registration_fee"
                   );
                 }}
                 disabled={unclassifiedOnly}
@@ -839,7 +833,6 @@ export default function CashbookPage() {
                   <SelectItem value="all">All categories</SelectItem>
                   <SelectItem value="loan_repayment">Loan repayment</SelectItem>
                   <SelectItem value="registration_fee">Registration fee</SelectItem>
-                  <SelectItem value="unclassified_gateway_income">Unclassified gateway income</SelectItem>
                 </SelectContent>
               </Select>
               <Select

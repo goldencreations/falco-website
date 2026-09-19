@@ -6,12 +6,14 @@ import {
   extractAllocateToGroupResult,
   extractAllocateToLoanResult,
   financialEntryDisplayLabel,
+  financialEntryIsUnclassifiedClickPesaReceipt,
   financialEntryIsUnmatchedClickPesa,
   financialEntryMethodLabel,
   financialEntryNeedsClassification,
   financialEntryOrderReference,
   financialEntryPayerHint,
   financialEntrySourceBadgeLabel,
+  mapUiFinancialEntryDirectionToApi,
   hasExactActiveGroupMatch,
   mapUiFinancialEntryAllocateToGroupToApi,
   mapUiFinancialEntryAllocateToLoanToApi,
@@ -141,6 +143,21 @@ describe("clickpesa cashbook unmatched receipts", () => {
     });
     assert.equal(financialEntryNeedsClassification(row), false);
     assert.equal(financialEntryIsUnmatchedClickPesa(row), false);
+    assert.equal(financialEntryIsUnclassifiedClickPesaReceipt(row), true);
+  });
+
+  it("keeps classified ClickPesa income in the normal cashbook", () => {
+    const row = adaptApiFinancialEntryRow({
+      ...unmatchedExample,
+      category: "other_income",
+      metadata: { ...unmatchedExample.metadata, classification: "classified", unmatched: false },
+    });
+    assert.equal(financialEntryIsUnclassifiedClickPesaReceipt(row), false);
+  });
+
+  it("maps cashbook directions to backend accounting values", () => {
+    assert.equal(mapUiFinancialEntryDirectionToApi("in"), "inflow");
+    assert.equal(mapUiFinancialEntryDirectionToApi("out"), "outflow");
   });
 });
 

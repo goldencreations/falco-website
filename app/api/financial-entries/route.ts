@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   extractFinancialEntriesPayload,
   mapUiFinancialEntryCreateToApi,
+  mapUiFinancialEntryDirectionToApi,
 } from "@/lib/financial-entry-adapters";
 import { requireApiUser, resolvedBranchIdForListQuery } from "@/lib/authorization";
 import { formatFalcoApiError } from "@/lib/falco-api";
@@ -60,6 +61,7 @@ function buildBackendQuery(
   }
 ) {
   const source = url.searchParams.get("source") ?? undefined;
+  const direction = url.searchParams.get("direction");
   const pageSize =
     url.searchParams.get("page_size") ??
     (options.needsClassification || options.includeClassificationHints ? "500" : "50");
@@ -69,7 +71,10 @@ function buildBackendQuery(
     page_size: pageSize,
     from: url.searchParams.get("from") ?? undefined,
     to: url.searchParams.get("to") ?? undefined,
-    direction: url.searchParams.get("direction") ?? undefined,
+    direction:
+      direction === "in" || direction === "out"
+        ? mapUiFinancialEntryDirectionToApi(direction)
+        : direction ?? undefined,
     source,
     status: url.searchParams.get("status") ?? undefined,
     branch_id: options.branchId,
