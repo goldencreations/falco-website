@@ -15,6 +15,7 @@ export type ReportCustomerRow = {
  phone: string;
  region: string;
  district: string;
+ added_at: string;
 };
 
 export type ReportLoanRow = {
@@ -24,6 +25,7 @@ export type ReportLoanRow = {
  principal: number;
  outstanding: number;
  status: string;
+ disbursed_at: string;
 };
 
 export type ReportCollectionRow = {
@@ -134,8 +136,8 @@ export function exportBranchReportPdf(input: ExportBranchReportInput): void {
  ["NPL Ratio", `${input.summary.nplRatio.toFixed(1)}%`],
  ["Required Provision", fmtMoney(input.summary.requiredProvision)],
  ["Applications (period)", String(input.applications.length)],
- ["Customers (branch)", String(input.customers.length)],
- ["Loans (branch)", String(input.loans.length)],
+ ["Customers added (period)", String(input.customers.length)],
+ ["Loans disbursed (period)", String(input.loans.length)],
  ["Collection activities (period)", String(input.collections.length)],
  ],
  columnStyles: { 0: { cellWidth: 62 } },
@@ -213,11 +215,11 @@ export function exportBranchReportPdf(input: ExportBranchReportInput): void {
  ),
  });
 
- y = sectionTitle(doc, `Customers (${input.customers.length})`, nextY(doc));
+ y = sectionTitle(doc, `Customers added (${input.customers.length})`, nextY(doc));
  autoTable(doc, {
  ...tableDefaults,
  startY: y,
- head: [["Customer #", "Name", "Phone", "Region", "District"]],
+ head: [["Customer #", "Name", "Phone", "Region", "District", "Date Added"]],
  body: tableBody(
  input.customers.map((row) => [
  row.customer_number,
@@ -225,17 +227,18 @@ export function exportBranchReportPdf(input: ExportBranchReportInput): void {
  row.phone,
  row.region,
  row.district,
+ row.added_at,
  ]),
- 5,
- "No customers in scope"
+ 6,
+ "No customers added in this period"
  ),
  });
 
- y = sectionTitle(doc, `Loans (${input.loans.length})`, nextY(doc));
+ y = sectionTitle(doc, `Loans disbursed (${input.loans.length})`, nextY(doc));
  autoTable(doc, {
  ...tableDefaults,
  startY: y,
- head: [["Loan #", "Customer", "Product", "Principal", "Outstanding", "Status"]],
+ head: [["Loan #", "Customer", "Product", "Principal", "Outstanding", "Status", "Disbursed"]],
  body: tableBody(
  input.loans.map((row) => [
  row.loan_number,
@@ -244,9 +247,10 @@ export function exportBranchReportPdf(input: ExportBranchReportInput): void {
  fmtMoney(row.principal),
  fmtMoney(row.outstanding),
  row.status.replace(/_/g, " "),
+ row.disbursed_at,
  ]),
- 6,
- "No loans in scope"
+ 7,
+ "No loans disbursed in this period"
  ),
  });
 

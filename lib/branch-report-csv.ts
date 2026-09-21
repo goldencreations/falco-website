@@ -42,6 +42,10 @@ function rowToCsv(row: ReportExportRow): string {
   return REPORT_EXPORT_COLUMNS.map((column) => escapeCsvValue(row[column])).join(",");
 }
 
+function customerLocation(district: string, region: string): string {
+  return [district, region].filter((part) => part && part !== "—").join(", ");
+}
+
 export function buildBranchReportSections(input: ExportBranchReportInput): ReportExportSection[] {
   return [
     {
@@ -61,7 +65,9 @@ export function buildBranchReportSections(input: ExportBranchReportInput): Repor
             input.fromDate && input.toDate
               ? `${input.fromDate} to ${input.toDate}`
               : input.periodLabel,
-          Notes: "Date range used for period-based report rows.",
+          Notes: input.toDate
+            ? `Activity and detail rows use this period. Portfolio and aging metrics are snapshots as of ${input.toDate}.`
+            : "Date range used for period-based report rows.",
         },
         {
           "Record Type": "Metadata",
@@ -162,25 +168,30 @@ export function buildBranchReportSections(input: ExportBranchReportInput): Repor
       })),
     },
     {
-      title: "Customers",
+      title: "Customers Added",
       rows: input.customers.map((row) => ({
         "Record Type": "Customer",
         Reference: row.customer_number,
         Name: row.customer_name,
         Description: row.phone,
-        Notes: [row.district, row.region].filter((part) => part && part !== "—").join(", "),
+        "Date / Period": row.added_at,
+        Notes: customerLocation(row.district, row.region)
+          ? `Added during the selected period; ${customerLocation(row.district, row.region)}.`
+          : "Added during the selected period.",
       })),
     },
     {
-      title: "Loans",
+      title: "Loans Disbursed",
       rows: input.loans.map((row) => ({
         "Record Type": "Loan",
         Reference: row.loan_number,
         Name: row.customer_name,
         Description: row.product_name,
         Status: row.status.replaceAll("_", " "),
+        "Date / Period": row.disbursed_at,
         "Principal (TZS)": row.principal,
         "Outstanding (TZS)": row.outstanding,
+        Notes: "Disbursed during the selected period.",
       })),
     },
     {

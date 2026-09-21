@@ -130,7 +130,11 @@ function ReportChartTooltip({
 }
 
 function todayInputDate(): string {
- return new Date().toISOString().slice(0, 10);
+ const today = new Date();
+ const year = today.getFullYear();
+ const month = String(today.getMonth() + 1).padStart(2, "0");
+ const day = String(today.getDate()).padStart(2, "0");
+ return `${year}-${month}-${day}`;
 }
 
 function safeRate(value: unknown): number {
@@ -184,6 +188,10 @@ export default function ReportsPageClient() {
  () => getPeriodRange(period, startDateFilter || undefined, endDateFilter || undefined),
  [period, startDateFilter, endDateFilter]
  );
+ const selectedPeriod = startDateFilter || endDateFilter ? "custom" : period;
+ const invalidDateRange = Boolean(
+ startDateFilter && endDateFilter && startDateFilter > endDateFilter
+ );
  const requestedView = searchParams.get("view") ?? "";
  const detailView = DETAIL_REPORT_VIEWS.has(requestedView)
  ? (requestedView as Parameters<typeof ReportDetailView>[0]["view"])
@@ -202,6 +210,13 @@ export default function ReportsPageClient() {
  });
  router.replace(`/reports?${next.toString()}`, { scroll: false });
  }, [router, searchParams]);
+ const selectPeriod = useCallback((value: string) => {
+ if (value === "custom") return;
+ setPeriod(value);
+ setStartDateFilter("");
+ setEndDateFilter("");
+ updateUrlFilters({ from: "", to: "" });
+ }, [updateUrlFilters]);
 
  const scopeLabel = useMemo(() => {
  if (isOfficerView) {
@@ -220,6 +235,12 @@ export default function ReportsPageClient() {
  const loadReports = useCallback(async () => {
  setLoading(true);
  setError(null);
+
+ if (invalidDateRange) {
+ setError("Start date must be on or before end date.");
+ setLoading(false);
+ return;
+ }
 
  const asOf = endDateFilter || todayInputDate();
  const branchQ = effectiveBranchId ? `&branch_id=${encodeURIComponent(effectiveBranchId)}` : "";
@@ -267,7 +288,7 @@ export default function ReportsPageClient() {
  } finally {
  setLoading(false);
  }
- }, [effectiveBranchId, endDateFilter, range.from, range.to]);
+ }, [effectiveBranchId, endDateFilter, invalidDateRange, range.from, range.to]);
 
  useEffect(() => {
  if (!sessionLoaded) return;
@@ -329,7 +350,7 @@ export default function ReportsPageClient() {
  );
 
  const exportReport = async () => {
- if (!portfolio || !metrics) return;
+ if (!portfolio || !metrics || invalidDateRange) return;
  setExporting(true);
  try {
  const detailRows = await loadReportExportDetailRows({
@@ -414,20 +435,16 @@ export default function ReportsPageClient() {
  <main className="flex-1 overflow-auto p-4 lg:p-6">
  <div className="mx-auto max-w-7xl space-y-6">
  <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-card p-4">
- <Select value={period} onValueChange={(value) => {
- setPeriod(value);
- const selected = getPeriodRange(value);
- setStartDateFilter(selected.from); setEndDateFilter(selected.to);
- updateUrlFilters({ from: selected.from, to: selected.to });
- }}>
+ <Select value={selectedPeriod} onValueChange={selectPeriod}>
  <SelectTrigger className="w-40"><Calendar className="mr-2 h-4 w-4" /><SelectValue /></SelectTrigger>
  <SelectContent>
+ <SelectItem value="custom" disabled>Custom Range</SelectItem>
  <SelectItem value="1m">Last Month</SelectItem><SelectItem value="3m">Last 3 Months</SelectItem>
  <SelectItem value="6m">Last 6 Months</SelectItem><SelectItem value="1y">Last Year</SelectItem>
  </SelectContent>
  </Select>
- <Input type="date" value={startDateFilter || range.from} onChange={(event) => { setStartDateFilter(event.target.value); updateUrlFilter("from", event.target.value); }} className="w-[170px]" />
- <Input type="date" value={endDateFilter || range.to} onChange={(event) => { setEndDateFilter(event.target.value); updateUrlFilter("to", event.target.value); }} className="w-[170px]" />
+ <Input type="date" max={endDateFilter || undefined} value={startDateFilter || range.from} onChange={(event) => { setStartDateFilter(event.target.value); updateUrlFilter("from", event.target.value); }} className="w-[170px]" />
+ <Input type="date" min={startDateFilter || undefined} value={endDateFilter || range.to} onChange={(event) => { setEndDateFilter(event.target.value); updateUrlFilter("to", event.target.value); }} className="w-[170px]" />
  {isSuperAdmin ? (
  <Select value={branchFilter} onValueChange={(value) => { setBranchFilter(value); updateUrlFilter("branch_id", value); }}>
  <SelectTrigger className="w-[190px]"><SelectValue placeholder="All branches" /></SelectTrigger>
@@ -477,12 +494,13 @@ export default function ReportsPageClient() {
  ) : null}
  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
  <div className="flex flex-wrap items-center gap-3">
- <Select value={period} onValueChange={setPeriod}>
+ <Select value={selectedPeriod} onValueChange={selectPeriod}>
  <SelectTrigger className="w-36">
  <Calendar className="mr-2 h-4 w-4" />
  <SelectValue />
  </SelectTrigger>
  <SelectContent>
+ <SelectItem value="custom" disabled>Custom Range</SelectItem>
  <SelectItem value="1m">Last Month</SelectItem>
  <SelectItem value="3m">Last 3 Months</SelectItem>
  <SelectItem value="6m">Last 6 Months</SelectItem>
@@ -491,14 +509,16 @@ export default function ReportsPageClient() {
  </Select>
  <Input
  type="date"
+ max={endDateFilter || undefined}
  value={startDateFilter}
- onChange={(e) => setStartDateFilter(e.target.value)}
+ onChange={(e) => { setStartDateFilter(e.target.value); updateUrlFilter("from", e.target.value); }}
  className="w-[170px]"
  />
  <Input
  type="date"
+ min={startDateFilter || undefined}
  value={endDateFilter}
- onChange={(e) => setEndDateFilter(e.target.value)}
+ onChange={(e) => { setEndDateFilter(e.target.value); updateUrlFilter("to", e.target.value); }}
  className="w-[170px]"
  />
  <Button
@@ -507,12 +527,13 @@ export default function ReportsPageClient() {
  onClick={() => {
  setStartDateFilter("");
  setEndDateFilter("");
+ updateUrlFilters({ from: "", to: "" });
  }}
  >
  Clear Dates
  </Button>
  {isSuperAdmin ? (
- <Select value={branchFilter} onValueChange={setBranchFilter}>
+ <Select value={branchFilter} onValueChange={(value) => { setBranchFilter(value); updateUrlFilter("branch_id", value); }}>
  <SelectTrigger className="w-[180px]">
  <SelectValue placeholder="All branches" />
  </SelectTrigger>
@@ -538,7 +559,7 @@ export default function ReportsPageClient() {
  <SelectItem value="excel">Excel (.xlsx)</SelectItem>
  </SelectContent>
  </Select>
- <Button variant="outline" onClick={() => void exportReport()} disabled={exporting || !portfolio}>
+ <Button variant="outline" onClick={() => void exportReport()} disabled={exporting || !portfolio || invalidDateRange}>
  {exporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
  Export Report
  </Button>
