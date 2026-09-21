@@ -37,6 +37,8 @@ export type ExportBranchReportInput = {
  branchName: string;
  periodLabel: string;
  generatedAt: string;
+ fromDate?: string;
+ toDate?: string;
  summary: {
  totalPortfolio: number;
  totalPar: number;
