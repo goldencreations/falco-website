@@ -53,6 +53,8 @@ import {
 } from "@/components/ui/table";
 import { exportBranchReportPdf } from "@/lib/branch-report-pdf";
 import { buildBranchReportCsv } from "@/lib/branch-report-csv";
+import { resolveReportBranchFields } from "@/lib/branch-display-name";
+import { branchIdsMatch } from "@/lib/branch-scope";
 import { loadReportExportDetailRows } from "@/lib/report-export-data";
 import { formatCurrency, formatDateTime } from "@/lib/formatters";
 import { normalizePortfolioSummary, type PortfolioSummaryView } from "@/lib/portfolio-summary";
@@ -314,10 +316,26 @@ export default function ReportsPageClient() {
 
  const branchPerformanceDisplay = useMemo(() => {
  if (branchPerformance.length) {
+ const resolvedRows = branchPerformance.flatMap((branch) => {
+ const resolved = resolveReportBranchFields({
+ branchId: branch.branchId,
+ branchName: branch.name,
+ branches,
+ fallbackBranchId: scopedBranchId,
+ fallbackBranchName: scopeLabel,
+ });
+ if (!resolved) return [];
+
+ return [{
+ ...branch,
+ name: resolved.branch_name,
+ code: branch.code || (resolved.branch_id !== branch.branchId ? resolved.branch_id : ""),
+ }];
+ });
  if (scopedBranchId) {
- return branchPerformance.filter((b) => b.branchId === scopedBranchId);
+ return resolvedRows.filter((branch) => branchIdsMatch(branch.branchId, scopedBranchId));
  }
- return branchPerformance;
+ return resolvedRows;
  }
  if (scopedBranchId && metrics) {
  return [
@@ -334,7 +352,7 @@ export default function ReportsPageClient() {
  ];
  }
  return [];
- }, [branchPerformance, scopedBranchId, metrics, scopeLabel]);
+ }, [branchPerformance, branches, scopedBranchId, metrics, scopeLabel]);
 
  const monthlyActivity = useMemo(() => buildMonthlyActivityView(monthlyData), [monthlyData]);
 
@@ -1108,8 +1126,8 @@ export default function ReportsPageClient() {
  <CardTitle>{scopedBranchId ? "Your branch" : "Branch Performance"}</CardTitle>
  <CardDescription>
  {scopedBranchId
- ? `Live portfolio metrics for ${scopeLabel}`
- : "Portfolio breakdown by branch"}
+ ? `Current portfolio and cumulative verified cash totals for ${scopeLabel}`
+ : "Current portfolio and cumulative verified cash totals by branch"}
  </CardDescription>
  </CardHeader>
  <CardContent>
