@@ -211,9 +211,20 @@ export function getPeriodRange(
  endDateFilter?: string
 ): { from: string; to: string; label: string } {
  const now = new Date();
- const end = endDateFilter ? new Date(`${endDateFilter}T23:59:59`) : now;
+ const toLocalDate = (date: Date): string => {
+ const year = date.getFullYear();
+ const month = String(date.getMonth() + 1).padStart(2, "0");
+ const day = String(date.getDate()).padStart(2, "0");
+ return `${year}-${month}-${day}`;
+ };
+ const fromLocalDate = (value: string): Date => {
+ const [year, month, day] = value.split("-").map(Number);
+ return new Date(year, month - 1, day, 12);
+ };
+ const endValue = endDateFilter || toLocalDate(now);
+ const end = fromLocalDate(endValue);
  const start = startDateFilter
- ? new Date(`${startDateFilter}T00:00:00`)
+ ? fromLocalDate(startDateFilter)
  : (() => {
  const s = new Date(end);
  if (period === "1m") s.setMonth(end.getMonth() - 1);
@@ -224,7 +235,7 @@ export function getPeriodRange(
  return s;
  })();
 
- const toIso = (d: Date) => d.toISOString().slice(0, 10);
+ const from = startDateFilter || toLocalDate(start);
  const labels: Record<string, string> = {
  "1m": "Last Month",
  "3m": "Last 3 Months",
@@ -233,11 +244,11 @@ export function getPeriodRange(
  };
 
  return {
- from: toIso(start),
- to: toIso(end),
+ from,
+ to: endValue,
  label:
  startDateFilter || endDateFilter
- ? `Custom (${toIso(start)} to ${toIso(end)})`
+ ? `Custom (${from} to ${endValue})`
  : labels[period] ?? "Selected Period",
  };
 }

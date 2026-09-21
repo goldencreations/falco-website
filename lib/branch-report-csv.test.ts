@@ -48,6 +48,7 @@ const report = {
       phone: "255700000000",
       region: "Dar es Salaam",
       district: "Ilala",
+      added_at: "18 Sep 2026",
     },
   ],
   loans: [
@@ -58,6 +59,7 @@ const report = {
       principal: 500000,
       outstanding: 325000,
       status: "active",
+      disbursed_at: "19 Sep 2026",
     },
   ],
   collections: [
@@ -81,6 +83,9 @@ describe("buildBranchReportCsv", () => {
 
     assert.match(csv, /"PORTFOLIO SUMMARY","Section Header"/);
     assert.match(csv, /"PRODUCT PERFORMANCE","Section Header"/);
+    assert.match(csv, /"CUSTOMERS ADDED","Section Header"/);
+    assert.match(csv, /"LOANS DISBURSED","Section Header"/);
+    assert.match(csv, /snapshots as of 2026-09-21/);
     assert.equal(lines.filter((line) => line === blankDivider).length, 8);
     assert.doesNotMatch(csv, /"Portfolio Summary","Metric"/);
     assert.match(csv, /"Portfolio at risk over 30 days"/);
@@ -106,8 +111,8 @@ describe("buildBranchReportCsv", () => {
         "Portfolio Aging",
         "Branch Performance",
         "Loan Applications",
-        "Customers",
-        "Loans",
+        "Customers Added",
+        "Loans Disbursed",
         "Collection Activities",
       ]
     );
