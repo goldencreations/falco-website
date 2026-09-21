@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
  AlertTriangle,
@@ -182,6 +182,11 @@ export default function ReportsPageClient() {
  const [loading, setLoading] = useState(true);
  const [error, setError] = useState<string | null>(null);
  const [exporting, setExporting] = useState(false);
+ const urlSearchParamsRef = useRef(searchParams.toString());
+
+ useEffect(() => {
+ urlSearchParamsRef.current = searchParams.toString();
+ }, [searchParams]);
 
  const effectiveBranchId = scopedBranchId ?? (branchFilter !== "all" ? branchFilter : undefined);
  const range = useMemo(
@@ -198,18 +203,20 @@ export default function ReportsPageClient() {
  : null;
 
  const updateUrlFilter = useCallback((key: string, value: string) => {
- const next = new URLSearchParams(searchParams.toString());
+ const next = new URLSearchParams(urlSearchParamsRef.current);
  if (value && value !== "all") next.set(key, value);
  else next.delete(key);
+ urlSearchParamsRef.current = next.toString();
  router.replace(`/reports?${next.toString()}`, { scroll: false });
- }, [router, searchParams]);
+ }, [router]);
  const updateUrlFilters = useCallback((values: Record<string, string>) => {
- const next = new URLSearchParams(searchParams.toString());
+ const next = new URLSearchParams(urlSearchParamsRef.current);
  Object.entries(values).forEach(([key, value]) => {
  if (value && value !== "all") next.set(key, value); else next.delete(key);
  });
+ urlSearchParamsRef.current = next.toString();
  router.replace(`/reports?${next.toString()}`, { scroll: false });
- }, [router, searchParams]);
+ }, [router]);
  const selectPeriod = useCallback((value: string) => {
  if (value === "custom") return;
  setPeriod(value);
