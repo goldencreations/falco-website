@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { buildBranchReportCsv } from "./branch-report-csv";
+import { buildBranchReportWorkbook } from "./branch-report-excel";
 
 const report = {
   branchName: "All branches",
@@ -76,8 +77,12 @@ describe("buildBranchReportCsv", () => {
     const columnCount = lines[0].split(",").length;
 
     assert.ok(lines.every((line) => line.match(/,(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)/g)?.length === columnCount - 1));
-    assert.match(csv, /"Portfolio Summary","Metric"/);
-    assert.match(csv, /"Product Performance","Loan Product"/);
+    const blankDivider = Array(17).fill("").join(",");
+
+    assert.match(csv, /"PORTFOLIO SUMMARY","Section Header"/);
+    assert.match(csv, /"PRODUCT PERFORMANCE","Section Header"/);
+    assert.equal(lines.filter((line) => line === blankDivider).length, 8);
+    assert.doesNotMatch(csv, /"Portfolio Summary","Metric"/);
     assert.match(csv, /"Portfolio at risk over 30 days"/);
     assert.match(csv, /"Customer promised payment, Friday"/);
     assert.doesNotMatch(csv, /\{"/);
@@ -87,5 +92,32 @@ describe("buildBranchReportCsv", () => {
   it("protects text cells from spreadsheet formulas", () => {
     const csv = buildBranchReportCsv({ ...report, branchName: "=HYPERLINK(\"bad\")" });
     assert.match(csv, /"'=HYPERLINK\(""bad""\)"/);
+  });
+
+  it("builds a styled workbook with every report section on a separate worksheet", () => {
+    const workbook = buildBranchReportWorkbook(report);
+
+    assert.deepEqual(
+      workbook.worksheets.map((sheet) => sheet.name),
+      [
+        "Report Details",
+        "Portfolio Summary",
+        "Product Performance",
+        "Portfolio Aging",
+        "Branch Performance",
+        "Loan Applications",
+        "Customers",
+        "Loans",
+        "Collection Activities",
+      ]
+    );
+
+    const summarySheet = workbook.getWorksheet("Portfolio Summary");
+    assert.ok(summarySheet);
+    assert.equal(summarySheet.getCell("A1").value, "FALCO FINANCIAL SERVICES | PORTFOLIO SUMMARY");
+    assert.equal(summarySheet.getCell("A4").value, "Record Type");
+    assert.equal(summarySheet.getCell("A1").fill.type, "pattern");
+    assert.equal(summarySheet.getCell("A4").fill.type, "pattern");
+    assert.equal(summarySheet.views[0]?.state, "frozen");
   });
 });
