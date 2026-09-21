@@ -170,7 +170,7 @@ export default function ReportsPageClient() {
  const [startDateFilter, setStartDateFilter] = useState(() => searchParams.get("from") ?? "");
  const [endDateFilter, setEndDateFilter] = useState(() => searchParams.get("to") ?? "");
  const [branchFilter, setBranchFilter] = useState(() => searchParams.get("branch_id") ?? "all");
- const [exportOption, setExportOption] = useState<"pdf" | "csv" | "json">("pdf");
+ const [exportOption, setExportOption] = useState<"pdf" | "csv" | "excel">("pdf");
 
  const [portfolio, setPortfolio] = useState<PortfolioSummaryView | null>(null);
  const [aging, setAging] = useState<AgingReportView | null>(null);
@@ -378,17 +378,6 @@ export default function ReportsPageClient() {
  collections: detailRows.collections,
  };
 
- if (exportOption === "json") {
- const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
- const url = URL.createObjectURL(blob);
- const anchor = document.createElement("a");
- anchor.href = url;
- anchor.download = `reports-${todayInputDate()}.json`;
- anchor.click();
- URL.revokeObjectURL(url);
- return;
- }
-
  if (exportOption === "csv") {
  const csv = buildBranchReportCsv(payload);
  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -398,6 +387,15 @@ export default function ReportsPageClient() {
  anchor.download = `falco-portfolio-report-${endDateFilter || todayInputDate()}.csv`;
  anchor.click();
  URL.revokeObjectURL(url);
+ return;
+ }
+
+ if (exportOption === "excel") {
+ const { exportBranchReportExcel } = await import("@/lib/branch-report-excel");
+ await exportBranchReportExcel(
+ payload,
+ `falco-portfolio-report-${endDateFilter || todayInputDate()}.xlsx`
+ );
  return;
  }
 
@@ -530,14 +528,14 @@ export default function ReportsPageClient() {
  ) : null}
  </div>
  <div className="flex items-center gap-2">
- <Select value={exportOption} onValueChange={(v) => setExportOption(v as "pdf" | "csv" | "json")}>
- <SelectTrigger className="w-[130px]">
+ <Select value={exportOption} onValueChange={(v) => setExportOption(v as "pdf" | "csv" | "excel")}>
+ <SelectTrigger className="w-[150px]">
  <SelectValue />
  </SelectTrigger>
  <SelectContent>
  <SelectItem value="pdf">PDF</SelectItem>
  <SelectItem value="csv">CSV</SelectItem>
- <SelectItem value="json">JSON</SelectItem>
+ <SelectItem value="excel">Excel (.xlsx)</SelectItem>
  </SelectContent>
  </Select>
  <Button variant="outline" onClick={() => void exportReport()} disabled={exporting || !portfolio}>

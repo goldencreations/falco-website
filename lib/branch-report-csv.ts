@@ -1,8 +1,8 @@
 import type { ExportBranchReportInput } from "@/lib/branch-report-pdf";
 
-type CsvValue = string | number | null | undefined;
+export type ReportExportValue = string | number | null | undefined;
 
-const CSV_COLUMNS = [
+export const REPORT_EXPORT_COLUMNS = [
   "Section",
   "Record Type",
   "Reference",
@@ -22,9 +22,14 @@ const CSV_COLUMNS = [
   "Notes",
 ] as const;
 
-type ReportCsvRow = Partial<Record<(typeof CSV_COLUMNS)[number], CsvValue>>;
+export type ReportExportColumn = (typeof REPORT_EXPORT_COLUMNS)[number];
+export type ReportExportRow = Partial<Record<ReportExportColumn, ReportExportValue>>;
+export type ReportExportSection = {
+  title: string;
+  rows: ReportExportRow[];
+};
 
-function escapeCsvValue(value: CsvValue): string {
+function escapeCsvValue(value: ReportExportValue): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "number") return Number.isFinite(value) ? String(value) : "";
 
@@ -33,151 +38,173 @@ function escapeCsvValue(value: CsvValue): string {
   return `"${text.replaceAll('"', '""')}"`;
 }
 
-function rowToCsv(row: ReportCsvRow): string {
-  return CSV_COLUMNS.map((column) => escapeCsvValue(row[column])).join(",");
+function rowToCsv(row: ReportExportRow): string {
+  return REPORT_EXPORT_COLUMNS.map((column) => escapeCsvValue(row[column])).join(",");
 }
 
-function summaryRows(input: ExportBranchReportInput): ReportCsvRow[] {
+export function buildBranchReportSections(input: ExportBranchReportInput): ReportExportSection[] {
   return [
     {
-      Section: "Report Details",
-      "Record Type": "Metadata",
-      Name: "Scope",
-      Value: input.branchName,
-      Notes: "Branch or portfolio included in this report.",
+      title: "Report Details",
+      rows: [
+        {
+          "Record Type": "Metadata",
+          Name: "Scope",
+          Value: input.branchName,
+          Notes: "Branch or portfolio included in this report.",
+        },
+        {
+          "Record Type": "Metadata",
+          Name: "Reporting period",
+          Value: input.periodLabel,
+          "Date / Period":
+            input.fromDate && input.toDate
+              ? `${input.fromDate} to ${input.toDate}`
+              : input.periodLabel,
+          Notes: "Date range used for period-based report rows.",
+        },
+        {
+          "Record Type": "Metadata",
+          Name: "Generated at",
+          Value: input.generatedAt,
+          Notes: "Time this file was generated.",
+        },
+      ],
     },
     {
-      Section: "Report Details",
-      "Record Type": "Metadata",
-      Name: "Reporting period",
-      Value: input.periodLabel,
-      "Date / Period":
-        input.fromDate && input.toDate ? `${input.fromDate} to ${input.toDate}` : input.periodLabel,
-      Notes: "Date range used for period-based report rows.",
+      title: "Portfolio Summary",
+      rows: [
+        {
+          "Record Type": "Metric",
+          Name: "Total portfolio",
+          Description: "Outstanding balance across loans in scope.",
+          Value: input.summary.totalPortfolio,
+          Unit: "TZS",
+        },
+        {
+          "Record Type": "Metric",
+          Name: "Portfolio at risk over 30 days",
+          Description: "Outstanding balance on loans more than 30 days overdue.",
+          Value: input.summary.totalPar,
+          Unit: "TZS",
+        },
+        {
+          "Record Type": "Metric",
+          Name: "PAR ratio",
+          Description: "Portfolio at risk over 30 days as a percentage of total portfolio.",
+          Value: input.summary.parRatio,
+          Unit: "%",
+          "Rate (%)": input.summary.parRatio,
+        },
+        {
+          "Record Type": "Metric",
+          Name: "NPL ratio",
+          Description: "Non-performing loan balance as a percentage of total portfolio.",
+          Value: input.summary.nplRatio,
+          Unit: "%",
+          "Rate (%)": input.summary.nplRatio,
+        },
+        {
+          "Record Type": "Metric",
+          Name: "Required provision",
+          Description: "Estimated provision required for portfolio credit risk.",
+          Value: input.summary.requiredProvision,
+          Unit: "TZS",
+        },
+      ],
     },
     {
-      Section: "Report Details",
-      "Record Type": "Metadata",
-      Name: "Generated at",
-      Value: input.generatedAt,
-      Notes: "Time this file was generated.",
+      title: "Product Performance",
+      rows: input.productPerformance.map((row) => ({
+        "Record Type": "Loan Product",
+        Name: row.name,
+        Count: row.loanCount,
+        "Outstanding (TZS)": row.outstanding,
+        "PAR / Provision (TZS)": row.par,
+        "Rate (%)": row.parRate,
+        Notes: "Rate is the product's portfolio-at-risk percentage.",
+      })),
     },
     {
-      Section: "Portfolio Summary",
-      "Record Type": "Metric",
-      Name: "Total portfolio",
-      Description: "Outstanding balance across loans in scope.",
-      Value: input.summary.totalPortfolio,
-      Unit: "TZS",
+      title: "Portfolio Aging",
+      rows: input.agingReport.map((row) => ({
+        "Record Type": "Aging Classification",
+        Name: row.classificationLabel,
+        "Outstanding (TZS)": row.outstanding,
+        "PAR / Provision (TZS)": row.provision,
+        "Rate (%)": row.rate,
+        Notes: "Provision is the estimated amount required for this aging classification.",
+      })),
     },
     {
-      Section: "Portfolio Summary",
-      "Record Type": "Metric",
-      Name: "Portfolio at risk over 30 days",
-      Description: "Outstanding balance on loans more than 30 days overdue.",
-      Value: input.summary.totalPar,
-      Unit: "TZS",
+      title: "Branch Performance",
+      rows: input.branchPerformance.map((row) => ({
+        "Record Type": "Branch",
+        Name: row.name,
+        Count: row.loanCount,
+        "Disbursed (TZS)": row.disbursed,
+        "Collected (TZS)": row.collected,
+        "Outstanding (TZS)": row.outstanding,
+        "Rate (%)": row.collectionRate,
+        Notes: "Rate is the branch collection rate.",
+      })),
     },
     {
-      Section: "Portfolio Summary",
-      "Record Type": "Metric",
-      Name: "PAR ratio",
-      Description: "Portfolio at risk over 30 days as a percentage of total portfolio.",
-      Value: input.summary.parRatio,
-      Unit: "%",
-      "Rate (%)": input.summary.parRatio,
+      title: "Loan Applications",
+      rows: input.applications.map((row) => ({
+        "Record Type": "Application",
+        Reference: row.application_number,
+        Name: row.customer_name,
+        Status: row.status.replaceAll("_", " "),
+        "Date / Period": row.created_at,
+        Value: row.amount,
+        Unit: "TZS requested",
+      })),
     },
     {
-      Section: "Portfolio Summary",
-      "Record Type": "Metric",
-      Name: "NPL ratio",
-      Description: "Non-performing loan balance as a percentage of total portfolio.",
-      Value: input.summary.nplRatio,
-      Unit: "%",
-      "Rate (%)": input.summary.nplRatio,
+      title: "Customers",
+      rows: input.customers.map((row) => ({
+        "Record Type": "Customer",
+        Reference: row.customer_number,
+        Name: row.customer_name,
+        Description: row.phone,
+        Notes: [row.district, row.region].filter((part) => part && part !== "—").join(", "),
+      })),
     },
     {
-      Section: "Portfolio Summary",
-      "Record Type": "Metric",
-      Name: "Required provision",
-      Description: "Estimated provision required for portfolio credit risk.",
-      Value: input.summary.requiredProvision,
-      Unit: "TZS",
+      title: "Loans",
+      rows: input.loans.map((row) => ({
+        "Record Type": "Loan",
+        Reference: row.loan_number,
+        Name: row.customer_name,
+        Description: row.product_name,
+        Status: row.status.replaceAll("_", " "),
+        "Principal (TZS)": row.principal,
+        "Outstanding (TZS)": row.outstanding,
+      })),
+    },
+    {
+      title: "Collection Activities",
+      rows: input.collections.map((row) => ({
+        "Record Type": "Collection Activity",
+        Name: row.customer_name,
+        Description: row.action.replaceAll("_", " "),
+        "Date / Period": row.performed_at,
+        Notes: row.notes,
+      })),
     },
   ];
 }
 
-/** Build a flat, filterable CSV report without nested JSON cells. */
+/** Build a sectioned CSV report without nested JSON or repeated section labels. */
 export function buildBranchReportCsv(input: ExportBranchReportInput): string {
-  const rows: ReportCsvRow[] = [
-    ...summaryRows(input),
-    ...input.productPerformance.map((row) => ({
-      Section: "Product Performance",
-      "Record Type": "Loan Product",
-      Name: row.name,
-      Count: row.loanCount,
-      "Outstanding (TZS)": row.outstanding,
-      "PAR / Provision (TZS)": row.par,
-      "Rate (%)": row.parRate,
-      Notes: "Rate is the product's portfolio-at-risk percentage.",
-    })),
-    ...input.agingReport.map((row) => ({
-      Section: "Portfolio Aging",
-      "Record Type": "Aging Classification",
-      Name: row.classificationLabel,
-      "Outstanding (TZS)": row.outstanding,
-      "PAR / Provision (TZS)": row.provision,
-      "Rate (%)": row.rate,
-      Notes: "Provision is the estimated amount required for this aging classification.",
-    })),
-    ...input.branchPerformance.map((row) => ({
-      Section: "Branch Performance",
-      "Record Type": "Branch",
-      Name: row.name,
-      Count: row.loanCount,
-      "Disbursed (TZS)": row.disbursed,
-      "Collected (TZS)": row.collected,
-      "Outstanding (TZS)": row.outstanding,
-      "Rate (%)": row.collectionRate,
-      Notes: "Rate is the branch collection rate.",
-    })),
-    ...input.applications.map((row) => ({
-      Section: "Loan Applications",
-      "Record Type": "Application",
-      Reference: row.application_number,
-      Name: row.customer_name,
-      Status: row.status.replaceAll("_", " "),
-      "Date / Period": row.created_at,
-      Value: row.amount,
-      Unit: "TZS requested",
-    })),
-    ...input.customers.map((row) => ({
-      Section: "Customers",
-      "Record Type": "Customer",
-      Reference: row.customer_number,
-      Name: row.customer_name,
-      Description: row.phone,
-      Notes: [row.district, row.region].filter((part) => part && part !== "—").join(", "),
-    })),
-    ...input.loans.map((row) => ({
-      Section: "Loans",
-      "Record Type": "Loan",
-      Reference: row.loan_number,
-      Name: row.customer_name,
-      Description: row.product_name,
-      Status: row.status.replaceAll("_", " "),
-      "Principal (TZS)": row.principal,
-      "Outstanding (TZS)": row.outstanding,
-    })),
-    ...input.collections.map((row) => ({
-      Section: "Collection Activities",
-      "Record Type": "Collection Activity",
-      Name: row.customer_name,
-      Description: row.action.replaceAll("_", " "),
-      "Date / Period": row.performed_at,
-      Notes: row.notes,
-    })),
-  ];
+  const lines = [REPORT_EXPORT_COLUMNS.map(escapeCsvValue).join(",")];
 
-  return `\uFEFF${[CSV_COLUMNS.map(escapeCsvValue).join(","), ...rows.map(rowToCsv)].join("\r\n")}\r\n`;
+  buildBranchReportSections(input).forEach((section, index) => {
+    if (index > 0) lines.push(rowToCsv({}));
+    lines.push(rowToCsv({ Section: section.title.toUpperCase(), "Record Type": "Section Header" }));
+    lines.push(...section.rows.map(rowToCsv));
+  });
+
+  return `\uFEFF${lines.join("\r\n")}\r\n`;
 }
