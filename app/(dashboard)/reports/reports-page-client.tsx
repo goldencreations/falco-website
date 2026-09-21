@@ -52,6 +52,7 @@ import {
  TableRow,
 } from "@/components/ui/table";
 import { exportBranchReportPdf } from "@/lib/branch-report-pdf";
+import { buildBranchReportCsv } from "@/lib/branch-report-csv";
 import { loadReportExportDetailRows } from "@/lib/report-export-data";
 import { formatCurrency, formatDateTime } from "@/lib/formatters";
 import { normalizePortfolioSummary, type PortfolioSummaryView } from "@/lib/portfolio-summary";
@@ -341,6 +342,8 @@ export default function ReportsPageClient() {
  branchName: scopeLabel,
  periodLabel: range.label,
  generatedAt: formatDateTime(new Date().toISOString()),
+ fromDate: range.from,
+ toDate: range.to,
  summary: {
  totalPortfolio: metrics.totalPortfolio,
  totalPar: metrics.parAmount,
@@ -387,20 +390,12 @@ export default function ReportsPageClient() {
  }
 
  if (exportOption === "csv") {
- const params = new URLSearchParams({ format: "csv", as_of: endDateFilter || todayInputDate() });
- if (effectiveBranchId) params.set("branch_id", effectiveBranchId);
- const res = await fetch(`/api/reports/portfolio-summary/export?${params.toString()}`, {
- credentials: "include",
- });
- if (!res.ok) {
- const json = (await res.json()) as { message?: string };
- throw new Error(json.message ?? "CSV export failed");
- }
- const blob = await res.blob();
+ const csv = buildBranchReportCsv(payload);
+ const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
  const url = URL.createObjectURL(blob);
  const anchor = document.createElement("a");
  anchor.href = url;
- anchor.download = `reports-${todayInputDate()}.csv`;
+ anchor.download = `falco-portfolio-report-${endDateFilter || todayInputDate()}.csv`;
  anchor.click();
  URL.revokeObjectURL(url);
  return;
