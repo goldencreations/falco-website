@@ -1,7 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   ArrowDownCircle,
@@ -14,6 +13,7 @@ import {
   Loader2,
   Plus,
   RefreshCcw,
+  ReceiptText,
   RotateCcw,
   ShieldAlert,
   Sparkles,
@@ -98,7 +98,8 @@ import {
   cashbookScopedBranchId,
 } from "@/lib/cashbook-access";
 import { forceCachedReload, invalidateFetchCache } from "@/lib/client-fetch-cache";
-import { formatCurrency, formatDate } from "@/lib/formatters";
+import { formatCurrency, formatDate, formatDateTime } from "@/lib/formatters";
+import type { PaymentViewRow } from "@/lib/payment-adapters";
 import {
   invalidateUnmatchedClickPesaQueueCache,
   useUnmatchedClickPesaQueue,
@@ -168,6 +169,52 @@ function sourceBadge(entry: FinancialEntry) {
   return <Badge variant="outline">{financialEntrySourceBadgeLabel(entry)}</Badge>;
 }
 
+function PaymentDetailRow({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: ReactNode;
+  mono?: boolean;
+}) {
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)] gap-3 border-b py-2.5 last:border-0">
+      <span className="text-sm text-muted-foreground">{label}</span>
+      <span className={cn("break-words text-right text-sm font-medium", mono && "font-mono text-xs")}>
+        {value || "—"}
+      </span>
+    </div>
+  );
+}
+
+function humanizeDetailKey(key: string): string {
+  return key
+    .replace(/\./g, " · ")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function flattenPaymentMetadata(
+  value: unknown,
+  prefix = "",
+  depth = 0
+): Array<[string, string]> {
+  if (!value || typeof value !== "object" || depth > 3) return [];
+
+  const rows: Array<[string, string]> = [];
+  for (const [key, nestedValue] of Object.entries(value as Record<string, unknown>)) {
+    const path = prefix ? `${prefix}.${key}` : key;
+    if (nestedValue == null || nestedValue === "") continue;
+    if (typeof nestedValue === "object") {
+      rows.push(...flattenPaymentMetadata(nestedValue, path, depth + 1));
+      continue;
+    }
+    rows.push([path, typeof nestedValue === "boolean" ? (nestedValue ? "Yes" : "No") : String(nestedValue)]);
+  }
+  return rows;
+}
+
 export default function CashbookPage() {
   const { user, loaded: sessionLoaded } = useSessionUser();
   const searchParams = useSearchParams();
@@ -230,6 +277,12 @@ export default function CashbookPage() {
   const [reverseEntry, setReverseEntry] = useState<FinancialEntry | null>(null);
   const [reverseReason, setReverseReason] = useState("");
   const [reverseLoading, setReverseLoading] = useState(false);
+
+  const [paymentDetailEntry, setPaymentDetailEntry] = useState<FinancialEntry | null>(null);
+  const [paymentDetail, setPaymentDetail] = useState<PaymentViewRow | null>(null);
+  const [paymentDetailLoading, setPaymentDetailLoading] = useState(false);
+  const [paymentDetailError, setPaymentDetailError] = useState<string | null>(null);
+  const paymentDetailRequestToken = useRef(0);
 
   const canAccess = user ? canViewCashbook(user) : false;
   const canViewUnmatchedQueue = user ? canViewUnmatchedCashbookQueue(user) : false;
@@ -619,6 +672,54 @@ export default function CashbookPage() {
       setReverseLoading(false);
     }
   };
+
+  const openPaymentDetails = async (entry: FinancialEntry) => {
+    const paymentId = entry.metadata?.payment_id;
+    if (paymentId == null || String(paymentId).trim() === "") return;
+
+    const token = ++paymentDetailRequestToken.current;
+    setPaymentDetailEntry(entry);
+    setPaymentDetail(null);
+    setPaymentDetailError(null);
+    setPaymentDetailLoading(true);
+
+    try {
+      const res = await fetch(`/api/payments/${encodeURIComponent(String(paymentId))}`, {
+        credentials: "include",
+      });
+      const { data } = await parseJsonResponse<{
+        payment?: PaymentViewRow;
+        message?: string;
+        error?: string;
+      }>(res);
+      if (paymentDetailRequestToken.current !== token) return;
+
+      if (!res.ok || !data?.payment) {
+        setPaymentDetailError(formatApiResponseError(data, "Failed to load payment details"));
+        return;
+      }
+
+      setPaymentDetail(data.payment);
+    } catch (requestError) {
+      if (paymentDetailRequestToken.current === token) {
+        setPaymentDetailError(
+          requestError instanceof Error ? requestError.message : "Failed to load payment details"
+        );
+      }
+    } finally {
+      if (paymentDetailRequestToken.current === token) setPaymentDetailLoading(false);
+    }
+  };
+
+  const closePaymentDetails = () => {
+    paymentDetailRequestToken.current += 1;
+    setPaymentDetailEntry(null);
+    setPaymentDetail(null);
+    setPaymentDetailError(null);
+    setPaymentDetailLoading(false);
+  };
+
+  const paymentMetadataRows = flattenPaymentMetadata(paymentDetail?.metadata);
 
   const showRowActions = canClassify || canAllocateToLoan || canManage || canViewPayments;
 
@@ -1021,10 +1122,14 @@ export default function CashbookPage() {
                                     ) : null}
                                   </div>
                                 ) : paymentId && canViewPayments && entry.source === "system" ? (
-                                  <Button type="button" size="sm" variant="outline" asChild>
-                                    <Link href={`/payments?paymentId=${encodeURIComponent(String(paymentId))}`}>
-                                      View payment
-                                    </Link>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => void openPaymentDetails(entry)}
+                                  >
+                                    <ReceiptText className="mr-1 h-3.5 w-3.5" />
+                                    View payment
                                   </Button>
                                 ) : financialEntryIsReversible(entry) && canReverse ? (
                                   <Button
@@ -1163,6 +1268,220 @@ export default function CashbookPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Sheet
+        open={Boolean(paymentDetailEntry)}
+        onOpenChange={(open) => {
+          if (!open) closePaymentDetails();
+        }}
+      >
+        <SheetContent
+          side="right"
+          className="flex h-full w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-xl"
+        >
+          <SheetHeader className="border-b px-5 py-4 pr-12 text-left">
+            <SheetTitle className="flex items-center gap-2">
+              <ReceiptText className="h-5 w-5 text-primary" />
+              Payment details
+            </SheetTitle>
+            <SheetDescription>
+              {paymentDetailEntry
+                ? `Cashbook entry ${paymentDetailEntry.entry_number}`
+                : "Full details for this payment"}
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+            {paymentDetailLoading ? (
+              <div className="flex min-h-64 flex-col items-center justify-center gap-3 text-muted-foreground">
+                <Loader2 className="h-6 w-6 animate-spin" />
+                <p className="text-sm">Loading this payment…</p>
+              </div>
+            ) : paymentDetailError ? (
+              <div className="flex min-h-64 flex-col items-center justify-center gap-3 text-center">
+                <div className="rounded-full bg-destructive/10 p-3 text-destructive">
+                  <ShieldAlert className="h-6 w-6" />
+                </div>
+                <div>
+                  <p className="font-medium">Could not load the payment</p>
+                  <p className="mt-1 max-w-sm text-sm text-muted-foreground">{paymentDetailError}</p>
+                </div>
+                {paymentDetailEntry ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void openPaymentDetails(paymentDetailEntry)}
+                  >
+                    <RefreshCcw className="mr-2 h-4 w-4" />
+                    Try again
+                  </Button>
+                ) : null}
+              </div>
+            ) : paymentDetail ? (
+              <div className="space-y-5">
+                <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Payment amount</p>
+                      <p className="mt-1 text-2xl font-bold">{formatCurrency(paymentDetail.amount)}</p>
+                    </div>
+                    <Badge
+                      variant={paymentDetail.status === "completed" ? "default" : "secondary"}
+                      className="capitalize"
+                    >
+                      {paymentDetail.status.replace(/_/g, " ")}
+                    </Badge>
+                  </div>
+                  <div className="mt-3 border-t border-primary/10 pt-3">
+                    <p className="font-medium">
+                      {paymentDetail.customer_display_name ?? paymentDetailEntry?.customer_name ?? "Customer unavailable"}
+                    </p>
+                    {paymentDetail.customer_phone ? (
+                      <p className="text-sm text-muted-foreground">{paymentDetail.customer_phone}</p>
+                    ) : null}
+                  </div>
+                </div>
+
+                <section>
+                  <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Payment
+                  </h3>
+                  <div className="rounded-lg border px-4">
+                    <PaymentDetailRow label="Payment number" value={paymentDetail.payment_number} mono />
+                    <PaymentDetailRow label="Payment ID" value={paymentDetail.id} mono />
+                    <PaymentDetailRow
+                      label="Date"
+                      value={paymentDetail.payment_date ? formatDateTime(paymentDetail.payment_date) : "—"}
+                    />
+                    <PaymentDetailRow
+                      label="Method"
+                      value={paymentDetail.payment_method.replace(/_/g, " ")}
+                    />
+                    <PaymentDetailRow label="Source" value={paymentDetail.source?.replace(/_/g, " ")} />
+                    <PaymentDetailRow label="Reference" value={paymentDetail.reference_number} mono />
+                    <PaymentDetailRow label="Ledger status" value={paymentDetail.ledger_status} />
+                  </div>
+                </section>
+
+                <section>
+                  <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Customer and loan
+                  </h3>
+                  <div className="rounded-lg border px-4">
+                    <PaymentDetailRow
+                      label="Customer"
+                      value={paymentDetail.customer_display_name ?? paymentDetailEntry?.customer_name}
+                    />
+                    <PaymentDetailRow label="Customer ID" value={paymentDetail.customer_id} mono />
+                    <PaymentDetailRow label="Phone" value={paymentDetail.customer_phone} />
+                    <PaymentDetailRow label="Loan number" value={paymentDetail.loan_number} mono />
+                    <PaymentDetailRow label="Loan ID" value={paymentDetail.loan_id} mono />
+                    <PaymentDetailRow label="Branch" value={paymentDetailEntry?.branch_name} />
+                  </div>
+                </section>
+
+                <section>
+                  <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Allocation
+                  </h3>
+                  <div className="rounded-lg border px-4">
+                    <PaymentDetailRow label="Principal" value={formatCurrency(paymentDetail.principal_allocated)} />
+                    <PaymentDetailRow label="Interest" value={formatCurrency(paymentDetail.interest_allocated)} />
+                    <PaymentDetailRow label="Fees" value={formatCurrency(paymentDetail.fees_allocated)} />
+                    <PaymentDetailRow label="Penalty" value={formatCurrency(paymentDetail.penalty_allocated)} />
+                  </div>
+                </section>
+
+                {(paymentDetail.mobile_money_provider || paymentDetail.mobile_money_number) ? (
+                  <section>
+                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Mobile money
+                    </h3>
+                    <div className="rounded-lg border px-4">
+                      <PaymentDetailRow label="Provider" value={paymentDetail.mobile_money_provider} />
+                      <PaymentDetailRow label="Account / phone" value={paymentDetail.mobile_money_number} mono />
+                    </div>
+                  </section>
+                ) : null}
+
+                <section>
+                  <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Reconciliation
+                  </h3>
+                  <div className="rounded-lg border px-4">
+                    <PaymentDetailRow
+                      label="Status"
+                      value={paymentDetail.reconciliation_status?.replace(/_/g, " ")}
+                    />
+                    <PaymentDetailRow label="Note" value={paymentDetail.reconciliation_note} />
+                  </div>
+                </section>
+
+                {(paymentDetail.notes || paymentDetail.reversal_reason || paymentDetail.status === "reversed") ? (
+                  <section>
+                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Notes and reversal
+                    </h3>
+                    <div className="rounded-lg border px-4">
+                      <PaymentDetailRow label="Notes" value={paymentDetail.notes} />
+                      <PaymentDetailRow label="Reversal reason" value={paymentDetail.reversal_reason} />
+                      <PaymentDetailRow label="Reversed by" value={paymentDetail.reversed_by} mono />
+                      <PaymentDetailRow
+                        label="Reversed at"
+                        value={paymentDetail.reversed_at ? formatDateTime(paymentDetail.reversed_at) : "—"}
+                      />
+                      <PaymentDetailRow
+                        label="Original payment ID"
+                        value={paymentDetail.reversal_of_payment_id}
+                        mono
+                      />
+                    </div>
+                  </section>
+                ) : null}
+
+                <section>
+                  <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Audit information
+                  </h3>
+                  <div className="rounded-lg border px-4">
+                    <PaymentDetailRow label="Received by" value={paymentDetail.received_by} mono />
+                    <PaymentDetailRow
+                      label="Created"
+                      value={paymentDetail.created_at ? formatDateTime(paymentDetail.created_at) : "—"}
+                    />
+                    <PaymentDetailRow
+                      label="Last updated"
+                      value={paymentDetail.updated_at ? formatDateTime(paymentDetail.updated_at) : "—"}
+                    />
+                    <PaymentDetailRow label="Cashbook entry" value={paymentDetailEntry?.entry_number} mono />
+                    <PaymentDetailRow label="Running balance" value={formatCurrency(paymentDetailEntry?.running_balance ?? 0)} />
+                  </div>
+                </section>
+
+                {paymentMetadataRows.length > 0 ? (
+                  <section>
+                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Additional information
+                    </h3>
+                    <div className="rounded-lg border px-4">
+                      {paymentMetadataRows.map(([key, value]) => (
+                        <PaymentDetailRow key={key} label={humanizeDetailKey(key)} value={value} mono />
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+
+          <SheetFooter className="border-t sm:flex-row sm:justify-end">
+            <Button type="button" variant="outline" onClick={closePaymentDetails}>
+              Close
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
 
       <Sheet
         open={Boolean(classifyEntry)}
