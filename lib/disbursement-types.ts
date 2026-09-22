@@ -45,6 +45,8 @@ export interface Disbursement {
  order_reference?: string | null;
  /** Backend flag — show Retry payout only when true. */
  can_retry?: boolean;
+ /** Backend flag — show manual payout recovery only when true. */
+ can_record_manual_payout?: boolean;
  metadata?: Record<string, unknown>;
  prepared_by: string;
  approved_by: string | null;
@@ -82,4 +84,9 @@ export type DisbursementPatchAction =
  action: "complete";
  transaction_reference?: string | null;
  disbursed_at?: string | null;
+ }
+ | {
+ action: "record_manual_payout";
+ manual_payout_confirmed: true;
+ transaction_reference: string;
  };

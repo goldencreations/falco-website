@@ -75,8 +75,11 @@ export async function PATCH(
  }
 
  const action = String(body.action ?? "");
- if (!["approve", "reject", "complete"].includes(action)) {
- return NextResponse.json({ error: "action must be approve, reject, or complete" }, { status: 400 });
+ if (!["approve", "reject", "complete", "record_manual_payout"].includes(action)) {
+ return NextResponse.json(
+  { error: "action must be approve, reject, complete, or record_manual_payout" },
+  { status: 400 }
+ );
  }
 
  if (!canApproveDisbursement(auth.user)) {
@@ -111,6 +114,21 @@ export async function PATCH(
   }
   if (body.transaction_reference != null) forward.transaction_reference = body.transaction_reference;
   if (body.disbursed_at != null) forward.disbursed_at = body.disbursed_at;
+ }
+
+ if (action === "record_manual_payout") {
+  const transactionReference = String(body.transaction_reference ?? "").trim();
+  if (!transactionReference || body.manual_payout_confirmed !== true) {
+   return NextResponse.json(
+    {
+     error:
+      "Manual payout confirmation and the ClickPesa order reference are required.",
+    },
+    { status: 422 }
+   );
+  }
+  forward.transaction_reference = transactionReference;
+  forward.manual_payout_confirmed = true;
  }
 
  const res = await falcoServerFetch<unknown>(`/disbursements/${encodeURIComponent(id)}`, {

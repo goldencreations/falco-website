@@ -13,6 +13,7 @@ import {
  FileDown,
  MoreHorizontal,
  CheckCircle2,
+ HandCoins,
  XCircle,
 } from "lucide-react";
 import {
@@ -65,6 +66,7 @@ import {
  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
@@ -89,6 +91,7 @@ import {
  mergeDisbursementRetryIntoList,
  type DisbursementRetrySuccess,
 } from "@/lib/disbursement-retry";
+import { canShowManualPayout } from "@/lib/disbursement-manual-payout";
 import { useSessionUser } from "@/lib/use-session-user";
 import { resolvePortalHref } from "@/lib/portal-paths";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/formatters";
@@ -271,6 +274,7 @@ function DisbursementRowActions({
  onReject,
  onComplete,
  onRetry,
+ onManualPayout,
 }: {
  row: DisbursementViewRow;
  canApprove: boolean;
@@ -280,6 +284,7 @@ function DisbursementRowActions({
  onReject: () => void;
  onComplete: () => void;
  onRetry: () => void;
+ onManualPayout: () => void;
 }) {
  const canApprovePending = canApprove && row.status === "pending_approval";
  const canCompleteCash =
@@ -288,6 +293,7 @@ function DisbursementRowActions({
  !isClickPesaDisbursement(row) &&
  !isAwaitingClickPesaConfirmation(row);
  const canRetry = canApprove && canShowRetryPayout(row);
+ const canRecordManualPayout = canApprove && canShowManualPayout(row);
  const approveLabel = isGatewayChannel(row.method)
  ? "Approve & send"
  : "Approve & activate";
@@ -342,6 +348,12 @@ function DisbursementRowActions({
  <DropdownMenuItem onClick={onRetry} disabled={actionLoading}>
  <RefreshCcw className="mr-2 h-4 w-4" />
  Retry payout
+ </DropdownMenuItem>
+ ) : null}
+ {canRecordManualPayout ? (
+ <DropdownMenuItem onClick={onManualPayout} disabled={actionLoading}>
+ <HandCoins className="mr-2 h-4 w-4" />
+ Manual payout
  </DropdownMenuItem>
  ) : null}
  </DropdownMenuContent>
@@ -600,6 +612,9 @@ export default function DisbursementsPage() {
  const [rejectRow, setRejectRow] = useState<DisbursementViewRow | null>(null);
  const [rejectReason, setRejectReason] = useState("");
  const [retryRow, setRetryRow] = useState<DisbursementViewRow | null>(null);
+ const [manualPayoutRow, setManualPayoutRow] = useState<DisbursementViewRow | null>(null);
+ const [manualPayoutReference, setManualPayoutReference] = useState("");
+ const [manualPayoutConfirmed, setManualPayoutConfirmed] = useState(false);
  const [successMessage, setSuccessMessage] = useState<string | null>(null);
  const [expandedRejectedRows, setExpandedRejectedRows] = useState<Set<string>>(new Set());
 
@@ -696,9 +711,12 @@ export default function DisbursementsPage() {
     setApproveRow(null);
     setCompleteRow(null);
     setRejectRow(null);
+    setManualPayoutRow(null);
     setCompleteRef("");
     setApproveRef("");
     setRejectReason("");
+    setManualPayoutReference("");
+    setManualPayoutConfirmed(false);
     await load();
     // Signal the Applications page to reload immediately so the status badge
     // flips to "Disbursed" the moment the user navigates back.
@@ -1144,6 +1162,13 @@ export default function DisbursementsPage() {
  setError(null);
  setRetryRow(row);
  }}
+ onManualPayout={() => {
+ setSuccessMessage(null);
+ setError(null);
+ setManualPayoutReference("");
+ setManualPayoutConfirmed(false);
+ setManualPayoutRow(row);
+ }}
  />
  </div>
  </TableCell>
@@ -1248,6 +1273,13 @@ export default function DisbursementsPage() {
  setSuccessMessage(null);
  setError(null);
  setRetryRow(row);
+ }}
+ onManualPayout={() => {
+ setSuccessMessage(null);
+ setError(null);
+ setManualPayoutReference("");
+ setManualPayoutConfirmed(false);
+ setManualPayoutRow(row);
  }}
  />
  </div>
@@ -1490,6 +1522,89 @@ export default function DisbursementsPage() {
  disabled={!rejectRow || actionLoading === rejectRow?.id}
  >
  Reject
+ </Button>
+ </DialogFooter>
+ </DialogContent>
+ </Dialog>
+
+ <Dialog
+ open={!!manualPayoutRow}
+ onOpenChange={(open) => {
+  if (!open) {
+   setManualPayoutRow(null);
+   setManualPayoutReference("");
+   setManualPayoutConfirmed(false);
+  }
+ }}
+ >
+ <DialogContent>
+ <DialogHeader>
+ <DialogTitle>Record manual ClickPesa payout</DialogTitle>
+ <DialogDescription>
+ Paste the successful ClickPesa order reference. Falco will verify it directly with ClickPesa,
+ including its SUCCESS status, amount, and beneficiary, before recording the payout. This will
+ not send another transfer.
+ </DialogDescription>
+ </DialogHeader>
+ {manualPayoutRow ? (
+ <div className="space-y-4 py-2">
+ <div className="rounded-lg border bg-muted/30 p-4 text-sm">
+ <p className="font-semibold">
+ {manualPayoutRow.customer_display_name ?? "Customer"}
+ </p>
+ <p className="text-muted-foreground">
+ Loan {manualPayoutRow.loan_number ?? manualPayoutRow.loan_id} ·{" "}
+ {formatCurrency(manualPayoutRow.amount)}
+ </p>
+ </div>
+ <div className="space-y-2">
+ <Label htmlFor="manual-payout-reference">ClickPesa order reference</Label>
+ <Input
+ id="manual-payout-reference"
+ value={manualPayoutReference}
+ onChange={(event) => setManualPayoutReference(event.target.value)}
+ placeholder="Paste the order reference from ClickPesa"
+ autoComplete="off"
+ />
+ </div>
+ <div className="flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+ <Checkbox
+ id="manual-payout-confirmed"
+ checked={manualPayoutConfirmed}
+ onCheckedChange={(checked) => setManualPayoutConfirmed(checked === true)}
+ />
+ <Label htmlFor="manual-payout-confirmed" className="leading-5">
+ I confirm this payout was created manually in ClickPesa. Falco must verify it before recording it.
+ </Label>
+ </div>
+ </div>
+ ) : null}
+ <DialogFooter>
+ <Button variant="outline" onClick={() => setManualPayoutRow(null)}>
+ Cancel
+ </Button>
+ <Button
+ onClick={() => {
+  if (!manualPayoutRow) return;
+  void patch(manualPayoutRow.id, {
+   action: "record_manual_payout",
+   manual_payout_confirmed: true,
+   transaction_reference: manualPayoutReference.trim(),
+  });
+ }}
+ disabled={
+  !manualPayoutRow ||
+  !manualPayoutReference.trim() ||
+  !manualPayoutConfirmed ||
+  actionLoading === manualPayoutRow?.id
+ }
+ >
+ {actionLoading === manualPayoutRow?.id ? (
+  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+ ) : (
+  <HandCoins className="mr-2 h-4 w-4" />
+ )}
+ Record manual payout
  </Button>
  </DialogFooter>
  </DialogContent>
