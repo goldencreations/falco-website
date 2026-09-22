@@ -145,7 +145,11 @@ function safeRate(value: unknown): number {
 }
 
 async function fetchJson<T>(url: string): Promise<{ ok: true; data: T } | { ok: false; message: string }> {
- const res = await fetch(url, { credentials: "include" });
+ const res = await fetch(url, {
+ credentials: "include",
+ cache: "no-store",
+ headers: { "Cache-Control": "no-cache" },
+ });
  const json = (await res.json()) as unknown;
  if (!res.ok) {
  const message =
