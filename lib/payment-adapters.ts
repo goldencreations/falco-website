@@ -16,6 +16,11 @@ export type PaymentViewRow = Payment & {
  reconciliation_note?: string;
  ledger_status?: string;
  metadata?: Record<string, unknown>;
+ reversed_by?: string | null;
+ reversed_at?: string | null;
+ reversal_reason?: string | null;
+ reversal_of_payment_id?: string | null;
+ updated_at?: string | null;
 };
 
 export type ReconciliationSummary = Record<ReconciliationStatus, number>;
@@ -99,12 +104,20 @@ export function adaptPaymentViewRow(raw: Record<string, unknown>): PaymentViewRo
  payment_method: normalizePaymentMethod(base.payment_method, inner),
  source,
  loan_id: base.loan_id || (loan?.id != null ? String(loan.id) : ""),
- loan_number: loan?.loan_number ? String(loan.loan_number) : undefined,
+ loan_number:
+ loan?.loan_number != null
+ ? String(loan.loan_number)
+ : inner.loan_number != null
+ ? String(inner.loan_number)
+ : undefined,
  customer_id:
  base.customer_id ||
  (customer?.id != null ? String(customer.id) : "") ||
  (loan?.customer_id != null ? String(loan.customer_id) : ""),
- customer_display_name: customerDisplay || undefined,
+ customer_display_name:
+ customerDisplay ||
+ (inner.customer_name != null ? String(inner.customer_name).trim() : "") ||
+ undefined,
  customer_phone: customer
  ? String(customer.phone_number ?? customer.phone_primary ?? "")
  : undefined,
@@ -112,6 +125,12 @@ export function adaptPaymentViewRow(raw: Record<string, unknown>): PaymentViewRo
  reconciliation_note: recon.note,
  ledger_status: inner.ledger_status ? String(inner.ledger_status) : undefined,
  metadata: Object.keys(md).length ? md : undefined,
+ reversed_by: inner.reversed_by != null ? String(inner.reversed_by) : null,
+ reversed_at: inner.reversed_at != null ? String(inner.reversed_at) : null,
+ reversal_reason: inner.reversal_reason != null ? String(inner.reversal_reason) : null,
+ reversal_of_payment_id:
+ inner.reversal_of_payment_id != null ? String(inner.reversal_of_payment_id) : null,
+ updated_at: inner.updated_at != null ? String(inner.updated_at) : null,
  };
 }
 
@@ -229,4 +248,3 @@ export function mapUiPaymentCreateToApi(body: Record<string, unknown>): Record<s
 
  return payload;
 }
-
