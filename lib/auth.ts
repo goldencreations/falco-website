@@ -18,6 +18,8 @@ export type SessionUser = {
  branch_name?: string;
  full_name: string;
  permissions: string[];
+ features: string[];
+ must_change_password: boolean;
 };
 
 export type ApiMeUser = {
@@ -28,6 +30,8 @@ export type ApiMeUser = {
  branch_id: string | null;
  branch_name?: string | null;
  permissions?: string[];
+ features?: string[];
+ must_change_password?: boolean;
 };
 
 function normalizeBranchId(branchId: string | null | undefined): string {
@@ -46,6 +50,8 @@ export function sessionUserFromApiMe(user: ApiMeUser, permissions: string[]): Se
  branch_name: user.branch_name ? String(user.branch_name) : undefined,
  full_name: user.full_name,
  permissions,
+ features: user.features ?? [],
+ must_change_password: Boolean(user.must_change_password),
  };
 }
 

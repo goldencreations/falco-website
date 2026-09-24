@@ -68,7 +68,7 @@ export async function POST(request: Request) {
  const response = NextResponse.json({
  ok: true,
  role: appRole,
- redirectTo: redirectForRole(appRole),
+ redirectTo: remote.user.must_change_password ? "/change-password" : redirectForRole(appRole),
  });
 
  clearAppRoleCookie(response);
