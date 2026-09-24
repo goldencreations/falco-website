@@ -18,6 +18,8 @@ export type SessionUserClient = {
  phone?: string;
  is_active?: boolean;
  permissions?: string[];
+ features?: string[];
+ must_change_password?: boolean;
 };
 
 export function useSessionUser() {
