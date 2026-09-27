@@ -189,6 +189,13 @@ const navigation: { title: string; items: SidebarNavItem[] }[] = [
  title: "General Ledger",
  href: "/general-ledger",
  icon: Landmark,
+ subItems: [
+ { title: "Rules", href: "/general-ledger/rules" },
+ { title: "Expenses", href: "/general-ledger/expenses" },
+ { title: "Assets", href: "/general-ledger/assets" },
+ { title: "Liabilities", href: "/general-ledger/liabilities" },
+ { title: "Loans", href: "/general-ledger/loans" },
+ ],
  },
  {
  title: "Loan Products",
