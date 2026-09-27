@@ -37,10 +37,11 @@ type PageMeta = { current_page: number; last_page: number; per_page: number; tot
 type Preview = { preview_token?: string; entry?: Row; lines?: Row[]; totals?: Row; [key: string]: unknown };
 type EntryOptions = { rules: Row[]; accounts: Row[] };
 type FieldOption = { value: string; label: string };
-type Field = { name: string; label: string; type?: "text" | "number" | "date" | "textarea" | "select"; required?: boolean; placeholder?: string; options?: FieldOption[]; defaultValue?: string; accounting?: boolean };
+type Field = { name: string; label: string; type?: "text" | "number" | "date" | "textarea" | "select"; required?: boolean; placeholder?: string; options?: FieldOption[]; defaultValue?: string; accounting?: boolean; inputMode?: "numeric"; pattern?: string };
 
 const PAGE_SIZE = 15;
 const API = "/api/general-ledger";
+const RULE_ACCOUNTING_FIELDS_ENABLED = false;
 const numberFormatter = new Intl.NumberFormat("en-TZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const registerConfiguration: Record<RegisterKind, {
@@ -51,13 +52,13 @@ const registerConfiguration: Record<RegisterKind, {
   fields: Field[];
 }> = {
   rules: {
-    title: "Posting rules",
-    description: "Define how operational entries reach the chart of accounts. Rule codes are internal identifiers, not COA account codes.",
+    title: "Rules",
+    description: "Save reusable codes for expenses, assets, and liabilities so the same description does not need to be entered repeatedly.",
     singular: "rule",
     icon: Landmark,
     fields: [
-      { name: "code", label: "Rule code", required: true, placeholder: "EXP-RENT" },
-      { name: "name", label: "Rule name", required: true, placeholder: "Office rent" },
+      { name: "code", label: "Rule code", required: true, placeholder: "1000", inputMode: "numeric", pattern: "[0-9]*" },
+      { name: "name", label: "Rule name", required: true, placeholder: "Buying office chairs" },
       { name: "category", label: "Group", type: "select", required: true, defaultValue: "expense", options: [{ value: "expense", label: "Expenses" }, { value: "asset", label: "Assets" }, { value: "liability", label: "Liabilities" }] },
       { name: "description", label: "Description", type: "textarea", placeholder: "When this rule should be used" },
       { name: "recognition_account_id", label: "What is being recorded", required: true, placeholder: "Choose the expense, asset, or liability account", accounting: true },
@@ -142,13 +143,6 @@ function metadataValue(row: Row, key: string): string {
   return "—";
 }
 
-function accountLabel(row: Row, relationship: string): string {
-  const account = row[relationship];
-  if (!account || typeof account !== "object") return "Not configured";
-  const accountRow = account as Row;
-  return `${value(accountRow, "code")} — ${value(accountRow, "name")}`;
-}
-
 function money(raw: unknown): string {
   const amount = Number(raw ?? 0);
   return `TZS ${numberFormatter.format(Number.isFinite(amount) ? amount : 0)}`;
@@ -175,6 +169,17 @@ async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
 
 function newForm(kind: RegisterKind): Record<string, string> {
   return Object.fromEntries(registerConfiguration[kind].fields.map((field) => [field.name, field.defaultValue ?? (field.type === "date" ? dateDefault() : "")]));
+}
+
+function rulePayload(form: Record<string, string>): Record<string, string> {
+  if (RULE_ACCOUNTING_FIELDS_ENABLED) return form;
+
+  return {
+    code: form.code,
+    name: form.name,
+    category: form.category,
+    description: form.description,
+  };
 }
 
 /** Maps the guided business form to the stable General Ledger draft contract. */
@@ -294,7 +299,7 @@ export function GeneralLedgerRegister({ kind }: { kind: RegisterKind }) {
     }));
     setEditing(row);
     setForm(fields);
-    setAccountingOpen(kind === "rules");
+    setAccountingOpen(RULE_ACCOUNTING_FIELDS_ENABLED && kind === "rules");
     setFormOpen(true);
   }
 
@@ -307,7 +312,7 @@ export function GeneralLedgerRegister({ kind }: { kind: RegisterKind }) {
 
   async function submitForm(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
-    const missing = config.fields.filter((field) => field.required && !form[field.name]?.trim());
+    const missing = config.fields.filter((field) => field.required && (!field.accounting || (RULE_ACCOUNTING_FIELDS_ENABLED && accountingOpen)) && !form[field.name]?.trim());
     if (missing.length) {
       setError(`${missing.map((field) => field.label).join(", ")} ${missing.length === 1 ? "is" : "are"} required.`);
       return;
@@ -316,8 +321,8 @@ export function GeneralLedgerRegister({ kind }: { kind: RegisterKind }) {
     setError("");
     try {
       if (kind === "rules") {
-        await apiRequest(`${kind}${editing ? `/${resourceId(editing)}` : ""}`, { method: editing ? "PATCH" : "POST", body: JSON.stringify(form) });
-        toast.success(`Posting rule ${editing ? "updated" : "created"}.`);
+        await apiRequest(`${kind}${editing ? `/${resourceId(editing)}` : ""}`, { method: editing ? "PATCH" : "POST", body: JSON.stringify(rulePayload(form)) });
+        toast.success(`Rule ${editing ? "updated" : "created"}.`);
         setFormOpen(false);
         await load(editing ? page : 1, activeSearch);
       } else {
@@ -430,7 +435,7 @@ export function GeneralLedgerRegister({ kind }: { kind: RegisterKind }) {
       <Button size="sm" onClick={openCreate}><Plus className="size-4" />Add {config.singular}</Button>
     </header>
     <main className="mx-auto w-full max-w-7xl space-y-5 p-4 md:p-6">
-      <Card><CardHeader className="gap-2 sm:flex-row sm:items-start sm:justify-between"><div><CardTitle className="text-lg">{heading}</CardTitle><CardDescription className="mt-1 max-w-3xl">{config.description}</CardDescription></div><Badge variant="outline" className="w-fit">Draft → preview → post</Badge></CardHeader><CardContent>
+      <Card><CardHeader className="gap-2 sm:flex-row sm:items-start sm:justify-between"><div><CardTitle className="text-lg">{heading}</CardTitle><CardDescription className="mt-1 max-w-3xl">{config.description}</CardDescription></div><Badge variant="outline" className="w-fit">{kind === "rules" ? "Reusable reference codes" : "Draft → preview → post"}</Badge></CardHeader><CardContent>
         <form onSubmit={submitSearch} className="flex flex-col gap-3 sm:flex-row"><div className="relative flex-1"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={kind === "rules" ? "Search by rule code or name" : "Search by reference, name, creditor, or code"} className="pl-9" /></div><Button variant="outline" type="submit" disabled={loading}><Search className="size-4" />Search</Button><Button variant="ghost" type="button" disabled={loading} onClick={() => void load(page, activeSearch)}><RefreshCcw className="size-4" />Refresh</Button></form>
       </CardContent></Card>
       {error ? <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"><AlertCircle className="mt-0.5 size-4 shrink-0" /><div className="flex-1">{error}</div><Button variant="ghost" size="sm" onClick={() => void load(page, activeSearch)}>Retry</Button></div> : null}
@@ -447,10 +452,10 @@ export function GeneralLedgerRegister({ kind }: { kind: RegisterKind }) {
 
 function EntryForm({ open, kind, form, editing, entryOptions, accountingOpen, saving, onAccountingOpen, onOpenChange, onChange, onSubmit }: { open: boolean; kind: RegisterKind; form: Record<string, string>; editing: Row | null; entryOptions: EntryOptions; accountingOpen: boolean; saving: boolean; onAccountingOpen: (open: boolean) => void; onOpenChange: (open: boolean) => void; onChange: (name: string, value: string) => void; onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void> }) {
   const config = registerConfiguration[kind];
-  const visibleFields = config.fields.filter((field) => !field.accounting || accountingOpen);
-  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><form onSubmit={(event) => void onSubmit(event)}><DialogHeader><DialogTitle>{editing ? `Edit ${config.singular}` : `Add ${config.singular}`}</DialogTitle><DialogDescription>{kind === "rules" ? "Start with a simple business rule; expand Accounting details only when you are ready to map its COA posting." : "Save no transaction directly from this form: the next step is a server-generated, balanced posting preview."}</DialogDescription></DialogHeader><div className="grid gap-4 py-5 sm:grid-cols-2">
+  const visibleFields = config.fields.filter((field) => !field.accounting || (RULE_ACCOUNTING_FIELDS_ENABLED && accountingOpen));
+  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><form onSubmit={(event) => void onSubmit(event)}><DialogHeader><DialogTitle>{editing ? `Edit ${config.singular}` : `Add ${config.singular}`}</DialogTitle><DialogDescription>{kind === "rules" ? "Create a reusable rule with a numeric code, clear name, group, and description." : "Save no transaction directly from this form: the next step is a server-generated, balanced posting preview."}</DialogDescription></DialogHeader><div className="grid gap-4 py-5 sm:grid-cols-2">
     {visibleFields.map((field) => <FormField key={field.name} field={resolvedField(field, kind, entryOptions)} value={form[field.name] ?? ""} onChange={(next) => onChange(field.name, next)} />)}
-  </div>{kind === "rules" && <button className="mb-4 flex items-center gap-2 text-sm font-medium text-primary" type="button" onClick={() => onAccountingOpen(!accountingOpen)}>{accountingOpen ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}{accountingOpen ? "Hide accounting details" : "Expand accounting details"}</button>}<DialogFooter><Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button disabled={saving} type="submit">{saving ? <Loader2 className="size-4 animate-spin" /> : null}{kind === "rules" ? "Save rule" : "Prepare posting preview"}</Button></DialogFooter></form></DialogContent></Dialog>;
+  </div>{kind === "rules" && RULE_ACCOUNTING_FIELDS_ENABLED ? <button className="mb-4 flex items-center gap-2 text-sm font-medium text-primary" type="button" onClick={() => onAccountingOpen(!accountingOpen)}>{accountingOpen ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}{accountingOpen ? "Hide accounting details" : "Expand accounting details"}</button> : null}<DialogFooter><Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button disabled={saving} type="submit">{saving ? <Loader2 className="size-4 animate-spin" /> : null}{kind === "rules" ? "Save rule" : "Prepare posting preview"}</Button></DialogFooter></form></DialogContent></Dialog>;
 }
 
 function resolvedField(field: Field, kind: RegisterKind, entryOptions: EntryOptions): Field {
@@ -469,17 +474,17 @@ function resolvedField(field: Field, kind: RegisterKind, entryOptions: EntryOpti
 function FormField({ field, value: currentValue, onChange }: { field: Field; value: string; onChange: (value: string) => void }) {
   const id = `gl-${field.name}`;
   const classes = field.type === "textarea" ? "sm:col-span-2" : "";
-  return <div className={classes}><Label htmlFor={id}>{field.label}{field.required ? <span className="text-destructive"> *</span> : null}</Label>{field.type === "select" ? <Select value={currentValue} onValueChange={onChange}><SelectTrigger id={id} className="mt-2"><SelectValue placeholder={`Select ${field.label.toLowerCase()}`} /></SelectTrigger><SelectContent>{field.options?.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent></Select> : field.type === "textarea" ? <Textarea id={id} className="mt-2" value={currentValue} placeholder={field.placeholder} onChange={(event) => onChange(event.target.value)} /> : <Input id={id} className="mt-2" type={field.type ?? "text"} min={field.type === "number" ? "0" : undefined} step={field.type === "number" ? "0.01" : undefined} value={currentValue} placeholder={field.placeholder} onChange={(event) => onChange(event.target.value)} />}</div>;
+  return <div className={classes}><Label htmlFor={id}>{field.label}{field.required ? <span className="text-destructive"> *</span> : null}</Label>{field.type === "select" ? <Select value={currentValue} onValueChange={onChange}><SelectTrigger id={id} className="mt-2"><SelectValue placeholder={`Select ${field.label.toLowerCase()}`} /></SelectTrigger><SelectContent>{field.options?.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent></Select> : field.type === "textarea" ? <Textarea id={id} className="mt-2" value={currentValue} placeholder={field.placeholder} onChange={(event) => onChange(event.target.value)} /> : <Input id={id} className="mt-2" type={field.type ?? "text"} inputMode={field.inputMode} pattern={field.pattern} min={field.type === "number" ? "0" : undefined} step={field.type === "number" ? "0.01" : undefined} value={currentValue} placeholder={field.placeholder} onChange={(event) => onChange(event.target.value)} />}</div>;
 }
 
 function RulesList({ rows, loading, onEdit, onArchive }: { rows: Row[]; loading: boolean; onEdit: (row: Row) => void; onArchive: (row: Row) => Promise<void> }) {
   const groups = ["expense", "asset", "liability"] as const;
   if (loading) return <LoadingState />;
-  if (!rows.length) return <EmptyState title="No posting rules found" text="Create your first rule to guide expense, asset, and liability posting." />;
+  if (!rows.length) return <EmptyState title="No rules found" text="Create your first reusable rule for an expense, asset, or liability." />;
   return <div className="space-y-4">{groups.map((group) => {
     const groupRows = rows.filter((row) => value(row, "group", "rule_group", "category").toLowerCase() === group);
     if (!groupRows.length) return null;
-    return <Card key={group}><CardHeader className="pb-3"><CardTitle className="text-base">{group === "expense" ? "Expenses" : group === "asset" ? "Assets" : "Liabilities"}</CardTitle></CardHeader><CardContent className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Rule</TableHead><TableHead>Records into</TableHead><TableHead>Paid through / unpaid in</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>{groupRows.map((row) => <TableRow key={resourceId(row)}><TableCell><div className="font-medium">{value(row, "name")}</div><p className="font-mono text-xs text-muted-foreground">Rule: {value(row, "code", "rule_code")}</p></TableCell><TableCell className="text-sm">{accountLabel(row, "recognition_account")}</TableCell><TableCell className="text-sm"><p>{accountLabel(row, "settlement_account")}</p>{row.payable_account ? <p className="text-xs text-muted-foreground">Unpaid: {accountLabel(row, "payable_account")}</p> : null}</TableCell><TableCell><Badge variant={row.is_active ? "default" : "secondary"}>{row.is_active ? "Active" : "Archived"}</Badge></TableCell><TableCell className="text-right"><Button size="sm" variant="ghost" onClick={() => onEdit(row)}><Pencil className="size-4" />Edit</Button><Button size="sm" variant="ghost" disabled={!row.is_active} onClick={() => void onArchive(row)}><Archive className="size-4" />Archive</Button></TableCell></TableRow>)}</TableBody></Table></CardContent></Card>;
+    return <Card key={group}><CardHeader className="pb-3"><CardTitle className="text-base">{group === "expense" ? "Expenses" : group === "asset" ? "Assets" : "Liabilities"}</CardTitle></CardHeader><CardContent className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Code</TableHead><TableHead>Rule name</TableHead><TableHead>Description</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>{groupRows.map((row) => <TableRow key={resourceId(row)}><TableCell className="font-mono font-medium">{value(row, "code", "rule_code")}</TableCell><TableCell className="font-medium">{value(row, "name")}</TableCell><TableCell className="max-w-md text-sm text-muted-foreground">{value(row, "description")}</TableCell><TableCell><Badge variant={row.is_active ? "default" : "secondary"}>{row.is_active ? "Active" : "Archived"}</Badge></TableCell><TableCell className="text-right"><Button size="sm" variant="ghost" onClick={() => onEdit(row)}><Pencil className="size-4" />Edit</Button><Button size="sm" variant="ghost" disabled={!row.is_active} onClick={() => void onArchive(row)}><Archive className="size-4" />Archive</Button></TableCell></TableRow>)}</TableBody></Table></CardContent></Card>;
   })}</div>;
 }
 
