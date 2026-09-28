@@ -30,6 +30,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { formatApiResponseError } from "@/lib/falco-api";
+import { hasPostingAccounts, isAwaitingAccountingSetup } from "@/lib/general-ledger-draft-state";
 
 type RegisterKind = "rules" | "expenses" | "assets" | "liabilities";
 type Row = Record<string, unknown>;
@@ -328,6 +329,12 @@ export function GeneralLedgerRegister({ kind }: { kind: RegisterKind }) {
       } else {
         const draft = await apiRequest<{ data: Row }>(`${kind}${editing ? `/${resourceId(editing)}` : ""}`, { method: editing ? "PATCH" : "POST", body: JSON.stringify(entryPayload(kind, form)) });
         const entry = draft.data;
+        if (!hasPostingAccounts(entry)) {
+          toast.success("Draft saved. Accounting setup is still pending.");
+          setFormOpen(false);
+          await load(editing ? page : 1, activeSearch);
+          return;
+        }
         const response = await apiRequest<{ data: Preview }>(`${kind}/${resourceId(entry)}/preview`, { method: "POST" });
         setPreview({ ...response.data, entry });
         setPreviewPostPath(`${kind}/${resourceId(entry)}/post`);
@@ -515,7 +522,8 @@ function Pagination({ meta, loading, onPage }: { meta: PageMeta | null; loading:
 function StatusBadge({ row }: { row: Row }) {
   const status = value(row, "status", "posting_status");
   const normalized = status.toLowerCase();
-  return <Badge variant={normalized.includes("posted") || normalized === "paid" || normalized === "active" ? "default" : normalized.includes("reverse") || normalized.includes("archive") ? "secondary" : "outline"} className="capitalize">{status.replaceAll("_", " ")}</Badge>;
+  const awaitingAccountingSetup = isAwaitingAccountingSetup(row);
+  return <Badge variant={normalized.includes("posted") || normalized === "paid" || normalized === "active" ? "default" : normalized.includes("reverse") || normalized.includes("archive") ? "secondary" : "outline"} className={awaitingAccountingSetup ? "border-amber-300 bg-amber-50 text-amber-900" : "capitalize"}>{awaitingAccountingSetup ? "Draft — awaiting accounting setup" : status.replaceAll("_", " ")}</Badge>;
 }
 
 function LoadingState() { return <div className="flex justify-center rounded-xl border bg-background py-16"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>; }
