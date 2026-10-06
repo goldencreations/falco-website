@@ -195,6 +195,7 @@ const navigation: { title: string; items: SidebarNavItem[] }[] = [
  { title: "Assets", href: "/general-ledger/assets" },
  { title: "Liabilities", href: "/general-ledger/liabilities" },
  { title: "Loans", href: "/general-ledger/loans" },
+ { title: "Trial Balance", href: "/general-ledger/trial-balance" },
  ],
  },
  {
