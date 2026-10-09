@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { toProxyUrl } from "@/lib/document-proxy";
+import { useEffect, useRef, useState } from "react";
+import { toProxyUrl, toMediaPreviewUrl } from "@/lib/document-proxy";
 import { isPdfFilename } from "@/lib/media-preview";
 import { cn } from "@/lib/utils";
 
@@ -37,7 +37,7 @@ function candidateUrls(
     const sep = url.includes("?") ? "&" : "?";
     return `${url}${sep}name=${encodeURIComponent(hint)}`;
   };
-  const preview = previewUrl?.trim() ? withHint(toProxyUrl(previewUrl)) : null;
+  const preview = withHint(toMediaPreviewUrl(previewUrl, authUrl));
   const auth = authUrl?.trim() ? withHint(toProxyUrl(authUrl)) : null;
   const out: string[] = [];
   for (const url of [preview, auth]) {
@@ -65,6 +65,7 @@ export function CachedMediaPreview({
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [retryToken, setRetryToken] = useState(0);
+  const imageRef = useRef<HTMLImageElement>(null);
 
   const activeSrc = !failed && urls[urlIndex] ? `${urls[urlIndex]}${retryToken ? `&_r=${retryToken}` : ""}` : null;
   const isPdf = isPdfFilename(alt);
@@ -72,7 +73,7 @@ export function CachedMediaPreview({
   useEffect(() => {
     setUrlIndex(0);
     setFailed(urls.length === 0);
-    setLoaded(false);
+    setLoaded(Boolean(imageRef.current?.complete && imageRef.current.naturalWidth > 0));
     setRetryToken(0);
   }, [previewUrl, authUrl, urls.length]);
 
@@ -140,6 +141,7 @@ export function CachedMediaPreview({
       ) : (
         /* eslint-disable-next-line @next/next/no-img-element */
         <img
+          ref={imageRef}
           key={activeSrc}
           src={activeSrc}
           alt={alt}
@@ -176,8 +178,7 @@ export function resolveMediaViewUrl(
   authUrl?: string | null
 ): string | null {
   const preview = previewUrl?.trim();
-  if (preview) return toProxyUrl(preview) ?? preview;
-  if (authUrl?.trim()) return toProxyUrl(authUrl) ?? authUrl;
+  if (preview || authUrl?.trim()) return toMediaPreviewUrl(preview, authUrl, 1280);
   return null;
 }
 

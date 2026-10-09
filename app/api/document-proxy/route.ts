@@ -61,6 +61,13 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const width = Number(searchParams.get("width"));
+  if ([64, 128, 320, 384, 640, 1280].includes(width)
+    && /\/customers\/[^/]+\/documents\/[^/]+$/.test(parsed.pathname)) {
+    parsed.searchParams.set("width", String(width));
+    upstreamUrl = parsed.toString();
+  }
+
   let upstream: Response;
   try {
     upstream = await fetch(upstreamUrl, {
@@ -102,6 +109,7 @@ export async function GET(request: Request) {
   const headers = new Headers({
     "Content-Type": contentType,
     "Cache-Control": "private, max-age=3600, stale-while-revalidate=86400",
+    "Vary": "Cookie",
   });
   // Inline display for <img> / View; keep filename if upstream provided one.
   const contentDisposition = upstream.headers.get("content-disposition");

@@ -84,3 +84,21 @@ export function toProxyUrl(url: string | null | undefined): string | null {
 
   return rewritten;
 }
+
+/** Stable, authenticated thumbnails; downloads keep the original URL. */
+export function toMediaPreviewUrl(
+  previewUrl: string | null | undefined,
+  authUrl: string | null | undefined,
+  width = 640
+): string | null {
+  const auth = toProxyUrl(authUrl);
+  if (auth?.startsWith("/api/document-proxy?")) {
+    const params = new URLSearchParams(auth.split("?")[1]);
+    const target = params.get("url");
+    if (target && /\/customers\/[^/]+\/documents\/[^/?]+(?:\?|$)/.test(target)) {
+      params.set("width", String(width));
+      return `/api/document-proxy?${params}`;
+    }
+  }
+  return toProxyUrl(previewUrl) ?? auth;
+}
