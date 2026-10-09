@@ -13,9 +13,11 @@ export async function GET(
  request: Request,
  context: { params: Promise<{ id: string }> }
 ) {
- const auth = await requireApiUser(request);
- if ("response" in auth) return auth.response;
+ const authPromise = requireApiUser(request);
  const { id } = await context.params;
+ const customerPromise = falcoServerFetch<unknown>(`/customers/${encodeURIComponent(id)}`, { request });
+ const auth = await authPromise;
+ if ("response" in auth) return auth.response;
 
  debugCustomerDetail("GET /api/customers/:id — request", {
   customer_id: id,
@@ -23,9 +25,7 @@ export async function GET(
   role: auth.user.role,
  });
 
- const res = await falcoServerFetch<unknown>(`/customers/${encodeURIComponent(id)}`, {
-  request,
- });
+ const res = await customerPromise;
  if (!res.ok) {
  debugCustomerDetail("GET /api/customers/:id — backend error", {
   customer_id: id,

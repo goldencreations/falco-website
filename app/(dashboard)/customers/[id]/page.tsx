@@ -87,6 +87,8 @@ import {
 import {
  getCachedCustomerDetail,
  setCachedCustomerDetail,
+ getCustomerSummary,
+ fetchCustomerDetail,
 } from "@/lib/customer-detail-cache";
 import {
  getCachedCustomerPortfolio,
@@ -94,6 +96,7 @@ import {
  setCachedCustomerPortfolio,
 } from "@/lib/customer-portfolio-cache";
 import { resolveMediaViewUrl } from "@/components/media/cached-media-preview";
+import { toMediaPreviewUrl } from "@/lib/document-proxy";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/formatters";
 import { paymentMethodLabel, paymentSourceLabel } from "@/lib/payment-method-display";
 import { adaptApiCustomerRowToCustomer, extractCustomerDetail } from "@/lib/customer-adapters";
@@ -234,8 +237,8 @@ export default function CustomerDetailPage() {
  ? `/officer/customers/${customerId}/edit`
  : `/customers/${customerId}/edit`;
  const [isExporting, setIsExporting] = useState(false);
- const [customer, setCustomer] = useState<Customer | null>(null);
- const [loading, setLoading] = useState(true);
+ const [customer, setCustomer] = useState<Customer | null>(() => getCustomerSummary(customerId));
+ const [loading, setLoading] = useState(() => !getCustomerSummary(customerId));
  const [loadError, setLoadError] = useState("");
  const [portfolioLoading, setPortfolioLoading] = useState(true);
  const [portfolioError, setPortfolioError] = useState("");
@@ -283,8 +286,8 @@ export default function CustomerDetailPage() {
  [sourceRow]
  );
  const passportAvatarSrc = useMemo(
- () => resolveMediaViewUrl(passportPhotoPreviewUrl, passportPhotoUrl),
- [passportPhotoPreviewUrl, passportPhotoUrl]
+ () => toMediaPreviewUrl(passportPhotoPreviewUrl ?? customer?.passport_photo_preview_url, passportPhotoUrl ?? customer?.passport_photo_url, 384),
+ [passportPhotoPreviewUrl, passportPhotoUrl, customer?.passport_photo_preview_url, customer?.passport_photo_url]
  );
  const collateralRows = useMemo(
   () => buildCustomerCollateralRows(sourceRow, applicationsForFiles),
@@ -357,50 +360,34 @@ export default function CustomerDetailPage() {
  setSourceRow(cachedCustomer.row);
  setCustomer(cachedCustomer.customer);
  setLoading(false);
+ } else {
+ const summary = getCustomerSummary(id);
+ setSourceRow(null);
+ setCustomer(summary);
+ setLoading(!summary);
  }
  if (cachedPortfolio) {
  applyPortfolio(cachedPortfolio);
  setPortfolioLoading(false);
  }
 
- if (!cachedCustomer) setLoading(true);
  if (!cachedPortfolio) setPortfolioLoading(true);
  setLoadError("");
  setPortfolioError("");
 
  const loadCustomer = async () => {
  try {
- const customerRes = await fetch(`/api/customers/${encodeURIComponent(id)}`, {
- credentials: "include",
- });
- const customerBody = (await customerRes.json().catch(() => ({}))) as { message?: string };
+ const { row, customer: nextCustomer } = await fetchCustomerDetail(id);
  if (cancelled) return;
-
- if (!customerRes.ok) {
- setLoadError(
- typeof customerBody.message === "string"
- ? customerBody.message
- : `Could not load customer (${customerRes.status})`
- );
- setCustomer(null);
- setSourceRow(null);
- return;
- }
-
- const row = extractCustomerDetail(customerBody);
- if (!row) {
- setLoadError("Customer details could not be loaded. Please try again.");
- setCustomer(null);
- setSourceRow(null);
- return;
- }
-
- const nextCustomer = adaptApiCustomerRowToCustomer(row);
  setSourceRow(row);
  setCustomer(nextCustomer);
  setCachedCustomerDetail(id, row, nextCustomer);
- } catch {
- if (!cancelled && !cachedCustomer) setLoadError("Network error");
+ } catch (error) {
+ if (!cancelled) {
+ setLoadError(error instanceof Error ? error.message : "Network error");
+ setCustomer(null);
+ setSourceRow(null);
+ }
  } finally {
  if (!cancelled) setLoading(false);
  }

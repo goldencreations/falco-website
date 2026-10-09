@@ -12,6 +12,41 @@ type CacheEntry = {
 };
 
 const memory = new Map<string, CacheEntry>();
+const summaries = new Map<string, { customer: Customer; expiresAt: number }>();
+const pending = new Map<string, Promise<{ row: Record<string, unknown>; customer: Customer }>>();
+
+export function rememberCustomerSummary(customer: Customer): void {
+  summaries.set(String(customer.id), { customer, expiresAt: Date.now() + CACHE_MS });
+}
+
+export function getCustomerSummary(id: string): Customer | null {
+  const entry = summaries.get(id);
+  if (entry && entry.expiresAt > Date.now()) return entry.customer;
+  summaries.delete(id);
+  return null;
+}
+
+/** Share a hover/focus prefetch with the profile request that follows it. */
+export function fetchCustomerDetail(id: string): Promise<{ row: Record<string, unknown>; customer: Customer }> {
+  const existing = pending.get(id);
+  if (existing) return existing;
+  const request = (async () => {
+    const res = await fetch(`/api/customers/${encodeURIComponent(id)}`, { credentials: "include", cache: "no-store" });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.message ?? `Could not load customer (${res.status})`);
+    const row = extractCustomerDetail(body);
+    if (!row) throw new Error("Customer details could not be loaded. Please try again.");
+    const customer = adaptApiCustomerRowToCustomer(row);
+    setCachedCustomerDetail(id, row, customer);
+    return { row, customer };
+  })().finally(() => pending.delete(id));
+  pending.set(id, request);
+  return request;
+}
+
+export function prefetchCustomerDetail(id: string): void {
+  if (!getCachedCustomerDetail(id)) void fetchCustomerDetail(id).catch(() => {});
+}
 
 function readSession(id: string): CacheEntry | null {
   if (typeof window === "undefined") return null;
@@ -75,6 +110,7 @@ export function cacheCustomerFromApiResponse(id: string, json: unknown): boolean
 
 export function invalidateCustomerDetailCache(id?: string) {
   if (id) {
+    summaries.delete(id);
     memory.delete(id);
     if (typeof window !== "undefined") {
       try {
@@ -87,6 +123,7 @@ export function invalidateCustomerDetailCache(id?: string) {
     return;
   }
   memory.clear();
+  summaries.clear();
   if (typeof window !== "undefined") {
     for (let i = sessionStorage.length - 1; i >= 0; i -= 1) {
       const key = sessionStorage.key(i);

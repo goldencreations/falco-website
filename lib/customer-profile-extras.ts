@@ -120,7 +120,7 @@ export function extractPassportPhotoPreviewUrl(
     return null;
   };
 
-  return readPreview(md) ?? readPreview(attachments) ?? readPreview(row) ?? fromDocs();
+  return readPreview(row) ?? readPreview(md) ?? readPreview(attachments) ?? fromDocs();
 }
 
 export type CustomerCollateralRow = {

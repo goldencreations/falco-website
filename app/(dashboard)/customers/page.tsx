@@ -41,7 +41,8 @@ import {
  SelectValue,
 } from "@/components/ui/select";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { resolveMediaViewUrl } from "@/components/media/cached-media-preview";
+import { toMediaPreviewUrl } from "@/lib/document-proxy";
+import { prefetchCustomerDetail, rememberCustomerSummary } from "@/lib/customer-detail-cache";
 import { addHiddenCustomerId, getHiddenCustomerIds } from "@/lib/customer-hidden-client";
 import { fetchAllCustomersFromApi } from "@/lib/customer-list-fetch";
 import { customerDisplayPhones } from "@/lib/customer-phones";
@@ -497,9 +498,10 @@ export default function CustomersPage() {
  pagedCustomers.map((customer, index) => {
  const risk = riskGradeConfig[customer.risk_grade];
  const loanStatus = activeLoansForCustomer(customer.id);
- const avatarSrc = resolveMediaViewUrl(
+const avatarSrc = toMediaPreviewUrl(
   customer.passport_photo_preview_url,
-  customer.passport_photo_url
+  customer.passport_photo_url,
+  128
  );
 
  return (
@@ -618,7 +620,7 @@ export default function CustomersPage() {
 
  <div className="mt-3 flex gap-2">
  <Button size="sm" variant="outline" className="h-8 flex-1" asChild>
- <Link href={`${customersBasePath}/${customer.id}`}>
+ <Link href={`${customersBasePath}/${customer.id}`} onMouseEnter={() => prefetchCustomerDetail(customer.id)} onFocus={() => prefetchCustomerDetail(customer.id)} onClick={() => rememberCustomerSummary(customer)}>
  <Eye className="mr-1 h-3.5 w-3.5" />
  View Details
  </Link>
@@ -671,9 +673,10 @@ export default function CustomersPage() {
  pagedCustomers.map((customer, index) => {
  const risk = riskGradeConfig[customer.risk_grade];
  const loanStatus = activeLoansForCustomer(customer.id);
- const avatarSrc = resolveMediaViewUrl(
+const avatarSrc = toMediaPreviewUrl(
   customer.passport_photo_preview_url,
-  customer.passport_photo_url
+  customer.passport_photo_url,
+  128
  );
 
  return (
@@ -790,7 +793,7 @@ export default function CustomersPage() {
  <TableCell className="text-right">
  <div className="flex items-center justify-end gap-1">
  <Button variant="ghost" size="sm" asChild>
- <Link href={`${customersBasePath}/${customer.id}`}>
+ <Link href={`${customersBasePath}/${customer.id}`} onMouseEnter={() => prefetchCustomerDetail(customer.id)} onFocus={() => prefetchCustomerDetail(customer.id)} onClick={() => rememberCustomerSummary(customer)}>
  <Eye className="h-4 w-4" />
  <span className="sr-only">View</span>
  </Link>
