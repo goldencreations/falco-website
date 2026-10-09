@@ -1,6 +1,6 @@
 import type { SessionUser } from "@/lib/auth";
 
-type GroupActor = Pick<SessionUser, "role" | "permissions"> & {
+type GroupActor = Pick<SessionUser, "role"> & {
   permissions?: string[];
 };
 
@@ -16,6 +16,16 @@ export function canManageGroups(user: GroupActor): boolean {
 
 export function canCreateGroups(user: GroupActor): boolean {
   return hasGroupPermission(user, "groups.create") || canManageGroups(user);
+}
+
+export function canManageGroupMembers(
+  user: GroupActor & Pick<SessionUser, "id">,
+  loanOfficerId: string
+): boolean {
+  return (
+    canManageGroups(user) ||
+    (hasGroupPermission(user, "groups.create") && user.id === loanOfficerId)
+  );
 }
 
 /** Loan officers with create-only access — branch and officer fields are locked to the session user. */
