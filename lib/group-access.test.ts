@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   canCreateGroups,
+  canManageGroupMembers,
   canManageGroups,
   canViewGroups,
   isCreateOnlyGroupOfficer,
@@ -9,16 +10,27 @@ import {
 
 describe("group access permissions", () => {
   it("allows create when groups.create is granted", () => {
-    const user = { role: "loan_officer" as const, permissions: ["groups.view", "groups.create"] };
+    const user = {
+      id: "officer-1",
+      role: "loan_officer" as const,
+      permissions: ["groups.view", "groups.create"],
+    };
     assert.equal(canCreateGroups(user), true);
     assert.equal(canManageGroups(user), false);
+    assert.equal(canManageGroupMembers(user, "officer-1"), true);
+    assert.equal(canManageGroupMembers(user, "officer-2"), false);
     assert.equal(isCreateOnlyGroupOfficer(user), true);
   });
 
   it("allows full management when groups.manage is granted", () => {
-    const user = { role: "branch_manager" as const, permissions: ["groups.view", "groups.manage"] };
+    const user = {
+      id: "manager-1",
+      role: "branch_manager" as const,
+      permissions: ["groups.view", "groups.manage"],
+    };
     assert.equal(canCreateGroups(user), true);
     assert.equal(canManageGroups(user), true);
+    assert.equal(canManageGroupMembers(user, "officer-1"), true);
     assert.equal(isCreateOnlyGroupOfficer(user), false);
   });
 

@@ -90,8 +90,10 @@ type Props = {
  onChanged: () => void | Promise<void>;
  /** Sum of `total_outstanding` from each member's loans (from loans API). */
  memberOutstanding?: Record<string, number> | null;
- /** Loan officers: view members only (no assign/remove). */
+ /** Prevent adding and removing members when the actor does not own or manage the group. */
  readOnly?: boolean;
+ /** Only full group managers may assign leadership roles. */
+ leadershipEditable?: boolean;
  customerDetailHref?: (customerId: string) => string;
  /** When set, View / member name links use this instead of `customerDetailHref`. */
  memberDetailHref?: (customerId: string) => string;
@@ -105,6 +107,7 @@ export function GroupMembersPanel({
  onChanged,
  memberOutstanding = null,
  readOnly = false,
+ leadershipEditable = !readOnly,
  customerDetailHref = (id) => `/customers/${id}`,
  memberDetailHref,
  role = null,
@@ -199,7 +202,7 @@ export function GroupMembersPanel({
  : "");
 
  const assignMember = async (customer: Customer) => {
- const role = roleForCustomer(customer.id);
+ const role = leadershipEditable ? roleForCustomer(customer.id) : "member";
  setActionError("");
  setAssigningId(customer.id);
  try {
@@ -346,7 +349,7 @@ export function GroupMembersPanel({
  </TableHeader>
  <TableBody>
  {searchResults.map((customer) => {
- const selectedRole = roleForCustomer(customer.id);
+ const selectedRole = leadershipEditable ? roleForCustomer(customer.id) : "member";
  const replacing =
  selectedRole !== "member" ? currentHolderName(selectedRole) : null;
  return (
@@ -362,6 +365,7 @@ export function GroupMembersPanel({
  <Badge variant={riskVariant[customer.risk_grade]}>{customer.risk_grade}</Badge>
  </TableCell>
  <TableCell>
+ {leadershipEditable ? (
  <Select
  value={selectedRole}
  onValueChange={(value) =>
@@ -379,6 +383,9 @@ export function GroupMembersPanel({
  ))}
  </SelectContent>
  </Select>
+ ) : (
+ <Badge variant="secondary">Member</Badge>
+ )}
  {replacing ? (
  <p className="mt-1 text-[11px] text-muted-foreground">Replaces {replacing}</p>
  ) : null}

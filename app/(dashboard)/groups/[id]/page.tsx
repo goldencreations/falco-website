@@ -17,7 +17,7 @@ import { enrichGroupMembersOnClient } from "@/lib/group-member-enrichment";
 import { extractLoansList } from "@/lib/loan-adapters";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import { buildVikundiCollectionDetail } from "@/lib/vikundi-collection-summary";
-import { canManageGroups } from "@/lib/group-access";
+import { canManageGroupMembers, canManageGroups } from "@/lib/group-access";
 import { resolvePortalHref } from "@/lib/portal-paths";
 import { useSessionUser } from "@/lib/use-session-user";
 
@@ -163,6 +163,9 @@ export default function GroupDetailPage() {
  }
 
  const officer = users.find((u) => u.id === group.loan_officer_id);
+ const canManageMembers = user
+ ? canManageGroupMembers(user, group.loan_officer_id)
+ : false;
  const chairperson = group.members.find((m) => m.customerId === group.chairperson_customer_id);
  const secretary = group.members.find((m) => m.customerId === group.secretary_customer_id);
  const treasurer = group.members.find((m) => m.customerId === group.treasurer_customer_id);
@@ -249,7 +252,8 @@ export default function GroupDetailPage() {
  groupId={groupId}
  group={group}
  memberOutstanding={memberOutstanding}
- readOnly={!canManage}
+ readOnly={!canManageMembers}
+ leadershipEditable={canManage}
  role={user?.role}
  memberDetailHref={(id) =>
  resolvePortalHref(user?.role, `/groups/${groupId}/members/${id}`)
