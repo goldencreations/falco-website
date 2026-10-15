@@ -14,6 +14,7 @@ import {
   formatStatementAmount,
   parseFinancialStatements,
   statementUrl,
+  statementWorkspaceActions,
   type FinancialStatementsReport,
   type ReportCategory,
   type StatementRow,
@@ -40,9 +41,7 @@ export function FinancialStatementsClient() {
   const [error, setError] = useState("");
   const requestVersion = useRef(0);
   const { user } = useSessionUser();
-  const canExport = user?.role === "super_admin" || user?.permissions?.includes("all") || user?.permissions?.includes("gl.export");
-  const canConfigure = user?.role === "super_admin" || user?.permissions?.includes("all") || user?.permissions?.includes("gl.configure");
-  const canPost = user?.role === "super_admin" || user?.permissions?.includes("all") || user?.permissions?.includes("gl.post");
+  const { canExport, canConfigure, canPost } = statementWorkspaceActions(user);
 
   const loadReport = useCallback(async () => {
     const version = ++requestVersion.current;
@@ -114,7 +113,7 @@ export function FinancialStatementsClient() {
       {error ? <MessageState tone="error" title="Financial statements could not be loaded" text={error} /> : null}
       {loading ? <div className="flex justify-center rounded-lg border bg-background py-20"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div> : null}
       {!loading && report ? <>
-        <FinancialStatementRecordingTools categories={categories} canConfigure={Boolean(canConfigure)} canPost={Boolean(canPost)} onSaved={loadReport} />
+        {canConfigure || canPost ? <FinancialStatementRecordingTools categories={categories} canConfigure={canConfigure} canPost={canPost} onSaved={loadReport} /> : null}
         <CompletenessBanner report={report} />
         {report.warnings.map((warning, index) => <MessageState key={`${typeof warning === "string" ? warning : warning.code ?? warning.message}-${index}`} tone="warning" title="Reporting information" text={typeof warning === "string" ? warning : warning.message} />)}
         {report.unmapped_accounts.length ? <MappingPanel accounts={report.unmapped_accounts} categories={categories} canConfigure={Boolean(canConfigure)} onMapped={loadReport} /> : null}

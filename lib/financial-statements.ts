@@ -68,6 +68,19 @@ export type FinancialStatementsReport = {
 
 export type ReportCategory = { value: string; label: string; statement?: string; code?: string };
 
+// Keep report-page editing paused without removing the tools or changing other ledger screens.
+export const FINANCIAL_STATEMENT_EDITING_ENABLED = false;
+
+export function statementWorkspaceActions(user?: { role?: string; permissions?: string[] } | null) {
+  const hasPermission = (permission: string) => user?.role === "super_admin"
+    || Boolean(user?.permissions?.includes("all") || user?.permissions?.includes(permission));
+  return {
+    canExport: hasPermission("gl.export"),
+    canConfigure: FINANCIAL_STATEMENT_EDITING_ENABLED && hasPermission("gl.configure"),
+    canPost: FINANCIAL_STATEMENT_EDITING_ENABLED && hasPermission("gl.post"),
+  };
+}
+
 export function statementUrl(year: number, quarter: number, exportData = false): string {
   const params = new URLSearchParams({ year: String(year), quarter: String(quarter) });
   if (exportData) params.set("format", "xlsx_data");
