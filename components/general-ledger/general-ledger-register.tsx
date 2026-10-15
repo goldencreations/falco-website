@@ -28,6 +28,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { formatApiResponseError } from "@/lib/falco-api";
+import { eatDateKey } from "@/lib/trial-balance";
 import { hasPostingAccounts, isAwaitingAccountingSetup } from "@/lib/general-ledger-draft-state";
 import {
   allowedAccountTypes,
@@ -37,7 +38,7 @@ import {
   postingConfigurationIssue,
 } from "@/lib/general-ledger-rule-setup";
 
-type RegisterKind = "rules" | "expenses" | "assets" | "liabilities";
+type RegisterKind = "rules" | "expenses" | "assets" | "liabilities" | "income" | "capital";
 type Row = Record<string, unknown>;
 type PageMeta = { current_page: number; last_page: number; per_page: number; total: number; from?: number | null; to?: number | null };
 type Preview = { preview_token?: string; entry?: Row; lines?: Row[]; totals?: Row; [key: string]: unknown };
@@ -64,7 +65,7 @@ const registerConfiguration: Record<RegisterKind, {
     fields: [
       { name: "code", label: "Rule code", required: true, placeholder: "1000", inputMode: "numeric", pattern: "[0-9]*" },
       { name: "name", label: "Rule name", required: true, placeholder: "Buying office chairs" },
-      { name: "category", label: "Group", type: "select", required: true, defaultValue: "expense", options: [{ value: "expense", label: "Expenses" }, { value: "asset", label: "Assets" }, { value: "liability", label: "Liabilities" }] },
+      { name: "category", label: "Group", type: "select", required: true, defaultValue: "expense", options: [{ value: "expense", label: "Expenses" }, { value: "asset", label: "Assets" }, { value: "liability", label: "Liabilities" }, { value: "income", label: "Income" }, { value: "capital", label: "Capital" }] },
       { name: "description", label: "Description", type: "textarea", placeholder: "When this rule should be used" },
       { name: "recognition_account_id", label: "Recognition account", placeholder: "Choose the account being recorded", accounting: true },
       { name: "settlement_account_id", label: "Other side account", placeholder: "Choose the cash, bank, asset, or expense account", accounting: true },
@@ -129,6 +130,34 @@ const registerConfiguration: Record<RegisterKind, {
       { name: "notes", label: "Notes", type: "textarea" },
     ],
   },
+  income: {
+    title: "Income register",
+    description: "Record income using the accounts selected in its posting rule.",
+    singular: "income entry",
+    icon: CircleDollarSign,
+    fields: [
+      { name: "rule_id", label: "Income posting rule", required: true },
+      { name: "transaction_date", label: "Income date", type: "date", required: true },
+      { name: "amount", label: "Amount (TZS)", type: "number", required: true },
+      { name: "payee", label: "Source / payer", required: true },
+      { name: "reference", label: "Reference" },
+      { name: "notes", label: "Notes", type: "textarea" },
+    ],
+  },
+  capital: {
+    title: "Capital register",
+    description: "Record owner or member capital contributions and their balanced General Ledger posting.",
+    singular: "capital entry",
+    icon: Landmark,
+    fields: [
+      { name: "rule_id", label: "Capital posting rule", required: true },
+      { name: "transaction_date", label: "Contribution date", type: "date", required: true },
+      { name: "amount", label: "Amount (TZS)", type: "number", required: true },
+      { name: "payee", label: "Contributor", required: true },
+      { name: "reference", label: "Reference" },
+      { name: "notes", label: "Notes", type: "textarea" },
+    ],
+  },
 };
 
 function value(row: Row, ...keys: string[]): string {
@@ -158,7 +187,7 @@ function resourceId(row: Row): string {
 }
 
 function dateDefault(): string {
-  return new Date().toISOString().slice(0, 10);
+  return eatDateKey();
 }
 
 async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
@@ -185,6 +214,7 @@ function entryPayload(kind: Exclude<RegisterKind, "rules">, form: Record<string,
   const isAsset = kind === "assets";
   const isLiability = kind === "liabilities";
   const isExpense = kind === "expenses";
+  const isIncomeOrCapital = kind === "income" || kind === "capital";
   const paid = form.settlement_status === "paid";
   const acquisitionMethod = form.acquisition_type;
 
@@ -192,11 +222,11 @@ function entryPayload(kind: Exclude<RegisterKind, "rules">, form: Record<string,
     rule_id: Number(form.rule_id),
     transaction_date: form.transaction_date || form.acquisition_date || form.incurred_date,
     due_date: form.due_date || null,
-    party_name: isExpense ? (form.settlement_status === "unpaid" ? form.creditor || form.payee : form.payee) : isAsset ? (acquisitionMethod === "granted" ? form.donor : form.supplier) : form.creditor,
+    party_name: isExpense ? (form.settlement_status === "unpaid" ? form.creditor || form.payee : form.payee) : isIncomeOrCapital ? form.payee : isAsset ? (acquisitionMethod === "granted" ? form.donor : form.supplier) : form.creditor,
     reference: form.reference || null,
     description: form.notes || form.name || (isExpense ? `Expense to ${form.payee}` : "General Ledger business entry"),
     amount: form.amount || form.value,
-    payment_status: isAsset && acquisitionMethod === "granted" ? "paid" : paid ? "paid" : "unpaid",
+    payment_status: isIncomeOrCapital || isAsset && acquisitionMethod === "granted" ? "paid" : paid ? "paid" : "unpaid",
     asset_class: isAsset ? form.asset_type : null,
     acquisition_method: isAsset ? acquisitionMethod : null,
     liability_kind: isLiability ? form.liability_type : null,
@@ -470,7 +500,7 @@ function EntryForm({ open, kind, form, editing, entryOptions, saving, onOpenChan
 
 function resolvedField(field: Field, kind: RegisterKind, entryOptions: EntryOptions, form: Record<string, string>): Field {
   if (field.name === "rule_id") {
-    const category = kind === "expenses" ? "expense" : kind === "assets" ? "asset" : "liability";
+    const category = kind === "expenses" ? "expense" : kind === "assets" ? "asset" : kind === "income" ? "income" : kind === "capital" ? "capital" : "liability";
     return { ...field, type: "select", options: entryOptions.rules.filter((rule) => value(rule, "category") === category).map((rule) => ({ value: resourceId(rule), label: `${value(rule, "code")} — ${value(rule, "name")}` })) };
   }
 
@@ -503,13 +533,13 @@ function FormField({ field, value: currentValue, onChange }: { field: Field; val
 }
 
 function RulesList({ rows, loading, onEdit, onArchive }: { rows: Row[]; loading: boolean; onEdit: (row: Row) => void; onArchive: (row: Row) => Promise<void> }) {
-  const groups = ["expense", "asset", "liability"] as const;
+  const groups = ["expense", "asset", "liability", "income", "capital"] as const;
   if (loading) return <LoadingState />;
   if (!rows.length) return <EmptyState title="No rules found" text="Create your first reusable rule for an expense, asset, or liability." />;
   return <div className="space-y-4">{groups.map((group) => {
     const groupRows = rows.filter((row) => value(row, "group", "rule_group", "category").toLowerCase() === group);
     if (!groupRows.length) return null;
-    return <Card key={group}><CardHeader className="pb-3"><CardTitle className="text-base">{group === "expense" ? "Expenses" : group === "asset" ? "Assets" : "Liabilities"}</CardTitle></CardHeader><CardContent className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Code</TableHead><TableHead>Rule name</TableHead><TableHead>Description</TableHead><TableHead>Posting setup</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>{groupRows.map((row) => <TableRow key={resourceId(row)}><TableCell className="font-mono font-medium">{value(row, "code", "rule_code")}</TableCell><TableCell className="font-medium">{value(row, "name")}</TableCell><TableCell className="max-w-md text-sm text-muted-foreground">{value(row, "description")}</TableCell><TableCell><Badge variant={isRuleReady(row) ? "default" : "outline"} className={isRuleReady(row) ? "" : "border-amber-300 bg-amber-50 text-amber-900"}>{isRuleReady(row) ? "Ready to post" : "Needs setup"}</Badge></TableCell><TableCell><Badge variant={row.is_active ? "default" : "secondary"}>{row.is_active ? "Active" : "Archived"}</Badge></TableCell><TableCell className="text-right"><Button size="sm" variant="ghost" onClick={() => onEdit(row)}><Pencil className="size-4" />Edit</Button><Button size="sm" variant="ghost" disabled={!row.is_active} onClick={() => void onArchive(row)}><Archive className="size-4" />Archive</Button></TableCell></TableRow>)}</TableBody></Table></CardContent></Card>;
+    return <Card key={group}><CardHeader className="pb-3"><CardTitle className="text-base">{group === "expense" ? "Expenses" : group === "asset" ? "Assets" : group === "liability" ? "Liabilities" : group === "income" ? "Income" : "Capital"}</CardTitle></CardHeader><CardContent className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Code</TableHead><TableHead>Rule name</TableHead><TableHead>Description</TableHead><TableHead>Posting setup</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>{groupRows.map((row) => <TableRow key={resourceId(row)}><TableCell className="font-mono font-medium">{value(row, "code", "rule_code")}</TableCell><TableCell className="font-medium">{value(row, "name")}</TableCell><TableCell className="max-w-md text-sm text-muted-foreground">{value(row, "description")}</TableCell><TableCell><Badge variant={isRuleReady(row) ? "default" : "outline"} className={isRuleReady(row) ? "" : "border-amber-300 bg-amber-50 text-amber-900"}>{isRuleReady(row) ? "Ready to post" : "Needs setup"}</Badge></TableCell><TableCell><Badge variant={row.is_active ? "default" : "secondary"}>{row.is_active ? "Active" : "Archived"}</Badge></TableCell><TableCell className="text-right"><Button size="sm" variant="ghost" onClick={() => onEdit(row)}><Pencil className="size-4" />Edit</Button><Button size="sm" variant="ghost" disabled={!row.is_active} onClick={() => void onArchive(row)}><Archive className="size-4" />Archive</Button></TableCell></TableRow>)}</TableBody></Table></CardContent></Card>;
   })}</div>;
 }
 

@@ -1,11 +1,13 @@
-export type GeneralLedgerRuleCategory = "expense" | "asset" | "liability";
-export type GeneralLedgerRegisterKind = "expenses" | "assets" | "liabilities";
+export type GeneralLedgerRuleCategory = "expense" | "asset" | "liability" | "income" | "capital";
+export type GeneralLedgerRegisterKind = "expenses" | "assets" | "liabilities" | "income" | "capital";
 export type GeneralLedgerRule = Record<string, unknown>;
 
 const requiredFields: Record<GeneralLedgerRuleCategory, string[]> = {
   expense: ["recognition_account_id", "settlement_account_id", "payable_account_id"],
   asset: ["recognition_account_id", "settlement_account_id", "payable_account_id"],
   liability: ["recognition_account_id", "settlement_account_id"],
+  income: ["recognition_account_id", "settlement_account_id"],
+  capital: ["recognition_account_id", "settlement_account_id"],
 };
 
 export function requiredPostingFields(category: string): string[] {
@@ -27,7 +29,7 @@ export function isRuleReady(rule: GeneralLedgerRule): boolean {
 }
 
 export function allowedAccountTypes(fieldName: string, category: string): string[] {
-  if (fieldName === "recognition_account_id") return [category];
+  if (fieldName === "recognition_account_id") return [category === "capital" ? "equity" : category];
   if (fieldName === "payable_account_id") return ["liability"];
   if (fieldName === "grant_counterpart_account_id") return ["equity", "income"];
   if (fieldName === "settlement_account_id" && category === "liability") return ["asset", "expense"];
@@ -59,7 +61,7 @@ export function postingConfigurationIssue(
       : missing(rule.settlement_account_id, "This asset rule needs a cash, bank, or mobile-money account before a paid purchase can be recorded.");
   }
 
-  return missing(rule.settlement_account_id, "This liability rule needs its other-side account before the liability can be recorded.");
+  return missing(rule.settlement_account_id, "This rule needs its other-side account before the entry can be recorded.");
 }
 
 function hasValue(value: unknown): boolean {

@@ -194,8 +194,11 @@ const navigation: { title: string; items: SidebarNavItem[] }[] = [
  { title: "Expenses", href: "/general-ledger/expenses" },
  { title: "Assets", href: "/general-ledger/assets" },
  { title: "Liabilities", href: "/general-ledger/liabilities" },
+ { title: "Income", href: "/general-ledger/income" },
+ { title: "Capital", href: "/general-ledger/capital" },
  { title: "Loans", href: "/general-ledger/loans" },
  { title: "Trial Balance", href: "/general-ledger/trial-balance" },
+ { title: "Financial Statements", href: "/general-ledger/financial-statements" },
  ],
  },
  {
