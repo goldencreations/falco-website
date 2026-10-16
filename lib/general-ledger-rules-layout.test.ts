@@ -2,11 +2,26 @@ import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, it } from "node:test";
-import { resolvedField, RulesList } from "../components/general-ledger/general-ledger-register";
+import { FormField, resolvedField, RulesList } from "../components/general-ledger/general-ledger-register";
 
 const actions = { onEdit: () => {}, onArchive: async () => {} };
 
 describe("compact Rules groups", () => {
+  it("constrains posting dropdowns and wraps labels instead of expanding the form", () => {
+    const markup = renderToStaticMarkup(createElement(FormField, {
+      field: { name: "payable_account_id", label: "Accounts payable when unpaid (Credit)", type: "select", required: true, options: [{ value: "1", label: "2100 — Accounts Payable with a long account name" }] },
+      value: "",
+      compact: true,
+      onChange: () => {},
+    }));
+    assert.match(markup, /class="min-w-0 /);
+    assert.match(markup, /block leading-snug \[overflow-wrap:anywhere\]/);
+    assert.match(markup, /w-full min-w-0 max-w-full text-left/);
+    assert.match(markup, /\[&amp;_\[data-slot=select-value\]\]:truncate/);
+    assert.match(markup, /id="gl-payable_account_id"/);
+    assert.match(markup, /Select accounts payable when unpaid/);
+  });
+
   it("keeps existing rules, setup indicators and actions in compact grouped cards", () => {
     const markup = renderToStaticMarkup(createElement(RulesList, {
       rows: [
