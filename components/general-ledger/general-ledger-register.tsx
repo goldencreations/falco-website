@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import React, { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   Archive,
@@ -44,7 +44,7 @@ type PageMeta = { current_page: number; last_page: number; per_page: number; tot
 type Preview = { preview_token?: string; entry?: Row; lines?: Row[]; totals?: Row; [key: string]: unknown };
 type EntryOptions = { rules: Row[]; accounts: Row[] };
 type FieldOption = { value: string; label: string };
-type Field = { name: string; label: string; type?: "text" | "number" | "date" | "textarea" | "select"; required?: boolean; placeholder?: string; help?: string; options?: FieldOption[]; defaultValue?: string; accounting?: boolean; inputMode?: "numeric"; pattern?: string };
+type Field = { name: string; label: string; type?: "text" | "number" | "date" | "textarea" | "select"; required?: boolean; placeholder?: string; help?: string; options?: FieldOption[]; defaultValue?: string; accounting?: boolean; inputMode?: "numeric"; pattern?: string; fullWidth?: boolean };
 
 const PAGE_SIZE = 15;
 const API = "/api/general-ledger";
@@ -59,13 +59,13 @@ const registerConfiguration: Record<RegisterKind, {
 }> = {
   rules: {
     title: "Rules",
-    description: "Save reusable codes for expenses, assets, and liabilities so the same description does not need to be entered repeatedly.",
+    description: "Reusable posting rules for expenses, assets, liabilities, income, and capital.",
     singular: "rule",
     icon: Landmark,
     fields: [
-      { name: "code", label: "Rule code", required: true, placeholder: "1000", inputMode: "numeric", pattern: "[0-9]*" },
-      { name: "name", label: "Rule name", required: true, placeholder: "Buying office chairs" },
-      { name: "category", label: "Group", type: "select", required: true, defaultValue: "expense", options: [{ value: "expense", label: "Expenses" }, { value: "asset", label: "Assets" }, { value: "liability", label: "Liabilities" }, { value: "income", label: "Income" }, { value: "capital", label: "Capital" }] },
+      { name: "code", label: "Rule code", required: true, placeholder: "e.g. 1000", inputMode: "numeric", pattern: "[0-9]*", help: "A unique rule reference, separate from ledger account codes." },
+      { name: "category", label: "Rule type", type: "select", required: true, defaultValue: "expense", options: [{ value: "expense", label: "Expenses" }, { value: "asset", label: "Assets" }, { value: "liability", label: "Liabilities" }, { value: "income", label: "Income" }, { value: "capital", label: "Capital" }] },
+      { name: "name", label: "Rule name", required: true, placeholder: "Buying office chairs", fullWidth: true },
       { name: "description", label: "Description", type: "textarea", placeholder: "When this rule should be used" },
       { name: "recognition_account_id", label: "Recognition account", placeholder: "Choose the account being recorded", accounting: true },
       { name: "settlement_account_id", label: "Other side account", placeholder: "Choose the cash, bank, asset, or expense account", accounting: true },
@@ -474,8 +474,8 @@ export function GeneralLedgerRegister({ kind }: { kind: RegisterKind }) {
       <div className="flex min-w-0 items-center gap-3"><SidebarTrigger /><div className="min-w-0"><h1 className="flex items-center gap-2 truncate text-base font-semibold"><Icon className="size-4" />{config.title}</h1><p className="truncate text-xs text-muted-foreground">Private General Ledger workspace</p></div></div>
       <Button size="sm" onClick={openCreate}><Plus className="size-4" />Add {config.singular}</Button>
     </header>
-    <main className="mx-auto w-full max-w-7xl space-y-5 p-4 md:p-6">
-      <Card><CardHeader className="gap-2 sm:flex-row sm:items-start sm:justify-between"><div><CardTitle className="text-lg">{heading}</CardTitle><CardDescription className="mt-1 max-w-3xl">{config.description}</CardDescription></div><Badge variant="outline" className="w-fit">{kind === "rules" ? "Reusable reference codes" : "Draft → preview → post"}</Badge></CardHeader><CardContent>
+    <main className={`mx-auto w-full max-w-7xl p-4 md:p-6 ${kind === "rules" ? "space-y-3" : "space-y-5"}`}>
+      <Card className={kind === "rules" ? "gap-3 py-4" : undefined}><CardHeader className={`gap-2 sm:flex-row sm:items-start sm:justify-between ${kind === "rules" ? "px-4" : ""}`}><div><CardTitle className="text-lg">{heading}</CardTitle><CardDescription className="mt-1 max-w-3xl">{config.description}</CardDescription></div><Badge variant="outline" className="w-fit">{kind === "rules" ? "Reusable reference codes" : "Draft → preview → post"}</Badge></CardHeader><CardContent className={kind === "rules" ? "px-4" : undefined}>
         <form onSubmit={submitSearch} className="flex flex-col gap-3 sm:flex-row"><div className="relative flex-1"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={kind === "rules" ? "Search by rule code or name" : "Search by reference, name, creditor, or code"} className="pl-9" /></div><Button variant="outline" type="submit" disabled={loading}><Search className="size-4" />Search</Button><Button variant="ghost" type="button" disabled={loading} onClick={() => void load(page, activeSearch)}><RefreshCcw className="size-4" />Refresh</Button></form>
       </CardContent></Card>
       {error ? <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"><AlertCircle className="mt-0.5 size-4 shrink-0" /><div className="flex-1">{error}</div><Button variant="ghost" size="sm" onClick={() => void load(page, activeSearch)}>Retry</Button></div> : null}
@@ -493,12 +493,16 @@ export function GeneralLedgerRegister({ kind }: { kind: RegisterKind }) {
 function EntryForm({ open, kind, form, editing, entryOptions, saving, onOpenChange, onChange, onSubmit }: { open: boolean; kind: RegisterKind; form: Record<string, string>; editing: Row | null; entryOptions: EntryOptions; saving: boolean; onOpenChange: (open: boolean) => void; onChange: (name: string, value: string) => void; onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void> }) {
   const config = registerConfiguration[kind];
   const visibleFields = config.fields.filter((field) => kind !== "rules" || !field.accounting || isRulePostingFieldVisible(field.name, form.category));
-  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><form onSubmit={(event) => void onSubmit(event)}><DialogHeader><DialogTitle>{editing ? `Edit ${config.singular}` : `Add ${config.singular}`}</DialogTitle><DialogDescription>{kind === "rules" ? "Create a reusable rule and choose the debit and credit accounts it will use." : "The next step is a server-generated, balanced posting preview."}</DialogDescription></DialogHeader>{kind === "rules" ? <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950"><span className="font-medium">Posting setup is required.</span> These choices let Expenses, Assets, and Liabilities produce equal debit and credit entries automatically.</div> : null}<div className="grid gap-4 py-5 sm:grid-cols-2">
-    {visibleFields.map((field) => <FormField key={field.name} field={resolvedField(field, kind, entryOptions, form)} value={form[field.name] ?? ""} onChange={(next) => onChange(field.name, next)} />)}
-  </div><DialogFooter><Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button disabled={saving} type="submit">{saving ? <Loader2 className="size-4 animate-spin" /> : null}{kind === "rules" ? "Save configured rule" : "Prepare posting preview"}</Button></DialogFooter></form></DialogContent></Dialog>;
+  const renderField = (field: Field) => <FormField key={field.name} field={resolvedField(field, kind, entryOptions, form)} value={form[field.name] ?? ""} compact={kind === "rules"} onChange={(next) => onChange(field.name, next)} />;
+  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className={`max-h-[90vh] overflow-y-auto sm:max-w-2xl ${kind === "rules" ? "p-5" : ""}`}><form onSubmit={(event) => void onSubmit(event)}><DialogHeader><DialogTitle>{editing ? `Edit ${config.singular}` : `Add ${config.singular}`}</DialogTitle><DialogDescription>{kind === "rules" ? "Name and classify the rule, then choose the accounts it will use automatically." : "The next step is a server-generated, balanced posting preview."}</DialogDescription></DialogHeader>
+    {kind === "rules" ? <div className="space-y-4 py-4">
+      <div className="grid gap-3 sm:grid-cols-2">{visibleFields.filter((field) => !field.accounting).map(renderField)}</div>
+      <fieldset className="rounded-lg border px-3 pb-3"><legend className="px-1 text-sm font-medium">Automatic posting setup</legend><p className="mb-3 mt-1 text-xs text-muted-foreground">Required accounts keep debit and credit equal when this rule is used.{form.category === "asset" ? " Grant details are optional until needed." : ""}</p><div className="grid gap-3 sm:grid-cols-2">{visibleFields.filter((field) => field.accounting).map(renderField)}</div></fieldset>
+    </div> : <div className="grid gap-4 py-5 sm:grid-cols-2">{visibleFields.map(renderField)}</div>}
+    <DialogFooter><Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button disabled={saving} type="submit">{saving ? <Loader2 className="size-4 animate-spin" /> : null}{kind === "rules" ? editing ? "Save changes" : "Create rule" : "Prepare posting preview"}</Button></DialogFooter></form></DialogContent></Dialog>;
 }
 
-function resolvedField(field: Field, kind: RegisterKind, entryOptions: EntryOptions, form: Record<string, string>): Field {
+export function resolvedField(field: Field, kind: RegisterKind, entryOptions: EntryOptions, form: Record<string, string>): Field {
   if (field.name === "rule_id") {
     const category = kind === "expenses" ? "expense" : kind === "assets" ? "asset" : kind === "income" ? "income" : kind === "capital" ? "capital" : "liability";
     return { ...field, type: "select", options: entryOptions.rules.filter((rule) => value(rule, "category") === category).map((rule) => ({ value: resourceId(rule), label: `${value(rule, "code")} — ${value(rule, "name")}` })) };
@@ -511,6 +515,10 @@ function resolvedField(field: Field, kind: RegisterKind, entryOptions: EntryOpti
       recognition_account_id: "Expense account (Debit)", settlement_account_id: "Paid from cash/bank account (Credit)", payable_account_id: "Accounts payable when unpaid (Credit)",
     } : category === "asset" ? {
       recognition_account_id: "Asset account (Debit)", settlement_account_id: "Paid from cash/bank account (Credit)", payable_account_id: "Accounts payable when unpaid (Credit)", grant_counterpart_account_id: "Grant or donation source (Credit)",
+    } : category === "income" ? {
+      recognition_account_id: "Income account (Credit)", settlement_account_id: "Received into cash/bank account (Debit)",
+    } : category === "capital" ? {
+      recognition_account_id: "Capital / equity account (Credit)", settlement_account_id: "Contribution received into cash/bank account (Debit)",
     } : {
       recognition_account_id: "Liability account (Credit)", settlement_account_id: "Cash/bank or related expense/asset (Debit)",
     };
@@ -526,20 +534,20 @@ function resolvedField(field: Field, kind: RegisterKind, entryOptions: EntryOpti
   return field;
 }
 
-function FormField({ field, value: currentValue, onChange }: { field: Field; value: string; onChange: (value: string) => void }) {
+function FormField({ field, value: currentValue, compact = false, onChange }: { field: Field; value: string; compact?: boolean; onChange: (value: string) => void }) {
   const id = `gl-${field.name}`;
-  const classes = field.type === "textarea" ? "sm:col-span-2" : "";
+  const classes = `${field.type === "textarea" || field.fullWidth ? "sm:col-span-2" : ""}${compact ? " [&_input]:mt-1.5 [&_textarea]:mt-1.5 [&_textarea]:min-h-16 [&_button]:mt-1.5" : ""}`;
   return <div className={classes}><Label htmlFor={id}>{field.label}{field.required ? <span className="text-destructive"> *</span> : null}</Label>{field.type === "select" ? <Select value={currentValue} onValueChange={onChange}><SelectTrigger id={id} className="mt-2"><SelectValue placeholder={`Select ${field.label.toLowerCase()}`} /></SelectTrigger><SelectContent>{field.options?.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent></Select> : field.type === "textarea" ? <Textarea id={id} className="mt-2" value={currentValue} placeholder={field.placeholder} onChange={(event) => onChange(event.target.value)} /> : <Input id={id} className="mt-2" type={field.type ?? "text"} inputMode={field.inputMode} pattern={field.pattern} min={field.type === "number" ? "0" : undefined} step={field.type === "number" ? "0.01" : undefined} value={currentValue} placeholder={field.placeholder} onChange={(event) => onChange(event.target.value)} />}{field.help ? <p className="mt-1 text-xs text-muted-foreground">{field.help}</p> : null}</div>;
 }
 
-function RulesList({ rows, loading, onEdit, onArchive }: { rows: Row[]; loading: boolean; onEdit: (row: Row) => void; onArchive: (row: Row) => Promise<void> }) {
+export function RulesList({ rows, loading, onEdit, onArchive }: { rows: Row[]; loading: boolean; onEdit: (row: Row) => void; onArchive: (row: Row) => Promise<void> }) {
   const groups = ["expense", "asset", "liability", "income", "capital"] as const;
   if (loading) return <LoadingState />;
   if (!rows.length) return <EmptyState title="No rules found" text="Create your first reusable rule for an expense, asset, or liability." />;
-  return <div className="space-y-4">{groups.map((group) => {
+  return <div className="space-y-3">{groups.map((group) => {
     const groupRows = rows.filter((row) => value(row, "group", "rule_group", "category").toLowerCase() === group);
     if (!groupRows.length) return null;
-    return <Card key={group}><CardHeader className="pb-3"><CardTitle className="text-base">{group === "expense" ? "Expenses" : group === "asset" ? "Assets" : group === "liability" ? "Liabilities" : group === "income" ? "Income" : "Capital"}</CardTitle></CardHeader><CardContent className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Code</TableHead><TableHead>Rule name</TableHead><TableHead>Description</TableHead><TableHead>Posting setup</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>{groupRows.map((row) => <TableRow key={resourceId(row)}><TableCell className="font-mono font-medium">{value(row, "code", "rule_code")}</TableCell><TableCell className="font-medium">{value(row, "name")}</TableCell><TableCell className="max-w-md text-sm text-muted-foreground">{value(row, "description")}</TableCell><TableCell><Badge variant={isRuleReady(row) ? "default" : "outline"} className={isRuleReady(row) ? "" : "border-amber-300 bg-amber-50 text-amber-900"}>{isRuleReady(row) ? "Ready to post" : "Needs setup"}</Badge></TableCell><TableCell><Badge variant={row.is_active ? "default" : "secondary"}>{row.is_active ? "Active" : "Archived"}</Badge></TableCell><TableCell className="text-right"><Button size="sm" variant="ghost" onClick={() => onEdit(row)}><Pencil className="size-4" />Edit</Button><Button size="sm" variant="ghost" disabled={!row.is_active} onClick={() => void onArchive(row)}><Archive className="size-4" />Archive</Button></TableCell></TableRow>)}</TableBody></Table></CardContent></Card>;
+    return <Card key={group} className="gap-0 overflow-hidden py-0" data-testid="gl-rule-group"><CardHeader className="border-b px-4 py-3"><CardTitle className="flex items-center justify-between gap-2 text-sm"><span>{group === "expense" ? "Expenses" : group === "asset" ? "Assets" : group === "liability" ? "Liabilities" : group === "income" ? "Income" : "Capital"}</span><span className="text-xs font-normal tabular-nums text-muted-foreground">{groupRows.length} {groupRows.length === 1 ? "rule" : "rules"} on this page</span></CardTitle></CardHeader><CardContent className="overflow-x-auto px-4 pb-1"><Table><TableHeader><TableRow><TableHead>Code</TableHead><TableHead>Rule name</TableHead><TableHead>Description</TableHead><TableHead>Posting setup</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>{groupRows.map((row) => <TableRow key={resourceId(row)}><TableCell className="py-1.5 font-mono font-medium">{value(row, "code", "rule_code")}</TableCell><TableCell className="py-1.5 font-medium">{value(row, "name")}</TableCell><TableCell className="max-w-md py-1.5 text-sm text-muted-foreground">{value(row, "description")}</TableCell><TableCell className="py-1.5"><Badge variant={isRuleReady(row) ? "default" : "outline"} className={isRuleReady(row) ? "" : "border-amber-300 bg-amber-50 text-amber-900"}>{isRuleReady(row) ? "Ready to post" : "Needs setup"}</Badge></TableCell><TableCell className="py-1.5"><Badge variant={row.is_active ? "default" : "secondary"}>{row.is_active ? "Active" : "Archived"}</Badge></TableCell><TableCell className="py-1.5 text-right whitespace-nowrap"><Button size="sm" variant="ghost" className="h-8 px-2" onClick={() => onEdit(row)}><Pencil className="size-4" />Edit</Button><Button size="sm" variant="ghost" className="h-8 px-2" disabled={!row.is_active} onClick={() => void onArchive(row)}><Archive className="size-4" />Archive</Button></TableCell></TableRow>)}</TableBody></Table></CardContent></Card>;
   })}</div>;
 }
 
