@@ -5,12 +5,17 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { nextChartCode, matchingChartNodes, type ChartNode } from "./account-hierarchy";
 import { CapitalTable, entryPayload } from "../components/general-ledger/general-ledger-register";
 import { postingConfigurationIssue } from "./general-ledger-rule-setup";
+import { ChartActions } from "../components/general-ledger/account-hierarchy";
 
 const root: ChartNode = { id: 1, code: "1000", name: "Assets", type: "asset", parent_id: null, account_id: null };
 const group: ChartNode = { id: 2, code: "1100", name: "Cash", type: "asset", parent_id: 1, account_id: null };
 const leaf: ChartNode = { id: 3, code: "1101", name: "Cash on Hand", type: "asset", parent_id: 2, account_id: 1 };
 
 describe("account numbering and search", () => {
+  it("uses server allocation including reserved deleted codes", () => {
+    assert.equal(nextChartCode({ ...root, next_code: "1300" }, [root]), "1300");
+    assert.equal(nextChartCode({ ...group, next_code: null }, [group]), null);
+  });
   it("suggests hundred groups and numbered children without duplicates", () => {
     assert.equal(nextChartCode(root, [root, group, leaf]), "1200");
     assert.equal(nextChartCode(group, [root, group, leaf]), "1102");
@@ -21,6 +26,24 @@ describe("account numbering and search", () => {
     assert.deepEqual(matchingChartNodes([root, group, leaf], "cash on hand").map(node => node.id), [1, 2, 3]);
     assert.deepEqual(matchingChartNodes([root, group, leaf], "missing"), []);
     assert.deepEqual(matchingChartNodes([root, group, leaf], ""), [root, group, leaf]);
+  });
+});
+
+describe("recoverable chart controls", () => {
+  const render = (node: ChartNode) => renderToStaticMarkup(createElement(ChartActions, {
+    node, disabled: false, onEdit: () => {}, onDelete: () => {}, onRestore: () => {},
+  }));
+  it("protects fixed roots and offers edit/delete for groups and accounts", () => {
+    assert.equal(render(root), "");
+    for (const node of [group, leaf]) {
+      assert.match(render(node), new RegExp(`aria-label="Edit ${node.name}"`));
+      assert.match(render(node), new RegExp(`aria-label="Delete ${node.name}"`));
+    }
+  });
+  it("offers restore instead of edit/delete for removed items", () => {
+    const markup = render({ ...leaf, deleted_at: "2026-10-20T07:00:00Z" });
+    assert.match(markup, /Restore Cash on Hand/);
+    assert.doesNotMatch(markup, /Edit Cash on Hand|Delete Cash on Hand/);
   });
 });
 
