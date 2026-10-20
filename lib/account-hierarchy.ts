@@ -1,5 +1,9 @@
 export type ChartNode = { id: number; code: string; name: string; description?: string | null; type: string; parent_id: number | null; account_id: number | null; deleted_at?: string | null; next_code?: string | null; account?: { code: string; is_active: boolean; is_postable: boolean; normal_balance: string } | null };
 
+export function chartDeleteConfirmation(node: ChartNode): string {
+  return `Are you sure you want to delete this ${node.account_id === null ? "group" : "account"}?`;
+}
+
 export function nextChartCode(parent: ChartNode, nodes: ChartNode[]): string | null {
   if (parent.next_code !== undefined) return parent.next_code;
   const step = parent.parent_id === null ? 100 : 1;

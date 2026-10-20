@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { nextChartCode, matchingChartNodes, type ChartNode } from "./account-hierarchy";
+import { chartDeleteConfirmation, nextChartCode, matchingChartNodes, type ChartNode } from "./account-hierarchy";
 import { CapitalTable, entryPayload } from "../components/general-ledger/general-ledger-register";
 import { postingConfigurationIssue } from "./general-ledger-rule-setup";
 import { ChartActions } from "../components/general-ledger/account-hierarchy";
@@ -29,9 +29,9 @@ describe("account numbering and search", () => {
   });
 });
 
-describe("recoverable chart controls", () => {
+describe("chart deletion controls", () => {
   const render = (node: ChartNode) => renderToStaticMarkup(createElement(ChartActions, {
-    node, disabled: false, onEdit: () => {}, onDelete: () => {}, onRestore: () => {},
+    node, disabled: false, onEdit: () => {}, onDelete: () => {},
   }));
   it("protects fixed roots and offers edit/delete for groups and accounts", () => {
     assert.equal(render(root), "");
@@ -40,10 +40,13 @@ describe("recoverable chart controls", () => {
       assert.match(render(node), new RegExp(`aria-label="Delete ${node.name}"`));
     }
   });
-  it("offers restore instead of edit/delete for removed items", () => {
+  it("does not display removed items or restore controls", () => {
     const markup = render({ ...leaf, deleted_at: "2026-10-20T07:00:00Z" });
-    assert.match(markup, /Restore Cash on Hand/);
-    assert.doesNotMatch(markup, /Edit Cash on Hand|Delete Cash on Hand/);
+    assert.equal(markup, "");
+  });
+  it("asks for confirmation specific to groups or accounts", () => {
+    assert.equal(chartDeleteConfirmation(group), "Are you sure you want to delete this group?");
+    assert.equal(chartDeleteConfirmation(leaf), "Are you sure you want to delete this account?");
   });
 });
 
