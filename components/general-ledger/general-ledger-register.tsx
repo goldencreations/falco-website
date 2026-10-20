@@ -150,10 +150,10 @@ const registerConfiguration: Record<RegisterKind, {
     singular: "capital entry",
     icon: Landmark,
     fields: [
-      { name: "rule_id", label: "Capital posting rule", required: true },
       { name: "transaction_date", label: "Contribution date", type: "date", required: true },
-      { name: "amount", label: "Amount (TZS)", type: "number", required: true },
-      { name: "payee", label: "Contributor", required: true },
+      { name: "cash_amount", label: "Capital received in cash (TZS)", type: "number", defaultValue: "0" },
+      { name: "bank_amount", label: "Capital received in bank (TZS)", type: "number", defaultValue: "0" },
+      { name: "payee", label: "Contributor (optional)" },
       { name: "reference", label: "Reference" },
       { name: "notes", label: "Notes", type: "textarea" },
     ],
@@ -210,11 +210,19 @@ function rulePayload(form: Record<string, string>): Record<string, string> {
 }
 
 /** Maps the guided business form to the stable General Ledger draft contract. */
-function entryPayload(kind: Exclude<RegisterKind, "rules">, form: Record<string, string>): Record<string, unknown> {
+export function entryPayload(kind: Exclude<RegisterKind, "rules">, form: Record<string, string>): Record<string, unknown> {
+  if (kind === "capital") return {
+    transaction_date: form.transaction_date,
+    cash_amount: form.cash_amount || "0",
+    bank_amount: form.bank_amount || "0",
+    party_name: form.payee || null,
+    reference: form.reference || null,
+    description: form.notes || "Capital contribution",
+  };
   const isAsset = kind === "assets";
   const isLiability = kind === "liabilities";
   const isExpense = kind === "expenses";
-  const isIncomeOrCapital = kind === "income" || kind === "capital";
+  const isIncomeOrCapital = kind === "income";
   const paid = form.settlement_status === "paid";
   const acquisitionMethod = form.acquisition_type;
 
@@ -245,7 +253,7 @@ function normalizedPage(payload: { data?: unknown; meta?: unknown }): { rows: Ro
   return { rows, meta: rawMeta?.current_page ? { current_page: Number(rawMeta.current_page), last_page: Number(rawMeta.last_page ?? 1), per_page: Number(rawMeta.per_page ?? PAGE_SIZE), total: Number(rawMeta.total ?? rows.length), from: rawMeta.from, to: rawMeta.to } : null };
 }
 
-export function GeneralLedgerRegister({ kind }: { kind: RegisterKind }) {
+export function GeneralLedgerRegister({ kind, embedded = false }: { kind: RegisterKind; embedded?: boolean }) {
   const config = registerConfiguration[kind];
   const Icon = config.icon;
   const [rows, setRows] = useState<Row[]>([]);
@@ -318,6 +326,10 @@ export function GeneralLedgerRegister({ kind }: { kind: RegisterKind }) {
     };
     const metadataFields = new Set(["name", "quantity", "location"]);
     const fields = Object.fromEntries(config.fields.map((field) => {
+      if (kind === "capital" && ["cash_amount", "bank_amount"].includes(field.name)) {
+        const split = (row.metadata as { capital_split?: Record<string, unknown> } | undefined)?.capital_split;
+        return [field.name, String(split?.[field.name] ?? "0")];
+      }
       let current = metadataFields.has(field.name) && kind !== "rules" ? metadataValue(row, field.name) : value(row, aliases[field.name] ?? field.name);
       if (field.name === "supplier" && value(row, "acquisition_method") === "bought") current = value(row, "party_name");
       if (field.name === "donor" && value(row, "acquisition_method") === "granted") current = value(row, "party_name");
@@ -470,8 +482,8 @@ export function GeneralLedgerRegister({ kind }: { kind: RegisterKind }) {
   }
 
   return <div className="flex min-h-0 flex-1 flex-col overflow-auto bg-muted/25">
-    <header className="sticky top-0 z-20 flex min-h-16 items-center justify-between gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur md:px-6">
-      <div className="flex min-w-0 items-center gap-3"><SidebarTrigger /><div className="min-w-0"><h1 className="flex items-center gap-2 truncate text-base font-semibold"><Icon className="size-4" />{config.title}</h1><p className="truncate text-xs text-muted-foreground">Private General Ledger workspace</p></div></div>
+    <header className={`${embedded ? "" : "sticky top-0 z-20"} flex min-h-16 items-center justify-between gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur md:px-6`}>
+      <div className="flex min-w-0 items-center gap-3">{embedded ? null : <SidebarTrigger />}<div className="min-w-0"><h1 className="flex items-center gap-2 truncate text-base font-semibold"><Icon className="size-4" />{embedded ? "Posting templates" : config.title}</h1><p className="truncate text-xs text-muted-foreground">Private General Ledger workspace</p></div></div>
       <Button size="sm" onClick={openCreate}><Plus className="size-4" />Add {config.singular}</Button>
     </header>
     <main className={`mx-auto w-full max-w-7xl p-4 md:p-6 ${kind === "rules" ? "space-y-3" : "space-y-5"}`}>
@@ -527,7 +539,7 @@ export function resolvedField(field: Field, kind: RegisterKind, entryOptions: En
       label: labels[field.name] ?? field.label,
       required: isRulePostingFieldRequired(field.name, category),
       type: "select",
-      options: entryOptions.accounts.filter((account) => allowedTypes.includes(value(account, "type"))).map((account) => ({ value: resourceId(account), label: `${value(account, "code")} — ${value(account, "name")}` })),
+      options: entryOptions.accounts.filter((account) => allowedTypes.includes(value(account, "type"))).map((account) => ({ value: resourceId(account), label: `${value(account, "chart_code", "code")} — ${value(account, "name")}` })),
     };
   }
 
@@ -554,10 +566,18 @@ export function RulesList({ rows, loading, onEdit, onArchive }: { rows: Row[]; l
 function RegisterTable({ kind, rows, loading, onEdit, onPay, onPayments, onReverse }: { kind: Exclude<RegisterKind, "rules">; rows: Row[]; loading: boolean; onEdit: (row: Row) => void; onPay: (row: Row) => void; onPayments: (row: Row) => void; onReverse: (row: Row) => void }) {
   if (loading) return <LoadingState />;
   if (!rows.length) return <EmptyState title={`No ${registerConfiguration[kind].title.toLowerCase()} found`} text="Use Add to prepare a new draft." />;
+  if (kind === "capital") return <CapitalTable rows={rows} onEdit={onEdit} onReverse={onReverse} />;
   return <Card><CardContent className="overflow-x-auto pt-5"><Table><TableHeader><TableRow>{kind === "expenses" ? <><TableHead>Date / payee</TableHead><TableHead>Rule / reference</TableHead><TableHead className="text-right">Amount</TableHead></> : kind === "assets" ? <><TableHead>Asset</TableHead><TableHead>Type / location</TableHead><TableHead className="text-right">Value</TableHead></> : <><TableHead>Liability / creditor</TableHead><TableHead>Incurred / due</TableHead><TableHead className="text-right">Outstanding</TableHead></>}<TableHead>Posting</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>{rows.map((row) => {
     const status = value(row, "status").toLowerCase();
     const outstanding = Number(row.outstanding_amount ?? 0);
     return <TableRow key={resourceId(row)}>{kind === "expenses" ? <><TableCell><div className="font-medium">{value(row, "party_name")}</div><p className="text-xs text-muted-foreground">{value(row, "transaction_date")}</p></TableCell><TableCell><p className="font-mono text-sm">{value(row, "rule_code")}</p><p className="text-xs text-muted-foreground">{value(row, "reference")}</p></TableCell><TableCell className="text-right font-medium tabular-nums">{money(row.amount)}</TableCell></> : kind === "assets" ? <><TableCell><div className="font-medium">{metadataValue(row, "name")}</div><p className="text-xs text-muted-foreground">Qty {metadataValue(row, "quantity")}</p></TableCell><TableCell><p className="capitalize">{value(row, "asset_class")} · {value(row, "acquisition_method")}</p><p className="text-xs text-muted-foreground">{metadataValue(row, "location")}</p></TableCell><TableCell className="text-right font-medium tabular-nums">{money(row.amount)}</TableCell></> : <><TableCell><div className="font-medium">{metadataValue(row, "name") !== "—" ? metadataValue(row, "name") : value(row, "description")}</div><p className="text-xs text-muted-foreground">{value(row, "party_name")}</p></TableCell><TableCell><p>{value(row, "transaction_date")}</p><p className="text-xs text-muted-foreground">Due {value(row, "due_date")}</p></TableCell><TableCell className="text-right font-medium tabular-nums">{money(row.outstanding_amount)}</TableCell></>}<TableCell><div className="space-y-1"><StatusBadge row={row} /><p className="font-mono text-xs text-muted-foreground">{value(row, "journal_id")}</p></div></TableCell><TableCell className="text-right whitespace-nowrap">{status === "draft" ? <Button size="sm" variant="ghost" onClick={() => onEdit(row)}><Pencil className="size-4" />Edit</Button> : null}{kind === "liabilities" && status === "posted" && outstanding > 0 ? <Button size="sm" variant="ghost" onClick={() => onPay(row)}>Pay</Button> : null}{kind === "liabilities" ? <Button size="sm" variant="ghost" onClick={() => onPayments(row)}>Payments</Button> : null}{status === "posted" ? <Button size="sm" variant="ghost" onClick={() => onReverse(row)}><RotateCcw className="size-4" />Reverse</Button> : null}</TableCell></TableRow>;
+  })}</TableBody></Table></CardContent></Card>;
+}
+
+export function CapitalTable({ rows, onEdit, onReverse }: { rows: Row[]; onEdit: (row: Row) => void; onReverse: (row: Row) => void }) {
+  return <Card><CardContent className="overflow-x-auto pt-4"><Table><TableHeader><TableRow><TableHead>Date / contributor</TableHead><TableHead>Reference</TableHead><TableHead className="text-right">Cash</TableHead><TableHead className="text-right">Bank</TableHead><TableHead className="text-right">Total capital</TableHead><TableHead>Posting</TableHead><TableHead>Actions</TableHead></TableRow></TableHeader><TableBody>{rows.map(row => {
+    const split = (row.metadata as { capital_split?: Record<string, unknown> } | undefined)?.capital_split;
+    return <TableRow key={resourceId(row)}><TableCell>{value(row, "transaction_date")}<p className="text-xs text-muted-foreground">{value(row, "party_name")}</p></TableCell><TableCell>{value(row, "reference")}</TableCell><TableCell className="text-right tabular-nums">{split ? money(split.cash_amount) : "—"}</TableCell><TableCell className="text-right tabular-nums">{split ? money(split.bank_amount) : "—"}</TableCell><TableCell className="text-right tabular-nums">{money(row.amount)}</TableCell><TableCell><StatusBadge row={row} /></TableCell><TableCell>{row.status === "draft" ? <Button variant="ghost" size="sm" onClick={() => onEdit(row)}>Edit</Button> : row.status === "posted" ? <Button variant="ghost" size="sm" onClick={() => onReverse(row)}>Reverse</Button> : null}</TableCell></TableRow>;
   })}</TableBody></Table></CardContent></Card>;
 }
 

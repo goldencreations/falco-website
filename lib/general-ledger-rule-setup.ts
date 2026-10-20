@@ -42,6 +42,7 @@ export function postingConfigurationIssue(
   form: Record<string, string>,
   rule: GeneralLedgerRule | undefined,
 ): string | null {
+  if (kind === "capital") return null;
   if (!rule) return "Choose a valid posting rule before continuing.";
   if (!hasValue(rule.recognition_account_id)) return "This rule has no debit/credit recognition account. Edit the rule and complete its accounting setup.";
 
