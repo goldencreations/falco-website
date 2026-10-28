@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { RefreshCcw } from "lucide-react";
+import { useEffect, useId, useState } from "react";
+import { ChevronDown, ChevronUp, RefreshCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,6 +16,8 @@ export function FailedClickPesaAttempts({ from, to, enabled }: { from: string; t
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
+  const [expanded, setExpanded] = useState(true);
+  const detailsId = useId();
 
   useEffect(() => { setPage(1); }, [from, to]);
   useEffect(() => {
@@ -56,17 +58,34 @@ export function FailedClickPesaAttempts({ from, to, enabled }: { from: string; t
 
   return (
     <Card className="overflow-hidden">
-      <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 pb-3">
+      <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 py-3">
         <div className="space-y-1">
           <CardTitle className="text-base">Failed ClickPesa attempts{total ? ` (${total})` : ""}</CardTitle>
-          <p className="text-sm text-muted-foreground">No money received. These attempts do not affect cash totals or loan repayments.</p>
-          <p className="text-xs text-muted-foreground">Uses the date filters above, in East Africa Time. Updates every 30 seconds.</p>
+          {expanded ? <>
+            <p className="text-sm text-muted-foreground">No money received. These attempts do not affect cash totals or loan repayments.</p>
+            <p className="text-xs text-muted-foreground">Uses the date filters above, in East Africa Time. Updates every 30 seconds.</p>
+          </> : null}
         </div>
-        <Button type="button" variant="outline" size="sm" disabled={loading} onClick={() => setRevision(value => value + 1)}>
-          <RefreshCcw className="mr-2 h-4 w-4" />Refresh attempts
-        </Button>
+        <div className="ml-auto flex items-center gap-2">
+          {expanded ? <Button type="button" variant="outline" size="sm" disabled={loading} onClick={() => setRevision(value => value + 1)}>
+            <RefreshCcw className="mr-2 h-4 w-4" />Refresh attempts
+          </Button> : null}
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            aria-label={expanded ? "Collapse failed ClickPesa attempts" : "Expand failed ClickPesa attempts"}
+            aria-expanded={expanded}
+            aria-controls={detailsId}
+            title={expanded ? "Minimize" : "Expand"}
+            onClick={() => setExpanded(value => !value)}
+          >
+            {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </Button>
+        </div>
       </CardHeader>
-      <CardContent className="p-0">
+      <CardContent id={detailsId} hidden={!expanded} className="p-0">
         {error ? <p role="alert" className="px-6 pb-4 text-sm text-destructive">{error}</p> : (
           <Table>
             <TableHeader><TableRow>
