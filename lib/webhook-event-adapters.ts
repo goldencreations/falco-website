@@ -63,6 +63,20 @@ export function adaptApiWebhookEventRow(raw: Record<string, unknown>): WebhookEv
     error_message: str(raw.error_message ?? raw.error) || undefined,
     order_reference: str(md?.order_reference ?? raw.order_reference) || undefined,
     metadata: md,
+    payment_attempt: raw.payment_attempt && typeof raw.payment_attempt === "object" && !Array.isArray(raw.payment_attempt)
+      ? (() => {
+          const attempt = raw.payment_attempt as Record<string, unknown>;
+          return {
+            reference: str(attempt.reference) || null,
+            order_reference: str(attempt.order_reference) || null,
+            customer_name: str(attempt.customer_name) || null,
+            channel: str(attempt.channel) || null,
+            amount: attempt.amount == null ? null : str(attempt.amount),
+            currency: str(attempt.currency, "TZS"),
+            reason: str(attempt.reason) || null,
+          };
+        })()
+      : null,
   };
 }
 

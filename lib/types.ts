@@ -654,6 +654,15 @@ export interface WebhookEvent {
   /** Optional derived/order refs from event metadata for diagnostics UX. */
   order_reference?: string;
   metadata?: Record<string, unknown>;
+  payment_attempt?: {
+    reference: string | null;
+    order_reference: string | null;
+    customer_name: string | null;
+    channel: string | null;
+    amount: string | null;
+    currency: string;
+    reason: string | null;
+  } | null;
 }
 
 // -----------------------------------------------------------------------------
