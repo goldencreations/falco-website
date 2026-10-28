@@ -1,5 +1,7 @@
 "use client";
 
+import { isUserChartAccount } from "@/lib/general-ledger-account-options";
+
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -93,7 +95,7 @@ export function FinancialStatementRecordingTools({ categories, canConfigure, can
     finally { setBusy(false); }
   }
 
-  const activeAccounts = accounts.filter((account) => account.is_active && account.is_postable);
+  const activeAccounts = accounts.filter((account) => account.is_active && account.is_postable && isUserChartAccount(account));
   const visibleAccounts = accounts.filter((account) => `${account.code} ${account.name}`.toLowerCase().includes(search.toLowerCase()));
   const accountName = (id: string) => { const account = accounts.find((item) => String(item.id) === id); return account ? `${account.code} — ${account.name}` : ""; };
 

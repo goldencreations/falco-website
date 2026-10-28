@@ -51,6 +51,19 @@ describe("compact Rules groups", () => {
     assert.doesNotMatch(loading, /No rules found/);
   });
 
+  it("hides defaults on new forms and retains a saved selection only while editing", () => {
+    const field = { name: "recognition_account_id", label: "Account", accounting: true };
+    const entryOptions = { rules: [], accounts: [
+      { id: 1, code: "1000", name: "Default cash", type: "asset" },
+      { id: 2, code: "COA-1201", chart_code: "1201", name: "User asset", type: "asset" },
+    ] };
+    const form = { category: "asset", recognition_account_id: "1" };
+    assert.deepEqual(resolvedField(field, "rules", entryOptions, form).options?.map(option => option.value), ["2"]);
+    const editing = resolvedField(field, "rules", entryOptions, form, true);
+    assert.deepEqual(editing.options?.map(option => option.value), ["1", "2"]);
+    assert.match(editing.options![0].label, /saved account/);
+  });
+
   it("labels posting accounts correctly for all five rule types", () => {
     const expected = [
       ["expense", "Expense account (Debit)", "expense"],
@@ -59,7 +72,7 @@ describe("compact Rules groups", () => {
       ["income", "Income account (Credit)", "income"],
       ["capital", "Capital / equity account (Credit)", "equity"],
     ];
-    const accounts = ["asset", "liability", "equity", "income", "expense"].map((type, index) => ({ id: index + 1, code: String(index + 1), name: type, type }));
+    const accounts = ["asset", "liability", "equity", "income", "expense"].map((type, index) => ({ id: index + 1, code: `COA-${1101 + index}`, name: type, type }));
     for (const [category, label, type] of expected) {
       const field = resolvedField({ name: "recognition_account_id", label: "Recognition account", accounting: true }, "rules", { accounts, rules: [] }, { category });
       assert.equal(field.label, label);
