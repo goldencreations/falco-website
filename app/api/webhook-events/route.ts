@@ -29,6 +29,7 @@ export async function GET(request: Request) {
     query: {
       gateway: url.searchParams.get("gateway") ?? "clickpesa",
       status: url.searchParams.get("status") ?? undefined,
+      event_type: url.searchParams.get("event_type") ?? undefined,
       from: url.searchParams.get("from") ?? undefined,
       to: url.searchParams.get("to") ?? undefined,
       page: url.searchParams.get("page") ?? "1",

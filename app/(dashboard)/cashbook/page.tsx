@@ -1,5 +1,7 @@
 "use client";
 
+import { FailedClickPesaAttempts } from "@/components/cashbook/failed-clickpesa-attempts";
+
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
@@ -982,6 +984,12 @@ export default function CashbookPage() {
               ) : null}
             </div>
           </div>
+
+          <FailedClickPesaAttempts
+            from={fromDate}
+            to={toDate}
+            enabled={Boolean(user && (user.role === "super_admin" || user.permissions?.includes("webhooks.manage")))}
+          />
 
           {loading ? (
             <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
