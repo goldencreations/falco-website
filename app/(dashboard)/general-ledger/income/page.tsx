@@ -1,7 +1,8 @@
+import { LoanIncomeSummaryPanel } from "@/components/general-ledger/loan-income-summary";
 import { GeneralLedgerRegister } from "@/components/general-ledger/general-ledger-register";
 import { requireGeneralLedgerAccess } from "@/lib/general-ledger-access";
 
 export default async function GeneralLedgerIncomePage() {
   await requireGeneralLedgerAccess();
-  return <GeneralLedgerRegister kind="income" />;
+  return <GeneralLedgerRegister kind="income" overview={<LoanIncomeSummaryPanel />} />;
 }
