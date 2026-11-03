@@ -15,7 +15,7 @@ export function ChartActions({ node, disabled, onEdit, onDelete }: {
   node: ChartNode; disabled: boolean; onEdit: (node: ChartNode) => void;
   onDelete: (node: ChartNode) => void;
 }) {
-  if (node.parent_id === null || node.deleted_at) return null;
+  if (node.parent_id === null || node.origin === "loan_system" || node.deleted_at) return null;
   return <div className="flex shrink-0 flex-wrap items-center gap-1">
     <Button size="sm" variant="ghost" disabled={disabled} onClick={() => onEdit(node)} aria-label={`Edit ${node.name}`}><Pencil className="size-3.5" />Edit</Button>
     <Button size="sm" variant="ghost" className="text-destructive" disabled={disabled} onClick={() => onDelete(node)} aria-label={`Delete ${node.name}`}><Trash2 className="size-3.5" />Delete</Button>
@@ -101,14 +101,14 @@ export function AccountHierarchyWorkspace() {
   function branch(node: ChartNode): React.ReactNode {
     const children = visible.filter(child => child.parent_id === node.id);
     if (node.account_id !== null) return <div key={node.id} className="flex flex-wrap items-center justify-between gap-2 border-t px-3 py-1.5 text-sm">
-      <div className="min-w-0 flex-1 break-words"><span className="mr-3 font-mono">{node.code}</span>{node.name}
+      <div className="min-w-0 flex-1 break-words"><span className="mr-3 font-mono">{node.code}</span>{node.name}{node.origin === "loan_system" ? <span className="ml-3 text-xs text-teal-700">Automatic — Loan Management</span> : null}
         <p className="text-xs text-muted-foreground">{node.account?.is_active === false ? "Inactive · " : ""}Ledger {node.account?.code}</p>
       </div>{actions(node)}
     </div>;
     return <details key={node.id} open={node.parent_id === null || Boolean(search)} className="rounded-md border bg-background">
-      <summary className="cursor-pointer px-3 py-2 text-sm font-medium"><span className="mr-3 font-mono">{node.code}</span>{node.name}</summary>
+      <summary className="cursor-pointer px-3 py-2 text-sm font-medium"><span className="mr-3 font-mono">{node.code}</span>{node.name}{node.origin === "loan_system" ? <span className="ml-3 text-xs text-teal-700">Automatic — Loan Management</span> : null}</summary>
       <div className="flex flex-wrap justify-end gap-1 border-t px-2 py-1">
-        <Button size="sm" variant="ghost" disabled={saving || loading || nextChartCode(node, nodes) === null} onClick={() => add(node)}><Plus className="size-4" />{node.parent_id === null ? "Add group" : "Add account"}</Button>
+        <Button size="sm" variant="ghost" disabled={saving || loading || node.origin === "loan_system" || nextChartCode(node, nodes) === null} onClick={() => add(node)}><Plus className="size-4" />{node.parent_id === null ? "Add group" : "Add account"}</Button>
         {actions(node)}
       </div>
       <div className={node.parent_id === null ? "space-y-2 px-3 pb-3" : ""}>{children.map(branch)}</div>
