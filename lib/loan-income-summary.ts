@@ -1,5 +1,5 @@
 export type LoanIncomeRow = { category: "interest" | "penalties" | "fees"; gross_collections: string; reversals: string; net_collections: string; posted_ledger_income: string; difference: string };
-export type LoanIncomeSummary = { from: string; to: string; generated_at: string; rows: LoanIncomeRow[]; totals: Omit<LoanIncomeRow, "category">; reconciliation_note: string; issues: { ambiguous_fee_payments: number; ambiguous_fee_amount: string; missing_reversal_dates: number; historical_interest_loans: number }; synchronization: { posting_enabled: boolean; unposted_events: number; payments_without_events: number; status: string } };
+export type LoanIncomeSummary = { from: string; to: string; generated_at: string; rows: LoanIncomeRow[]; totals: Omit<LoanIncomeRow, "category">; reconciliation_note: string; issues: { ambiguous_fee_payments: number; ambiguous_fee_amount: string; missing_reversal_dates: number; historical_interest_loans: number }; synchronization: { review_records?: LoanIncomeReviewRecord[]; posting_enabled: boolean; unposted_events: number; payments_without_events: number; status: string } };
 
 export function eatIncomeDates(now = new Date()): { from: string; to: string } {
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Dar_es_Salaam", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(now);
@@ -10,4 +10,12 @@ export function eatIncomeDates(now = new Date()): { from: string; to: string } {
 export function loanIncomeSummaryUrl(from: string, to: string, allTime: boolean): string {
   const params = new URLSearchParams(allTime ? { all_time: "1", to } : { from, to });
   return `/api/general-ledger/income/loan-summary?${params}`;
+}
+
+export type LoanIncomeReviewRecord = { event_id: number; payment_number: string | null; loan_id: number | null; loan_number: string | null; customer_id: number | null };
+
+export function loanIncomeReviewHref(record: LoanIncomeReviewRecord): string | null {
+  if (record.loan_id && Number.isSafeInteger(record.loan_id) && record.loan_id > 0) return `/loans/${record.loan_id}`;
+  if (record.customer_id && Number.isSafeInteger(record.customer_id) && record.customer_id > 0) return `/customers/${record.customer_id}`;
+  return null;
 }
