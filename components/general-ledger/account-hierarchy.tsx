@@ -137,24 +137,25 @@ export function AccountHierarchyWorkspace() {
       {loading ? <p role="status">Loading accounts…</p> : nodes.length === 0 ? <p>The account hierarchy has not been initialized yet.</p> : visible.length === 0 ? <p>No matching accounts.</p> : <div className="space-y-3">{visible.filter(node => node.parent_id === null).map(branch)}</div>}
     </main>
     <Dialog open={formOpen} onOpenChange={open => !saving && setFormOpen(open)}><DialogContent className="max-h-[90vh] overflow-y-auto"><form onSubmit={event => void save(event)}>
-      <DialogHeader><DialogTitle>{formTitle}</DialogTitle><DialogDescription>{editing ? "Update the name or choose the purpose for an unused account. Accounts with posted history keep their report placement." : `Under ${parent?.code} — ${parent?.name}. Choose the purpose once. Falco assigns the code and connects the account to its register and reports.`}</DialogDescription></DialogHeader>
+      <DialogHeader><DialogTitle>{formTitle}</DialogTitle><DialogDescription>{editing ? "Write the name and description in your own words. Accounts with posted history keep their report placement." : `Under ${parent?.code} — ${parent?.name}. Write the name and description in your own words. Falco assigns the code; the report category connects it to the right statement.`}</DialogDescription></DialogHeader>
       <div className="space-y-4 py-4">
         <div><Label>{editing ? "Code" : "Suggested code"}</Label><p className="font-mono">{editing?.code ?? (parent ? nextChartCode(parent, nodes) ?? "Group full" : "")}</p></div>
         <div><Label htmlFor="chart-account-name">Name</Label><Input id="chart-account-name" className="mt-1" required maxLength={255} value={name} onChange={event => setName(event.target.value)} /></div>
-        {isAccountForm ? <div className="min-w-0 space-y-2">
-          <Label htmlFor="chart-account-purpose">What does this account represent? *</Label>
+        <div><Label htmlFor="chart-account-description">{isAccountForm ? "What does this account represent? (optional)" : "Description (optional)"}</Label><Textarea id="chart-account-description" className="mt-1" maxLength={2000} placeholder={isAccountForm ? "Type your own description, e.g. laptops used by our staff" : "Describe this group"} value={description} onChange={event => setDescription(event.target.value)} /></div>
+        {isAccountForm ? <fieldset className="min-w-0 space-y-2 rounded-md border p-3">
+          <legend className="px-1 text-sm font-medium">Report setup</legend>
+          <Label htmlFor="chart-account-purpose">Financial report category *</Label>
           <Select value={purpose} onValueChange={setPurpose} disabled={Boolean(editing?.has_posted_history)}>
-            <SelectTrigger id="chart-account-purpose" className="w-full min-w-0 text-left [&_[data-slot=select-value]]:truncate"><SelectValue placeholder="Choose the closest description" /></SelectTrigger>
+            <SelectTrigger id="chart-account-purpose" className="w-full min-w-0 text-left [&_[data-slot=select-value]]:truncate"><SelectValue placeholder="Choose where it appears in reports" /></SelectTrigger>
             <SelectContent className="max-w-[calc(100vw-2rem)]">{compatibleAccountPurposes(purposes, accountType).map(option => <SelectItem key={option.value} value={option.value} className="whitespace-normal">{option.label}{option.mode === "review" ? " — needs review" : ""}</SelectItem>)}</SelectContent>
           </Select>
-          {editing?.has_posted_history ? <p className="text-xs text-muted-foreground">This account has posted transactions. Its purpose is protected; create another account for a different purpose.</p> : null}
+          {editing?.has_posted_history ? <p className="text-xs text-muted-foreground">This account has posted transactions. Its report category is protected. You can still edit its name and description.</p> : null}
           {selectedPurpose ? <div className={`rounded-md border p-3 text-sm ${selectedPurpose.mode === "review" ? "border-amber-300 bg-amber-50 text-amber-950" : "border-teal-200 bg-teal-50 text-teal-950"}`}>
             <p className="font-medium">{selectedPurpose.mode === "review" ? "Needs accounting review" : selectedPurpose.mode === "settlement" ? "Ready for cash/bank transactions" : `Ready to use in ${selectedPurpose.register === "asset" ? "Assets" : selectedPurpose.register === "expense" ? "Expenses" : selectedPurpose.register === "liability" ? "Liabilities" : selectedPurpose.register === "income" ? "Income" : "Capital"}`}</p>
             <p className="mt-1">{selectedPurpose.help}</p><p className="mt-1 text-xs">Appears in {purpose.startsWith("bs.") ? "Balance Sheet" : "Income & Expense"}: {selectedPurpose.report_label} ({selectedPurpose.report_line}).</p>
           </div> : null}
-          <p className="text-xs text-muted-foreground">Creating an account records no money. Choose the money account when recording the actual transaction.</p>
-        </div> : null}
-        <div><Label htmlFor="chart-account-description">Description (optional)</Label><Textarea id="chart-account-description" className="mt-1" value={description} onChange={event => setDescription(event.target.value)} /></div>
+          <p className="text-xs text-muted-foreground">This category controls report placement, not your description. Creating an account records no money.</p>
+        </fieldset> : null}
         {formError ? <p role="alert" className="text-sm text-destructive">{formError}</p> : null}
       </div>
       <DialogFooter><Button type="button" variant="outline" disabled={saving} onClick={() => setFormOpen(false)}>Cancel</Button><Button type="submit" disabled={saving || (isAccountForm && !purpose)}>{saving ? "Saving…" : isAccountForm ? "Save account and setup" : "Save group"}</Button></DialogFooter>
