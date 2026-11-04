@@ -1,5 +1,7 @@
 "use client";
 
+import { readChartMutationResponse } from "@/lib/chart-mutation-response";
+
 import React, { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Pencil, Plus, RefreshCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -72,10 +74,9 @@ export function AccountHierarchyWorkspace() {
 
   async function request(path: string, method: string, body?: unknown) {
     const response = await fetch(`/api/general-ledger/account-hierarchy${path}`, {
-      method, headers: { "Content-Type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}),
+      method, headers: { "Content-Type": "application/json", Accept: "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}),
     });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(formatApiResponseError(payload, "The account change could not be saved."));
+    await readChartMutationResponse(response);
   }
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -161,7 +162,7 @@ export function AccountHierarchyWorkspace() {
       <DialogFooter><Button type="button" variant="outline" disabled={saving} onClick={() => setFormOpen(false)}>Cancel</Button><Button type="submit" disabled={saving || (isAccountForm && !purpose)}>{saving ? "Saving…" : isAccountForm ? "Save account and setup" : "Save group"}</Button></DialogFooter>
     </form></DialogContent></Dialog>
     <Dialog open={deleteOpen} onOpenChange={open => !saving && setDeleteOpen(open)}><DialogContent>
-      <DialogHeader><DialogTitle>{deleteTarget ? chartDeleteConfirmation(deleteTarget) : "Confirm deletion"}</DialogTitle><DialogDescription>{deleteTarget?.code} — {deleteTarget?.name}. Recorded transactions and balances will not be deleted.{deleteTarget?.account_id === null ? " Groups must be empty first." : ""}</DialogDescription></DialogHeader>
+      <DialogHeader><DialogTitle>{deleteTarget ? chartDeleteConfirmation(deleteTarget) : "Confirm deletion"}</DialogTitle><DialogDescription>{deleteTarget?.code} — {deleteTarget?.name}. Accounts containing records cannot be deleted.{deleteTarget?.account_id === null ? " Groups must be empty first." : ""}</DialogDescription></DialogHeader>
       {deleteError ? <p role="alert" className="text-sm text-destructive">{deleteError}</p> : null}
       <DialogFooter><Button variant="outline" disabled={saving} onClick={() => setDeleteOpen(false)}>Cancel</Button><Button variant="destructive" disabled={saving} onClick={() => void remove()}>{saving ? "Deleting…" : "Delete"}</Button></DialogFooter>
     </DialogContent></Dialog>
