@@ -37,6 +37,7 @@ const SWAHILI: Record<string, string> = {
  "New Application": "Ombi Jipya",
  "Pending Review": "Inasubiri Mapitio",
  "Active Loans": "Mikopo Inayoendelea",
+ "Paid off loans": "Mikopo Iliyolipwa Kikamilifu",
  "Loan Disbursement": "Ugavi wa Mikopo",
  "Vikundi / Group Loans": "Vikundi / Mikopo ya Kikundi",
  "Credit Analysis": "Uchambuzi wa Mkopo",

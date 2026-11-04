@@ -42,6 +42,7 @@ const accountantNav = [
  { title: "Collections", href: "/accountant/collections/activities", icon: ShieldCheck },
  { title: "Disbursements", href: "/accountant/disbursements", icon: WalletCards },
  { title: "Active Loans", href: "/accountant/loans", icon: Wallet },
+ { title: "Paid off loans", href: "/accountant/paid-off-loans", icon: Wallet },
  { title: "Reports", href: "/accountant/reports", icon: BarChart3 },
  { title: "Settings", href: "/accountant/settings", icon: Settings },
 ];

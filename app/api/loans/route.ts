@@ -22,6 +22,7 @@ export async function GET(request: Request) {
  page: url.searchParams.get("page") ?? "1",
  page_size: pageSize,
  status: url.searchParams.get("status") ?? undefined,
+ exclude_status: url.searchParams.get("exclude_status") ?? undefined,
  branch_id: resolvedBranchIdForListQuery(auth.user, url.searchParams.get("branch_id")),
         customer_id: url.searchParams.get("customer_id") ?? undefined,
         group_id: url.searchParams.get("group_id") ?? undefined,

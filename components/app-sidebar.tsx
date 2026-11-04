@@ -109,6 +109,7 @@ const navigation: { title: string; items: SidebarNavItem[] }[] = [
  href: "/loans",
  icon: Wallet,
  },
+ { title: "Paid off loans", href: "/paid-off-loans", icon: Wallet },
  {
  title: "Loan Disbursement",
  href: "/disbursements",

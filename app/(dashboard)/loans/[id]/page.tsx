@@ -24,7 +24,6 @@ export default function LoanDetailPage() {
  const params = useParams<{ id: string }>();
  const loanId = typeof params?.id === "string" ? params.id : "";
  const { user } = useSessionUser();
- const loansListPath = resolvePortalPath(user?.role, "/loans");
 
  const [loan, setLoan] = useState<LoanListRow | null>(null);
  const [customer, setCustomer] = useState<Customer | null>(null);
@@ -136,6 +135,9 @@ export default function LoanDetailPage() {
  };
  }, [loanId]);
 
+ const isPaidOff = loan?.status === "paid_off";
+ const loansListPath = resolvePortalPath(user?.role, isPaidOff ? "/paid-off-loans" : "/loans");
+
  return (
  <>
  <DashboardHeader
@@ -147,7 +149,7 @@ export default function LoanDetailPage() {
  <Button variant="ghost" size="sm" className="-ml-2 w-fit" asChild>
  <Link href={loansListPath}>
  <ArrowLeft className="mr-1.5 h-4 w-4" />
- Back to loans
+ {isPaidOff ? "Back to paid off loans" : "Back to loans"}
  </Link>
  </Button>
 

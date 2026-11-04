@@ -39,6 +39,7 @@ const officerNav = [
  { title: "Customers", href: "/officer/customers", icon: UserSquare2 },
  { title: "Loan Applications", href: "/officer/applications", icon: ClipboardList },
  { title: "Active Loans", href: "/officer/loans", icon: Wallet },
+ { title: "Paid off loans", href: "/officer/paid-off-loans", icon: Wallet },
  { title: "Credit Analysis", href: "/officer/credit-analysis", icon: Scale },
  { title: "Loan Calculator", href: "/officer/loan-calculator", icon: Calculator },
  { title: "Vikundi", href: "/officer/groups", icon: Users },

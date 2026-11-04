@@ -41,6 +41,7 @@ const managerNav = [
  { title: "Vikundi", href: "/manager/groups", icon: Users },
  { title: "Customers", href: "/manager/customers", icon: UserSquare2 },
  { title: "Active Loans", href: "/manager/loans", icon: Wallet },
+ { title: "Paid off loans", href: "/manager/paid-off-loans", icon: Wallet },
  { title: "Loan Calculator", href: "/manager/loan-calculator", icon: Calculator },
  { title: "Loan Disbursement", href: "/manager/disbursements", icon: Send },
  { title: "Payments", href: "/manager/payments", icon: CreditCard },
