@@ -290,6 +290,7 @@ export function GeneralLedgerRegister({ kind, embedded = false, overview }: { ki
     setError("");
     try {
       const query = new URLSearchParams({ page: String(nextPage), per_page: String(PAGE_SIZE) });
+      if (kind !== "rules") query.set("active_only", "1");
       if (nextSearch) query.set("search", nextSearch);
       const response = await apiRequest<{ data?: unknown; meta?: unknown }>(`${kind}?${query.toString()}`);
       const parsed = normalizedPage(response);
