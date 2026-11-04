@@ -1,4 +1,4 @@
-import type { FinancialStatementsReport, StatementRow } from "@/lib/financial-statements";
+import { formatStatementSerial, type FinancialStatementsReport, type StatementRow } from "@/lib/financial-statements";
 
 type ExcelJsModule = typeof import("exceljs");
 
@@ -57,8 +57,8 @@ export async function buildFinancialStatementWorkbook(report: FinancialStatement
     worksheet.getCell("A5").font = { color: { argb: "FF92400E" }, size: 10 };
   }
   worksheet.getRow(6).values = isBalance
-    ? ["Code", "Description", "Amount"]
-    : ["Code", "Description", `Quarter ${report.period.quarter}`, `Calendar YTD from ${report.period.ytd_from}`];
+    ? ["S/N", "Description", "Amount"]
+    : ["S/N", "Description", `Quarter ${report.period.quarter}`, `Calendar YTD from ${report.period.ytd_from}`];
   worksheet.getRow(6).font = { bold: true, color: { argb: "FFFFFFFF" } };
   worksheet.getRow(6).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF111827" } };
 
@@ -74,7 +74,7 @@ export async function buildFinancialStatementWorkbook(report: FinancialStatement
 }
 
 function addStatementRow(worksheet: import("exceljs").Worksheet, row: StatementRow, isBalance: boolean): void {
-  const values: Array<string | number | null> = [row.code, `${"   ".repeat(Math.max(0, row.depth))}${row.label}`];
+  const values: Array<string | number | null> = [formatStatementSerial(row.code), `${"   ".repeat(Math.max(0, row.depth))}${row.label}`];
   if (row.kind === "heading") {
     values.push(null);
     if (!isBalance) values.push(null);
