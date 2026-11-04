@@ -1,6 +1,7 @@
 "use client";
 
 import React, { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { moneyAccount, transactionFieldVisible, applyAccountDefaults } from "@/lib/general-ledger-transaction-accounts";
 import { entryAccountOptions, isUserChartAccount } from "@/lib/general-ledger-account-options";
 import {
   AlertCircle,
@@ -45,7 +46,7 @@ type PageMeta = { current_page: number; last_page: number; per_page: number; tot
 type Preview = { preview_token?: string; entry?: Row; lines?: Row[]; totals?: Row; [key: string]: unknown };
 type EntryOptions = { rules: Row[]; accounts: Row[] };
 type FieldOption = { value: string; label: string };
-type Field = { name: string; label: string; type?: "text" | "number" | "date" | "textarea" | "select"; required?: boolean; placeholder?: string; help?: string; options?: FieldOption[]; defaultValue?: string; accounting?: boolean; inputMode?: "numeric"; pattern?: string; fullWidth?: boolean };
+type Field = { name: string; label: string; type?: "text" | "number" | "date" | "textarea" | "select"; required?: boolean; placeholder?: string; help?: string; options?: FieldOption[]; defaultValue?: string; accounting?: boolean; inputMode?: "numeric"; pattern?: string; fullWidth?: boolean; disabled?: boolean };
 
 const PAGE_SIZE = 15;
 const API = "/api/general-ledger";
@@ -80,7 +81,7 @@ const registerConfiguration: Record<RegisterKind, {
     singular: "expense",
     icon: CircleDollarSign,
     fields: [
-      { name: "rule_id", label: "Posting rule ID", required: true, placeholder: "Search Rules by code, then enter its ID" },
+      { name: "rule_id", label: "Account", required: true, placeholder: "Choose the account created in Rules" },
       { name: "transaction_date", label: "Expense date", type: "date", required: true },
       { name: "branch_id", label: "Branch (optional)", placeholder: "Branch ID" },
       { name: "amount", label: "Amount (TZS)", type: "number", required: true, placeholder: "0.00" },
@@ -88,7 +89,7 @@ const registerConfiguration: Record<RegisterKind, {
       { name: "reference", label: "Reference", placeholder: "Invoice, receipt, or voucher" },
       { name: "notes", label: "Notes", type: "textarea", placeholder: "Optional supporting notes" },
       { name: "settlement_status", label: "Settlement", type: "select", required: true, defaultValue: "paid", options: [{ value: "paid", label: "Paid now" }, { value: "unpaid", label: "Unpaid / payable" }] },
-      { name: "settlement_source", label: "Settlement source", type: "select", defaultValue: "cash", options: [{ value: "cash", label: "Cash" }, { value: "bank", label: "Bank" }, { value: "mobile_money", label: "Mobile money" }] },
+      { name: "settlement_account_id", label: "Paid from", required: true },
       { name: "creditor", label: "Creditor", placeholder: "Required when unpaid" },
       { name: "due_date", label: "Due date", type: "date" },
     ],
@@ -99,7 +100,9 @@ const registerConfiguration: Record<RegisterKind, {
     singular: "asset",
     icon: Package,
     fields: [
-      { name: "rule_id", label: "Posting rule ID", required: true, placeholder: "Search Rules by code, then enter its ID" },
+      { name: "rule_id", label: "Account", required: true, placeholder: "Choose the account created in Rules" },
+      { name: "settlement_account_id", label: "Paid from", required: true },
+      { name: "grant_counterpart_account_id", label: "Approved grant / donation account", required: true, help: "Choose the treatment approved for this grant. Falco does not guess it." },
       { name: "name", label: "Asset name", required: true, placeholder: "e.g. Dell Latitude laptop" },
       { name: "asset_type", label: "Asset type", type: "select", required: true, defaultValue: "fixed", options: [{ value: "fixed", label: "Fixed asset" }, { value: "current", label: "Current asset" }] },
       { name: "acquisition_type", label: "Received as", type: "select", required: true, defaultValue: "bought", options: [{ value: "bought", label: "Bought" }, { value: "granted", label: "Granted / donated" }] },
@@ -120,7 +123,8 @@ const registerConfiguration: Record<RegisterKind, {
     singular: "liability",
     icon: CircleDollarSign,
     fields: [
-      { name: "rule_id", label: "Posting rule ID", required: true, placeholder: "Search Rules by code, then enter its ID" },
+      { name: "rule_id", label: "Account", required: true, placeholder: "Choose the account created in Rules" },
+      { name: "settlement_account_id", label: "Money or related account", required: true },
       { name: "name", label: "Liability name", required: true, placeholder: "e.g. Supplier payable" },
       { name: "liability_type", label: "Liability type", type: "select", required: true, defaultValue: "payable", options: [{ value: "borrowed", label: "Borrowed funds" }, { value: "payable", label: "Manual or linked payable" }] },
       { name: "incurred_date", label: "Incurred date", type: "date", required: true },
@@ -137,7 +141,8 @@ const registerConfiguration: Record<RegisterKind, {
     singular: "income entry",
     icon: CircleDollarSign,
     fields: [
-      { name: "rule_id", label: "Income posting rule", required: true },
+      { name: "rule_id", label: "Income account", required: true },
+      { name: "settlement_account_id", label: "Received into", required: true },
       { name: "transaction_date", label: "Income date", type: "date", required: true },
       { name: "amount", label: "Amount (TZS)", type: "number", required: true },
       { name: "payee", label: "Source / payer", required: true },
@@ -151,6 +156,9 @@ const registerConfiguration: Record<RegisterKind, {
     singular: "capital entry",
     icon: Landmark,
     fields: [
+      { name: "capital_account_id", label: "Capital account (optional)", help: "Leave blank to use ordinary share capital." },
+      { name: "cash_account_id", label: "Cash account (optional)", help: "Leave blank to use Falco Cash on Hand." },
+      { name: "bank_account_id", label: "Bank account (optional)", help: "Leave blank to use Falco Bank Accounts." },
       { name: "transaction_date", label: "Contribution date", type: "date", required: true },
       { name: "cash_amount", label: "Capital received in cash (TZS)", type: "number", defaultValue: "0" },
       { name: "bank_amount", label: "Capital received in bank (TZS)", type: "number", defaultValue: "0" },
@@ -216,6 +224,9 @@ export function entryPayload(kind: Exclude<RegisterKind, "rules">, form: Record<
     transaction_date: form.transaction_date,
     cash_amount: form.cash_amount || "0",
     bank_amount: form.bank_amount || "0",
+    ...(form.capital_account_id ? { capital_account_id: Number(form.capital_account_id) } : {}),
+    ...(form.cash_account_id ? { cash_account_id: Number(form.cash_account_id) } : {}),
+    ...(form.bank_account_id ? { bank_account_id: Number(form.bank_account_id) } : {}),
     party_name: form.payee || null,
     reference: form.reference || null,
     description: form.notes || "Capital contribution",
@@ -229,6 +240,8 @@ export function entryPayload(kind: Exclude<RegisterKind, "rules">, form: Record<
 
   return {
     rule_id: Number(form.rule_id),
+    settlement_account_id: form.settlement_account_id ? Number(form.settlement_account_id) : null,
+    grant_counterpart_account_id: form.grant_counterpart_account_id ? Number(form.grant_counterpart_account_id) : null,
     transaction_date: form.transaction_date || form.acquisition_date || form.incurred_date,
     due_date: form.due_date || null,
     party_name: isExpense ? (form.settlement_status === "unpaid" ? form.creditor || form.payee : form.payee) : isIncomeOrCapital ? form.payee : isAsset ? (acquisitionMethod === "granted" ? form.donor : form.supplier) : form.creditor,
@@ -322,15 +335,15 @@ export function GeneralLedgerRegister({ kind, embedded = false, overview }: { ki
 
   function openEdit(row: Row): void {
     const aliases: Record<string, string> = {
-      payee: "party_name", notes: "description", settlement_status: "payment_status",
+      payee: "party_name", notes: "description", settlement_status: "payment_status", grant_counterpart_account_id: "counterpart_account_id",
       asset_type: "asset_class", acquisition_type: "acquisition_method", acquisition_date: "transaction_date",
       value: "amount", liability_type: "liability_kind", incurred_date: "transaction_date", creditor: "party_name",
     };
     const metadataFields = new Set(["name", "quantity", "location"]);
     const fields = Object.fromEntries(config.fields.map((field) => {
-      if (kind === "capital" && ["cash_amount", "bank_amount"].includes(field.name)) {
+      if (kind === "capital" && ["cash_amount", "bank_amount", "cash_account_id", "bank_account_id", "capital_account_id"].includes(field.name)) {
         const split = (row.metadata as { capital_split?: Record<string, unknown> } | undefined)?.capital_split;
-        return [field.name, String(split?.[field.name] ?? "0")];
+        return [field.name, String(split?.[field.name] ?? (field.name.endsWith("account_id") ? "" : "0"))];
       }
       let current = metadataFields.has(field.name) && kind !== "rules" ? metadataValue(row, field.name) : value(row, aliases[field.name] ?? field.name);
       if (field.name === "supplier" && value(row, "acquisition_method") === "bought") current = value(row, "party_name");
@@ -351,7 +364,7 @@ export function GeneralLedgerRegister({ kind, embedded = false, overview }: { ki
 
   async function submitForm(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
-    const missing = config.fields.filter((field) => {
+    const missing = config.fields.filter(field => transactionFieldVisible(kind, field.name, form)).map(field => resolvedField(field, kind, entryOptions, form, Boolean(editing))).filter((field) => {
       const required = field.required || (kind === "rules" && field.accounting && isRulePostingFieldRequired(field.name, form.category));
       return required && !form[field.name]?.trim();
     });
@@ -497,7 +510,7 @@ export function GeneralLedgerRegister({ kind, embedded = false, overview }: { ki
       {kind === "rules" ? <RulesList rows={rows} loading={loading} onEdit={openEdit} onArchive={archiveRule} /> : <RegisterTable kind={kind} rows={rows} loading={loading} onEdit={openEdit} onPay={(row) => { setPaymentFor(row); setPaymentAmount(""); setPaymentAccountId(""); setPaymentReference(""); setPaymentDescription(""); }} onPayments={(row) => void openPaymentHistory(row)} onReverse={(row) => { setReversing(row); setReversalReason(""); setReversalPath(`${kind}/${resourceId(row)}/reverse`); }} />}
       <Pagination meta={meta} loading={loading} onPage={(next) => void load(next, activeSearch)} />
     </main>
-    <EntryForm open={formOpen} kind={kind} form={form} editing={editing} entryOptions={entryOptions} saving={saving} error={error} onOpenChange={setFormOpen} onChange={(name, nextValue) => setForm((current) => name === "category" ? { ...current, category: nextValue, recognition_account_id: "", settlement_account_id: "", payable_account_id: "", grant_counterpart_account_id: "" } : { ...current, [name]: nextValue })} onSubmit={submitForm} />
+    <EntryForm open={formOpen} kind={kind} form={form} editing={editing} entryOptions={entryOptions} saving={saving} error={error} onOpenChange={setFormOpen} onChange={(name, nextValue) => setForm((current) => name === "category" ? { ...current, category: nextValue, recognition_account_id: "", settlement_account_id: "", payable_account_id: "", grant_counterpart_account_id: "" } : name === "rule_id" ? applyAccountDefaults({ ...current, [name]: nextValue }, entryOptions.rules.find(rule => resourceId(rule) === nextValue)) : { ...current, [name]: nextValue })} onSubmit={submitForm} />
     <PreviewDialog open={previewOpen} preview={preview} posting={posting} title={`Review ${config.singular} posting`} onOpenChange={setPreviewOpen} onPost={() => void postPreview()} />
     <Dialog open={Boolean(paymentFor)} onOpenChange={(open) => !open && setPaymentFor(null)}><DialogContent><form onSubmit={previewPayment}><DialogHeader><DialogTitle>Record liability payment</DialogTitle><DialogDescription>Create a partial or full payment draft. A balanced journal preview is required before posting.</DialogDescription></DialogHeader><div className="space-y-4 py-4"><div><Label htmlFor="liability-payment">Payment amount (TZS)</Label><Input id="liability-payment" className="mt-2" type="number" min="0.01" step="0.01" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} /></div><div><Label htmlFor="liability-payment-account">Settlement account</Label><Select value={paymentAccountId} onValueChange={setPaymentAccountId}><SelectTrigger id="liability-payment-account" className="mt-2"><SelectValue placeholder="Select cash, bank, or mobile-money account" /></SelectTrigger><SelectContent>{entryAccountOptions(entryOptions.accounts).map((account) => <SelectItem key={resourceId(account)} value={resourceId(account)}>{value(account, "code")} — {value(account, "name")}</SelectItem>)}</SelectContent></Select></div><div><Label htmlFor="liability-payment-reference">Reference</Label><Input id="liability-payment-reference" className="mt-2" value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} /></div><div><Label htmlFor="liability-payment-notes">Notes</Label><Textarea id="liability-payment-notes" className="mt-2" value={paymentDescription} onChange={(event) => setPaymentDescription(event.target.value)} /></div></div><DialogFooter><Button type="button" variant="outline" onClick={() => setPaymentFor(null)}>Cancel</Button><Button disabled={saving} type="submit">{saving ? <Loader2 className="size-4 animate-spin" /> : null}Create & preview payment</Button></DialogFooter></form></DialogContent></Dialog>
     <Dialog open={Boolean(paymentsFor)} onOpenChange={(open) => !open && setPaymentsFor(null)}><DialogContent className="sm:max-w-3xl"><DialogHeader><DialogTitle>Liability payments</DialogTitle><DialogDescription>Each payment is independently drafted, previewed, posted, and reversible.</DialogDescription></DialogHeader><div className="max-h-[50vh] overflow-auto"><Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Reference</TableHead><TableHead className="text-right">Amount</TableHead><TableHead>Status</TableHead><TableHead /></TableRow></TableHeader><TableBody>{paymentsLoading ? <TableRow><TableCell colSpan={5} className="py-8 text-center"><Loader2 className="mx-auto size-5 animate-spin" /></TableCell></TableRow> : payments.length ? payments.map((payment) => <TableRow key={resourceId(payment)}><TableCell>{value(payment, "payment_date")}</TableCell><TableCell>{value(payment, "reference")}</TableCell><TableCell className="text-right tabular-nums">{money(payment.amount)}</TableCell><TableCell><StatusBadge row={payment} /></TableCell><TableCell className="text-right">{["posted", "paid"].includes(value(payment, "status").toLowerCase()) && paymentsFor ? <Button size="sm" variant="ghost" onClick={() => { setReversing(payment); setReversalReason(""); setReversalPath(`liabilities/${resourceId(paymentsFor)}/payments/${resourceId(payment)}/reverse`); }}>Reverse</Button> : null}</TableCell></TableRow>) : <TableRow><TableCell colSpan={5} className="py-8 text-center text-sm text-muted-foreground">No payments have been recorded.</TableCell></TableRow>}</TableBody></Table></div></DialogContent></Dialog>
@@ -507,7 +520,7 @@ export function GeneralLedgerRegister({ kind, embedded = false, overview }: { ki
 
 function EntryForm({ open, kind, form, editing, entryOptions, saving, error, onOpenChange, onChange, onSubmit }: { open: boolean; kind: RegisterKind; form: Record<string, string>; editing: Row | null; entryOptions: EntryOptions; saving: boolean; error: string; onOpenChange: (open: boolean) => void; onChange: (name: string, value: string) => void; onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void> }) {
   const config = registerConfiguration[kind];
-  const visibleFields = config.fields.filter((field) => kind !== "rules" || !field.accounting || isRulePostingFieldVisible(field.name, form.category));
+  const visibleFields = config.fields.filter((field) => (kind !== "rules" || !field.accounting || isRulePostingFieldVisible(field.name, form.category)) && transactionFieldVisible(kind, field.name, form));
   const renderField = (field: Field) => <FormField key={field.name} field={resolvedField(field, kind, entryOptions, form, Boolean(editing))} value={form[field.name] ?? ""} compact={kind === "rules"} onChange={(next) => onChange(field.name, next)} />;
   return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className={`max-h-[90vh] overflow-y-auto sm:max-w-2xl ${kind === "rules" ? "p-5" : ""}`}><form onSubmit={(event) => void onSubmit(event)}><DialogHeader><DialogTitle>{editing ? `Edit ${config.singular}` : `Add ${config.singular}`}</DialogTitle><DialogDescription>{kind === "rules" ? "Name and classify the rule, then choose the accounts it will use automatically." : "The next step is a server-generated, balanced posting preview."}</DialogDescription></DialogHeader>
     {kind === "rules" ? <div className="space-y-4 py-4">
@@ -521,6 +534,30 @@ export function resolvedField(field: Field, kind: RegisterKind, entryOptions: En
   if (field.name === "rule_id") {
     const category = kind === "expenses" ? "expense" : kind === "assets" ? "asset" : kind === "income" ? "income" : kind === "capital" ? "capital" : "liability";
     return { ...field, type: "select", options: entryOptions.rules.filter((rule) => value(rule, "category") === category && !((rule.defaults as Record<string, unknown> | undefined)?.system_purpose)).map((rule) => ({ value: resourceId(rule), label: `${value(rule, "code")} — ${value(rule, "name")}` })) };
+  }
+
+  if (kind !== "rules" && ["asset_type", "liability_type"].includes(field.name)) {
+    const rule = entryOptions.rules.find(rule => resourceId(rule) === form.rule_id);
+    const defaults = rule?.defaults as Record<string, unknown> | undefined;
+    return { ...field, disabled: Boolean(defaults?.guided_chart_node_id && defaults[field.name === "asset_type" ? "asset_class" : "liability_kind"]) };
+  }
+  if (kind !== "rules" && field.name.endsWith("account_id")) {
+    let accounts = entryOptions.accounts.filter(account => ((account.metadata as { guided_setup?: { mode?: string } } | undefined)?.guided_setup?.mode !== "review"));
+    let label = field.label;
+    if (field.name === "settlement_account_id" && kind === "liabilities" && form.liability_type === "payable") {
+      accounts = entryAccountOptions(accounts, editing ? form[field.name] : undefined).filter(account => ["asset", "expense"].includes(value(account, "type")));
+      label = "What expense or asset is this amount owed for?";
+    } else if (field.name === "grant_counterpart_account_id") {
+      accounts = entryAccountOptions(accounts, editing ? form[field.name] : undefined).filter(account => ["equity", "income", "liability"].includes(value(account, "type")) && !((account.metadata as Record<string, unknown> | undefined)?.system_purpose));
+    } else if (field.name === "capital_account_id") {
+      accounts = accounts.filter(account => value(account, "type") === "equity" && (isUserChartAccount(account) || value(account, "code") === "3000") && value(account, "report_category") !== "bs.capital.profit_loss");
+    } else {
+      accounts = accounts.filter(moneyAccount);
+      if (field.name === "cash_account_id") accounts = accounts.filter(account => value(account, "code") === "1000" || value(account, "report_category") === "bs.cash.hand");
+      if (field.name === "bank_account_id") accounts = accounts.filter(account => value(account, "code") === "1020" || value(account, "report_category").startsWith("bs.cash.bank."));
+      if (kind === "liabilities") label = "Where was the money received?";
+    }
+    return { ...field, label, type: "select", help: accounts.length ? field.help : "Create a matching account in Rules / Chart of Accounts first.", options: accounts.map(account => ({ value: resourceId(account), label: `${value(account, "chart_code", "code")} — ${value(account, "name")}` })) };
   }
 
   if (field.name.endsWith("account_id")) {
@@ -555,7 +592,7 @@ export function resolvedField(field: Field, kind: RegisterKind, entryOptions: En
 export function FormField({ field, value: currentValue, compact = false, onChange }: { field: Field; value: string; compact?: boolean; onChange: (value: string) => void }) {
   const id = `gl-${field.name}`;
   const classes = `min-w-0 ${field.type === "textarea" || field.fullWidth ? "sm:col-span-2" : ""}${compact ? " [&_input]:mt-1.5 [&_textarea]:mt-1.5 [&_textarea]:min-h-16 [&_button]:mt-1.5" : ""}`;
-  return <div className={classes}><Label htmlFor={id} className="block leading-snug [overflow-wrap:anywhere]">{field.label}{field.required ? <span className="text-destructive"> *</span> : null}</Label>{field.type === "select" ? <Select value={currentValue} onValueChange={onChange}><SelectTrigger id={id} className="mt-2 w-full min-w-0 max-w-full text-left [&_[data-slot=select-value]]:block [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:flex-1 [&_[data-slot=select-value]]:truncate"><SelectValue placeholder={`Select ${field.label.toLowerCase()}`} /></SelectTrigger><SelectContent className="max-w-[calc(100vw-2rem)]">{field.options?.map((option) => <SelectItem key={option.value} value={option.value} className="whitespace-normal [overflow-wrap:anywhere]">{option.label}</SelectItem>)}</SelectContent></Select> : field.type === "textarea" ? <Textarea id={id} className="mt-2" value={currentValue} placeholder={field.placeholder} onChange={(event) => onChange(event.target.value)} /> : <Input id={id} className="mt-2" type={field.type ?? "text"} inputMode={field.inputMode} pattern={field.pattern} min={field.type === "number" ? "0" : undefined} step={field.type === "number" ? "0.01" : undefined} value={currentValue} placeholder={field.placeholder} onChange={(event) => onChange(event.target.value)} />}{field.help ? <p className="mt-1 text-xs text-muted-foreground">{field.help}</p> : null}</div>;
+  return <div className={classes}><Label htmlFor={id} className="block leading-snug [overflow-wrap:anywhere]">{field.label}{field.required ? <span className="text-destructive"> *</span> : null}</Label>{field.type === "select" ? <Select value={currentValue} onValueChange={onChange} disabled={field.disabled}><SelectTrigger id={id} className="mt-2 w-full min-w-0 max-w-full text-left [&_[data-slot=select-value]]:block [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:flex-1 [&_[data-slot=select-value]]:truncate"><SelectValue placeholder={`Select ${field.label.toLowerCase()}`} /></SelectTrigger><SelectContent className="max-w-[calc(100vw-2rem)]">{field.options?.map((option) => <SelectItem key={option.value} value={option.value} className="whitespace-normal [overflow-wrap:anywhere]">{option.label}</SelectItem>)}</SelectContent></Select> : field.type === "textarea" ? <Textarea id={id} className="mt-2" value={currentValue} placeholder={field.placeholder} onChange={(event) => onChange(event.target.value)} /> : <Input id={id} className="mt-2" type={field.type ?? "text"} inputMode={field.inputMode} pattern={field.pattern} min={field.type === "number" ? "0" : undefined} step={field.type === "number" ? "0.01" : undefined} value={currentValue} placeholder={field.placeholder} onChange={(event) => onChange(event.target.value)} />}{field.help ? <p className="mt-1 text-xs text-muted-foreground">{field.help}</p> : null}</div>;
 }
 
 export function RulesList({ rows, loading, onEdit, onArchive }: { rows: Row[]; loading: boolean; onEdit: (row: Row) => void; onArchive: (row: Row) => Promise<void> }) {

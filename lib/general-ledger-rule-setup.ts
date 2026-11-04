@@ -49,20 +49,20 @@ export function postingConfigurationIssue(
   if (kind === "expenses") {
     return form.settlement_status === "unpaid"
       ? missing(rule.payable_account_id, "This expense rule needs an Accounts Payable account before an unpaid expense can be recorded.")
-      : missing(rule.settlement_account_id, "This expense rule needs a cash, bank, or mobile-money account before a paid expense can be recorded.");
+      : missing(form.settlement_account_id || rule.settlement_account_id, "This expense rule needs a cash, bank, or mobile-money account before a paid expense can be recorded.");
   }
 
   if (kind === "assets") {
     if (form.acquisition_type === "granted") {
-      return missing(rule.grant_counterpart_account_id, "This asset rule needs an accountant-approved grant or donation source account before a granted asset can be recorded.");
+      return missing(form.grant_counterpart_account_id || rule.grant_counterpart_account_id, "This asset rule needs an accountant-approved grant or donation source account before a granted asset can be recorded.");
     }
 
     return form.settlement_status === "unpaid"
       ? missing(rule.payable_account_id, "This asset rule needs an Accounts Payable account before an unpaid purchase can be recorded.")
-      : missing(rule.settlement_account_id, "This asset rule needs a cash, bank, or mobile-money account before a paid purchase can be recorded.");
+      : missing(form.settlement_account_id || rule.settlement_account_id, "This asset rule needs a cash, bank, or mobile-money account before a paid purchase can be recorded.");
   }
 
-  return missing(rule.settlement_account_id, "This rule needs its other-side account before the entry can be recorded.");
+  return missing(form.settlement_account_id || rule.settlement_account_id, "This rule needs its other-side account before the entry can be recorded.");
 }
 
 function hasValue(value: unknown): boolean {
