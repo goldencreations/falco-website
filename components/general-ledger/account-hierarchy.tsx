@@ -5,10 +5,11 @@ import { Pencil, Plus, RefreshCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { chartDeleteConfirmation, matchingChartNodes, nextChartCode, type ChartNode } from "@/lib/account-hierarchy";
+import { chartDeleteConfirmation, matchingChartNodes, nextChartCode, chartAccountReadiness, compatibleAccountPurposes, type AccountPurpose, type ChartNode } from "@/lib/account-hierarchy";
 import { formatApiResponseError } from "@/lib/falco-api";
 
 export function ChartActions({ node, disabled, onEdit, onDelete }: {
@@ -23,6 +24,8 @@ export function ChartActions({ node, disabled, onEdit, onDelete }: {
 }
 
 export function AccountHierarchyWorkspace() {
+  const [purposes, setPurposes] = useState<AccountPurpose[]>([]);
+  const [purpose, setPurpose] = useState("");
   const [nodes, setNodes] = useState<ChartNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -43,8 +46,10 @@ export function AccountHierarchyWorkspace() {
     setLoading(true);
     setLoadError("");
     try {
-      const response = await fetch("/api/general-ledger/account-hierarchy", { cache: "no-store" });
-      const payload = await response.json();
+      const [response, purposeResponse] = await Promise.all([fetch("/api/general-ledger/account-hierarchy", { cache: "no-store" }), fetch("/api/general-ledger/account-hierarchy/options", { cache: "no-store" })]);
+      const [payload, purposePayload] = await Promise.all([response.json(), purposeResponse.json()]);
+      if (!purposeResponse.ok) throw new Error(formatApiResponseError(purposePayload, "Unable to load account purposes."));
+      setPurposes(purposePayload.data);
       if (!response.ok) throw new Error(formatApiResponseError(payload, "Unable to load accounts."));
       setNodes(payload.data.filter((node: ChartNode) => !node.deleted_at));
       setUnlinked(payload.unlinked_accounts);
@@ -56,10 +61,10 @@ export function AccountHierarchyWorkspace() {
   const visible = matchingChartNodes(nodes, search);
 
   function add(node: ChartNode) {
-    setEditing(null); setParent(node); setName(""); setDescription(""); setFormError(""); setFormOpen(true);
+    setEditing(null); setParent(node); setName(""); setDescription(""); setPurpose(""); setFormError(""); setFormOpen(true);
   }
   function edit(node: ChartNode) {
-    setEditing(node); setParent(null); setName(node.name); setDescription(node.description ?? ""); setFormError(""); setFormOpen(true);
+    setEditing(node); setParent(null); setName(node.name); setDescription(node.description ?? ""); setPurpose(node.account?.report_category ?? ""); setFormError(""); setFormOpen(true);
   }
   function confirmDelete(node: ChartNode) {
     setDeleteTarget(node); setDeleteError(""); setDeleteOpen(true);
@@ -78,7 +83,7 @@ export function AccountHierarchyWorkspace() {
     setSaving(true); setFormError("");
     try {
       await request(editing ? `/${editing.id}` : "", editing ? "PATCH" : "POST", {
-        ...(!editing ? { parent_id: parent!.id } : {}), name, description: description || null,
+        ...(!editing ? { parent_id: parent!.id } : {}), name, description: description || null, ...(isAccountForm ? { report_category: purpose } : {}),
       });
       setFormOpen(false);
       await load();
@@ -102,7 +107,7 @@ export function AccountHierarchyWorkspace() {
     const children = visible.filter(child => child.parent_id === node.id);
     if (node.account_id !== null) return <div key={node.id} className="flex flex-wrap items-center justify-between gap-2 border-t px-3 py-1.5 text-sm">
       <div className="min-w-0 flex-1 break-words"><span className="mr-3 font-mono">{node.code}</span>{node.name}{node.origin === "loan_system" ? <span className="ml-3 text-xs text-teal-700">Automatic — Loan Management</span> : null}
-        <p className="text-xs text-muted-foreground">{node.account?.is_active === false ? "Inactive · " : ""}Ledger {node.account?.code}</p>
+        <p className="text-xs text-muted-foreground">{node.account?.is_active === false ? "Inactive · " : ""}Ledger {node.account?.code}</p><p className={`mt-1 text-xs ${chartAccountReadiness(node).includes("Needs") ? "text-amber-800" : "text-teal-700"}`}>{chartAccountReadiness(node)}</p>
       </div>{actions(node)}
     </div>;
     return <details key={node.id} open={node.parent_id === null || Boolean(search)} className="rounded-md border bg-background">
@@ -115,6 +120,9 @@ export function AccountHierarchyWorkspace() {
     </details>;
   }
 
+  const isAccountForm = editing ? editing.account_id !== null : Boolean(parent && parent.parent_id !== null);
+  const accountType = editing?.type ?? parent?.type ?? "";
+  const selectedPurpose = purposes.find(option => option.value === purpose);
   const formTitle = editing ? (editing.account_id === null ? "Edit group" : "Edit account") : parent?.parent_id === null ? "Add account group" : "Add posting account";
   return <div className="min-h-0 flex-1 overflow-auto bg-muted/25">
     <header className="flex min-h-16 items-center gap-3 border-b bg-background px-4"><SidebarTrigger /><div><h1 className="text-base font-semibold">Rules / Chart of Accounts</h1><p className="text-xs text-muted-foreground">Private General Ledger workspace</p></div></header>
@@ -129,14 +137,27 @@ export function AccountHierarchyWorkspace() {
       {loading ? <p role="status">Loading accounts…</p> : nodes.length === 0 ? <p>The account hierarchy has not been initialized yet.</p> : visible.length === 0 ? <p>No matching accounts.</p> : <div className="space-y-3">{visible.filter(node => node.parent_id === null).map(branch)}</div>}
     </main>
     <Dialog open={formOpen} onOpenChange={open => !saving && setFormOpen(open)}><DialogContent className="max-h-[90vh] overflow-y-auto"><form onSubmit={event => void save(event)}>
-      <DialogHeader><DialogTitle>{formTitle}</DialogTitle><DialogDescription>{editing ? "Edit the chart name and description. Codes, ledger references and posted history stay unchanged." : `Under ${parent?.code} — ${parent?.name}. The server assigns the next available code when saved.`}</DialogDescription></DialogHeader>
+      <DialogHeader><DialogTitle>{formTitle}</DialogTitle><DialogDescription>{editing ? "Update the name or choose the purpose for an unused account. Accounts with posted history keep their report placement." : `Under ${parent?.code} — ${parent?.name}. Choose the purpose once. Falco assigns the code and connects the account to its register and reports.`}</DialogDescription></DialogHeader>
       <div className="space-y-4 py-4">
         <div><Label>{editing ? "Code" : "Suggested code"}</Label><p className="font-mono">{editing?.code ?? (parent ? nextChartCode(parent, nodes) ?? "Group full" : "")}</p></div>
         <div><Label htmlFor="chart-account-name">Name</Label><Input id="chart-account-name" className="mt-1" required maxLength={255} value={name} onChange={event => setName(event.target.value)} /></div>
+        {isAccountForm ? <div className="min-w-0 space-y-2">
+          <Label htmlFor="chart-account-purpose">What does this account represent? *</Label>
+          <Select value={purpose} onValueChange={setPurpose} disabled={Boolean(editing?.has_posted_history)}>
+            <SelectTrigger id="chart-account-purpose" className="w-full min-w-0 text-left [&_[data-slot=select-value]]:truncate"><SelectValue placeholder="Choose the closest description" /></SelectTrigger>
+            <SelectContent className="max-w-[calc(100vw-2rem)]">{compatibleAccountPurposes(purposes, accountType).map(option => <SelectItem key={option.value} value={option.value} className="whitespace-normal">{option.label}{option.mode === "review" ? " — needs review" : ""}</SelectItem>)}</SelectContent>
+          </Select>
+          {editing?.has_posted_history ? <p className="text-xs text-muted-foreground">This account has posted transactions. Its purpose is protected; create another account for a different purpose.</p> : null}
+          {selectedPurpose ? <div className={`rounded-md border p-3 text-sm ${selectedPurpose.mode === "review" ? "border-amber-300 bg-amber-50 text-amber-950" : "border-teal-200 bg-teal-50 text-teal-950"}`}>
+            <p className="font-medium">{selectedPurpose.mode === "review" ? "Needs accounting review" : selectedPurpose.mode === "settlement" ? "Ready for cash/bank transactions" : `Ready to use in ${selectedPurpose.register === "asset" ? "Assets" : selectedPurpose.register === "expense" ? "Expenses" : selectedPurpose.register === "liability" ? "Liabilities" : selectedPurpose.register === "income" ? "Income" : "Capital"}`}</p>
+            <p className="mt-1">{selectedPurpose.help}</p><p className="mt-1 text-xs">Appears in {purpose.startsWith("bs.") ? "Balance Sheet" : "Income & Expense"}: {selectedPurpose.report_label} ({selectedPurpose.report_line}).</p>
+          </div> : null}
+          <p className="text-xs text-muted-foreground">Creating an account records no money. Choose the money account when recording the actual transaction.</p>
+        </div> : null}
         <div><Label htmlFor="chart-account-description">Description (optional)</Label><Textarea id="chart-account-description" className="mt-1" value={description} onChange={event => setDescription(event.target.value)} /></div>
         {formError ? <p role="alert" className="text-sm text-destructive">{formError}</p> : null}
       </div>
-      <DialogFooter><Button type="button" variant="outline" disabled={saving} onClick={() => setFormOpen(false)}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? "Saving…" : "Save"}</Button></DialogFooter>
+      <DialogFooter><Button type="button" variant="outline" disabled={saving} onClick={() => setFormOpen(false)}>Cancel</Button><Button type="submit" disabled={saving || (isAccountForm && !purpose)}>{saving ? "Saving…" : isAccountForm ? "Save account and setup" : "Save group"}</Button></DialogFooter>
     </form></DialogContent></Dialog>
     <Dialog open={deleteOpen} onOpenChange={open => !saving && setDeleteOpen(open)}><DialogContent>
       <DialogHeader><DialogTitle>{deleteTarget ? chartDeleteConfirmation(deleteTarget) : "Confirm deletion"}</DialogTitle><DialogDescription>{deleteTarget?.code} — {deleteTarget?.name}. Recorded transactions and balances will not be deleted.{deleteTarget?.account_id === null ? " Groups must be empty first." : ""}</DialogDescription></DialogHeader>
