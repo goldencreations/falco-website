@@ -12,6 +12,7 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   formatStatementAmount,
+  formatStatementSerial,
   parseFinancialStatements,
   statementUrl,
   statementWorkspaceActions,
@@ -133,16 +134,16 @@ function StatementPanel({ view, report, canExport, exporting, onExport }: { view
   const balance = view === "balance";
   const statement = balance ? report.balance_sheet : report.income_statement;
   const checks = statement.checks ?? [];
-  return <Card><CardHeader className="gap-4 sm:flex-row sm:items-start sm:justify-between"><div><div className="flex flex-wrap items-center gap-2"><CardTitle className="text-lg">{balance ? "Balance Sheet" : "Income and Expense Statement"}</CardTitle><Badge variant="outline">{statement.code}</Badge><Badge variant="secondary">{statement.rows.length} lines</Badge></div><CardDescription className="mt-2">{balance ? `As of ${report.period.to}` : `Quarter ${report.period.quarter}: ${report.period.from}–${report.period.to}; calendar YTD from ${report.period.ytd_from}`} · {report.period.currency}</CardDescription></div>{canExport ? <Button variant="outline" onClick={() => onExport(view)} disabled={exporting !== null}><Download className="size-4" />{exporting === view ? "Preparing…" : `Download ${statement.code}.xlsx`}</Button> : null}</CardHeader><CardContent className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead className="w-28">Code</TableHead><TableHead>Description</TableHead>{balance ? <TableHead className="text-right">Amount</TableHead> : <><TableHead className="text-right">Quarter</TableHead><TableHead className="text-right">Calendar YTD</TableHead></>}</TableRow></TableHeader><TableBody>{statement.rows.map((row, index) => <StatementTableRow key={`${row.code}-${index}`} row={row} balance={balance} />)}</TableBody></Table>{checks.length ? <div className="mt-5 space-y-2 border-t pt-4"><p className="text-sm font-medium">Validation checks</p>{checks.map((check, index) => <CheckRow key={`${check.code ?? "check"}-${index}`} check={check} />)}</div> : null}</CardContent></Card>;
+  return <Card><CardHeader className="gap-4 sm:flex-row sm:items-start sm:justify-between"><div><div className="flex flex-wrap items-center gap-2"><CardTitle className="text-lg">{balance ? "Balance Sheet" : "Income and Expense Statement"}</CardTitle><Badge variant="outline">{statement.code}</Badge><Badge variant="secondary">{statement.rows.length} lines</Badge></div><CardDescription className="mt-2">{balance ? `As of ${report.period.to}` : `Quarter ${report.period.quarter}: ${report.period.from}–${report.period.to}; calendar YTD from ${report.period.ytd_from}`} · {report.period.currency}</CardDescription></div>{canExport ? <Button variant="outline" onClick={() => onExport(view)} disabled={exporting !== null}><Download className="size-4" />{exporting === view ? "Preparing…" : `Download ${statement.code}.xlsx`}</Button> : null}</CardHeader><CardContent className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead className="w-28">S/N</TableHead><TableHead>Description</TableHead>{balance ? <TableHead className="text-right">Amount</TableHead> : <><TableHead className="text-right">Quarter</TableHead><TableHead className="text-right">Calendar YTD</TableHead></>}</TableRow></TableHeader><TableBody>{statement.rows.map((row, index) => <StatementTableRow key={`${row.code}-${index}`} row={row} balance={balance} />)}</TableBody></Table>{checks.length ? <div className="mt-5 space-y-2 border-t pt-4"><p className="text-sm font-medium">Validation checks</p>{checks.map((check, index) => <CheckRow key={`${check.code ?? "check"}-${index}`} check={check} />)}</div> : null}</CardContent></Card>;
 }
 
 function StatementTableRow({ row, balance }: { row: StatementRow; balance: boolean }) {
   const hasSources = row.accounts.length > 0 || (row.ytd_accounts?.length ?? 0) > 0;
   return <TableRow className={cn(row.kind === "heading" && "bg-muted/60", row.kind !== "detail" && "font-semibold")}>
-    <TableCell className="font-mono text-xs">{row.code}</TableCell>
+    <TableCell className="font-mono text-xs">{formatStatementSerial(row.code)}</TableCell>
     <TableCell style={{ paddingLeft: `${Math.max(0, row.depth) * 20 + 16}px` }}>
       <span>{row.label}</span>
-      {row.formula_components?.length ? <span className="ml-2 text-xs font-normal text-muted-foreground">{row.formula_components.map((component, index) => `${component.sign < 0 ? "− " : index ? "+ " : ""}${component.code}`).join(" ")}</span> : null}
+      {row.formula_components?.length ? <span className="ml-2 text-xs font-normal text-muted-foreground">{row.formula_components.map((component, index) => `${component.sign < 0 ? "− " : index ? "+ " : ""}${formatStatementSerial(component.code)}`).join(" ")}</span> : null}
       {row.calculation ? <p className="text-xs font-normal text-muted-foreground">{row.calculation}</p> : null}
       {hasSources ? <details className="mt-1 text-xs font-normal">
         <summary className="cursor-pointer text-muted-foreground">View source accounts</summary>

@@ -106,3 +106,11 @@ export function formatStatementAmount(value?: string): string {
   if (!Number.isFinite(amount)) return value;
   return new Intl.NumberFormat("en-TZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
 }
+
+
+/** Display report hierarchy as serial numbers without changing calculation identifiers. */
+export function formatStatementSerial(code: string): string {
+  const match = /^(\d+)(?:\.([a-z]))?(?:\.([ivxlcdm]+))?$/.exec(code);
+  if (!match) return code;
+  return `${match[1]}${match[2] ?? ""}${match[3] ? `(${match[3]})` : ""}`;
+}

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import ExcelJS from "exceljs";
 import { buildFinancialStatementWorkbook } from "./financial-statements-export";
-import { statementUrl, type FinancialStatementsReport, type StatementRow } from "./financial-statements";
+import { formatStatementSerial, statementUrl, type FinancialStatementsReport, type StatementRow } from "./financial-statements";
 
 function report(): FinancialStatementsReport {
   const balance: StatementRow[] = [
@@ -27,6 +27,14 @@ function report(): FinancialStatementsReport {
 }
 
 describe("financial statement Excel exports", () => {
+  it("formats report serial numbers while retaining unknown identifiers", () => {
+    assert.equal(formatStatementSerial("1"), "1");
+    assert.equal(formatStatementSerial("1.a"), "1a");
+    assert.equal(formatStatementSerial("1.b.i"), "1b(i)");
+    assert.equal(formatStatementSerial("9.a.iii"), "9a(iii)");
+    assert.equal(formatStatementSerial("15.h"), "15h");
+    assert.equal(formatStatementSerial("MSP2_01"), "MSP2_01");
+  });
   it("preserves forward subtotal references, exact displayed cents, zero rows, and snapshot profit", async () => {
     const input = report();
     input.balance_sheet.rows.push({ code: "16", label: "Zero row", depth: 0, kind: "detail", amount: "0.00", accounts: [] });
@@ -37,6 +45,9 @@ describe("financial statement Excel exports", () => {
     const sheet = reopened.getWorksheet("MSP2_01")!;
     assert.equal(reopened.worksheets.length, 1);
     assert.equal(sheet.rowCount, 6 + input.balance_sheet.rows.length);
+    assert.equal(sheet.getCell("A6").value, "S/N");
+    assert.equal(sheet.getCell("A8").value, "1a");
+    assert.equal(sheet.getCell("A9").value, "1b");
     assert.deepEqual(sheet.getCell("C7").value, { formula: "C8+C9", result: 100.3 });
     assert.equal(sheet.getCell("C8").value, 0.1);
     assert.equal(sheet.getCell("C10").value, -5.1);
