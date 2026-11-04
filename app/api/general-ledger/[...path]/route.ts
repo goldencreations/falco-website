@@ -30,13 +30,16 @@ async function proxy(request: Request, context: RouteContext) {
     body,
     headers: {
       Authorization: `Bearer ${token}`,
-      Accept: request.headers.get("accept") ?? "application/json",
+      Accept: request.headers.get("accept")?.includes("text/csv") ? "text/csv" : "application/json",
       ...(body ? { "Content-Type": request.headers.get("content-type") ?? "application/json" } : {}),
       "User-Agent": "FalcoWebsite/1.0 (Next.js)",
     },
     cache: "no-store",
   });
 
+  if (response.headers.get("content-type")?.includes("text/html")) {
+    return NextResponse.json({ message: "The General Ledger service could not complete this request. Please try again." }, { status: response.ok ? 502 : response.status });
+  }
   const responseBody = await response.arrayBuffer();
   const headers = new Headers();
   for (const name of ["content-type", "content-disposition"]) {
