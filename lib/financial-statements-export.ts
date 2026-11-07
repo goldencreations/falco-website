@@ -1,4 +1,4 @@
-import { formatStatementSerial, type FinancialStatementsReport, type StatementRow } from "@/lib/financial-statements";
+import { calendarYtdQuarters, formatStatementSerial, type FinancialStatementsReport, type StatementRow } from "@/lib/financial-statements";
 
 type ExcelJsModule = typeof import("exceljs");
 
@@ -58,7 +58,9 @@ export async function buildFinancialStatementWorkbook(report: FinancialStatement
   }
   worksheet.getRow(6).values = isBalance
     ? ["S/N", "Description", "Amount"]
-    : ["S/N", "Description", `Quarter ${report.period.quarter}`, `Calendar YTD from ${report.period.ytd_from}`];
+    : ["S/N", "Description", `Quarter ${report.period.quarter}`, `Calendar YTD (${calendarYtdQuarters(report.period.quarter)})`];
+  worksheet.getRow(6).alignment = { wrapText: true, vertical: "middle" };
+  worksheet.getRow(6).height = 32;
   worksheet.getRow(6).font = { bold: true, color: { argb: "FFFFFFFF" } };
   worksheet.getRow(6).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF111827" } };
 

@@ -74,3 +74,15 @@ describe("financial statement Excel exports", () => {
     assert.equal(statementUrl(2026, 2, true), "/api/general-ledger/reports/financial-statements?year=2026&quarter=2&format=xlsx_data");
   });
 });
+
+it("exports the cumulative-quarter heading and keeps YTD separate from quarter amounts", async () => {
+  for (const quarter of [1, 2, 3, 4]) {
+    const input = report();
+    input.period.quarter = quarter;
+    const workbook = await buildFinancialStatementWorkbook(input, "income");
+    const sheet = workbook.getWorksheet("MSP2_02")!;
+    assert.equal(sheet.getCell("D6").value, `Calendar YTD (${Array.from({ length: quarter }, (_, index) => `Q${index + 1}`).join(" + ")})`);
+    assert.equal(sheet.getCell("C7").value, 50.2);
+    assert.equal(sheet.getCell("D7").value, 100.3);
+  }
+});

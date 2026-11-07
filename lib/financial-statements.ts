@@ -114,3 +114,7 @@ export function formatStatementSerial(code: string): string {
   if (!match) return code;
   return `${match[1]}${match[2] ?? ""}${match[3] ? `(${match[3]})` : ""}`;
 }
+
+export function calendarYtdQuarters(quarter: number): string {
+  return Array.from({ length: quarter }, (_, index) => `Q${index + 1}`).join(" + ");
+}
