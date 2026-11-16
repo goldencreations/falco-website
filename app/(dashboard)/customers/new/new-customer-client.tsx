@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -37,7 +36,7 @@ import {
  SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { Skeleton } from "@/components/ui/skeleton";
+import { CustomerLocationPin } from "@/components/customers/customer-location-pin";
 import { Textarea } from "@/components/ui/textarea";
 import type { Branch, User } from "@/lib/types";
 import {
@@ -103,17 +102,6 @@ import { CUSTOMER_ID_TYPE_OPTIONS } from "@/lib/customer-id-types";
 import { parseNominatimAddress, reverseGeocodeNominatim } from "@/lib/nominatim";
 import { searchPlacesInTanzania, type PlaceSuggestion } from "@/lib/nominatim-search";
 import { useSessionUser } from "@/lib/use-session-user";
-
-const CustomerLocationMapPicker = dynamic(
-  () =>
-    import("@/components/customers/business-location-map-picker").then(
-      (mod) => mod.CustomerLocationMapPicker
-    ),
-  {
-    ssr: false,
-    loading: () => <Skeleton className="h-[220px] w-full rounded-md border border-border" />,
-  }
-);
 
 type CustomerStatus =
  | "pending_registration_fee"
@@ -524,16 +512,14 @@ export default function NewCustomerPageClient() {
  setResolvingHomeLocation(true);
  try {
  const place = await reverseGeocodeNominatim(lat, lng);
- setForm((prev) => ({
+ setForm((prev) => prev.home_latitude === lat && prev.home_longitude === lng ? {
  ...prev,
- home_latitude: lat,
- home_longitude: lng,
  physical_address: place.displayName || prev.physical_address,
  street: place.locationName || prev.street,
  ward: place.ward || prev.ward,
  district: place.district || prev.district,
  region: place.region || prev.region,
- }));
+ } : prev);
  } catch {
  /* keep coordinates even if reverse geocode fails */
  } finally {
@@ -1408,10 +1394,10 @@ export default function NewCustomerPageClient() {
  {resolvingHomeLocation ? (
  <p className="flex items-center gap-2 text-xs text-muted-foreground">
  <Loader2 className="h-3.5 w-3.5 animate-spin" />
- Filling address from map location…
+ Filling address from pinned location…
  </p>
  ) : null}
- <CustomerLocationMapPicker
+ <CustomerLocationPin
  purpose="home"
  latitude={form.home_latitude}
  longitude={form.home_longitude}
@@ -1555,7 +1541,7 @@ export default function NewCustomerPageClient() {
  />
  </div>
  <div className="space-y-2 md:col-span-2">
- <CustomerLocationMapPicker
+ <CustomerLocationPin
  purpose="business"
  latitude={form.business_latitude}
  longitude={form.business_longitude}
