@@ -245,3 +245,17 @@ export function CustomerLocationMapPicker({
 export function BusinessLocationMapPicker(props: Omit<CustomerLocationMapPickerProps, "purpose">) {
   return <CustomerLocationMapPicker {...props} purpose="business" />;
 }
+
+export function SavedLocationMap({ latitude, longitude, purpose }: { latitude: number; longitude: number; purpose: "home" | "business" }) {
+  const position: LatLngTuple = [latitude, longitude];
+
+  return (
+    <MapContainer center={position} zoom={16} className="z-0 h-56 w-full rounded-md" scrollWheelZoom={false}>
+      <TileLayer
+        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+      />
+      <Marker position={position} icon={markerIcon(purpose)} />
+    </MapContainer>
+  );
+}
