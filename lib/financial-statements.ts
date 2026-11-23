@@ -68,6 +68,19 @@ export type FinancialStatementsReport = {
 
 export type ReportCategory = { value: string; label: string; statement?: string; code?: string };
 
+export function statementReadinessMessage(report: Pick<FinancialStatementsReport, "completeness" | "unmapped_accounts" | "checks">): string {
+  if (report.unmapped_accounts.length > 0 || report.completeness.mapping_complete === false) {
+    return "Accounts with report activity need a compatible report category. Review the affected accounts below.";
+  }
+  if (report.checks?.some((check) => check.passed === false)) {
+    return "The posted balances do not pass all report checks. Review the validation results below.";
+  }
+  if (report.completeness.status !== "complete") {
+    return "Accounts with report activity have valid report categories. Resolve the loan posting and historical review issues below before treating these statements as complete.";
+  }
+  return "Accounts with report activity have valid report categories, and the posted balances pass the report checks.";
+}
+
 // Keep report-page editing paused without removing the tools or changing other ledger screens.
 export const FINANCIAL_STATEMENT_EDITING_ENABLED = false;
 
