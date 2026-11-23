@@ -17,6 +17,7 @@ import {
   parseFinancialStatements,
   statementUrl,
   statementWorkspaceActions,
+  statementReadinessMessage,
   type FinancialStatementsReport,
   type ReportCategory,
   type StatementRow,
@@ -128,7 +129,7 @@ export function FinancialStatementsClient() {
 
 function CompletenessBanner({ report }: { report: FinancialStatementsReport }) {
   const complete = report.completeness.status === "complete";
-  return <div className={cn("flex items-start gap-3 rounded-lg border p-4", complete ? "border-emerald-200 bg-emerald-50 text-emerald-950" : "border-amber-200 bg-amber-50 text-amber-950")}>{complete ? <CheckCircle2 className="mt-0.5 size-5 shrink-0" /> : <AlertTriangle className="mt-0.5 size-5 shrink-0" />}<div><p className="font-medium">{complete ? "Posted balances reconcile" : "Report needs review"}</p><p className="mt-1 text-sm">{report.completeness.mapped_accounts} of {report.completeness.total_accounts} active accounts have report categories. {complete ? "The mapped posted balances pass the report checks." : "Review the unmapped balances and validation results below."}</p></div></div>;
+  return <div className={cn("flex items-start gap-3 rounded-lg border p-4", complete ? "border-emerald-200 bg-emerald-50 text-emerald-950" : "border-amber-200 bg-amber-50 text-amber-950")}>{complete ? <CheckCircle2 className="mt-0.5 size-5 shrink-0" /> : <AlertTriangle className="mt-0.5 size-5 shrink-0" />}<div><p className="font-medium">{complete ? "Posted balances reconcile" : "Report needs review"}</p><p className="mt-1 text-sm">{statementReadinessMessage(report)}</p></div></div>;
 }
 
 function StatementPanel({ view, report, canExport, exporting, onExport }: { view: View; report: FinancialStatementsReport; canExport: boolean; exporting: View | null; onExport: (view: View) => void }) {
