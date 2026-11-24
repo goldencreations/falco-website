@@ -1,4 +1,5 @@
 "use client";
+import { FINANCE_ACTION_DENIED_MESSAGE } from "@/lib/finance-action-access";
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -478,6 +479,7 @@ function DisbursementDetailPanel({
  <dt className="text-muted-foreground">Approved by</dt>
  <dd className="text-right font-medium">{approved}</dd>
  </div>
+ {row.completed_by_name ? <div><dt className="text-muted-foreground">Completed by</dt><dd>{row.completed_by_name}</dd></div> : null}
  <div className="flex justify-between gap-4">
  <dt className="text-muted-foreground">Rejected by</dt>
  <dd className="text-right font-medium">{rejectedU}</dd>
@@ -619,6 +621,7 @@ export default function DisbursementsPage() {
  const [expandedRejectedRows, setExpandedRejectedRows] = useState<Set<string>>(new Set());
 
  const load = useCallback(async (opts?: { silent?: boolean }) => {
+ if (!sessionLoaded || !canPrepareDisbursement) { setLoading(false); return; }
  if (!opts?.silent) {
  setLoading(true);
  setError(null);
@@ -659,7 +662,7 @@ export default function DisbursementsPage() {
  } finally {
  if (!opts?.silent) setLoading(false);
  }
- }, [statusFilter, searchQuery, bumpListReveal]);
+ }, [statusFilter, searchQuery, bumpListReveal, sessionLoaded, canPrepareDisbursement]);
 
  useEffect(() => {
  void load();
@@ -809,6 +812,8 @@ export default function DisbursementsPage() {
  rejectedByName: row.rejected_by ? row.rejected_by_name ?? row.rejected_by : null,
  });
  }, []);
+
+ if (sessionLoaded && !canPrepareDisbursement) return <main className="p-6"><p role="alert">{FINANCE_ACTION_DENIED_MESSAGE}</p></main>;
 
  return (
  <>
@@ -1129,6 +1134,7 @@ export default function DisbursementsPage() {
  </TableCell>
  <TableCell className="text-sm">
  {staffDisplayLabel(row.prepared_by_name, row.prepared_by)}
+ {row.completed_by_name ? <p className="text-xs text-muted-foreground">Completed by: {row.completed_by_name}</p> : null}
  </TableCell>
  <TableCell className="text-xs text-muted-foreground">
  <div className="space-y-0.5">
@@ -1303,6 +1309,7 @@ export default function DisbursementsPage() {
  <span className="text-muted-foreground">Prepared by</span>
  <span>{staffDisplayLabel(row.prepared_by_name, row.prepared_by)}</span>
  </div>
+ {row.completed_by_name ? <p className="text-xs text-muted-foreground">Completed by: {row.completed_by_name}</p> : null}
  {confirmedRejected && rejectedOpen && (
  <div className="min-w-0 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2">
  <p className="font-medium text-destructive">Why this was rejected</p>

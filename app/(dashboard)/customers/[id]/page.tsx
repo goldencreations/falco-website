@@ -98,7 +98,7 @@ import {
 import { resolveMediaViewUrl } from "@/components/media/cached-media-preview";
 import { toMediaPreviewUrl } from "@/lib/document-proxy";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/formatters";
-import { paymentMethodLabel, paymentSourceLabel } from "@/lib/payment-method-display";
+import { paymentMethodLabel, paymentSourceLabel, paymentRecordedByLabel } from "@/lib/payment-method-display";
 import { adaptApiCustomerRowToCustomer, extractCustomerDetail } from "@/lib/customer-adapters";
 import { customerToFormPayload } from "@/lib/customer-payload";
 import type { CustomerPortfolioData } from "@/lib/customer-portfolio-detail";
@@ -1304,6 +1304,7 @@ export default function CustomerDetailPage() {
  <TableHead className="text-right">Amount</TableHead>
  <TableHead>Method</TableHead>
  <TableHead>Source</TableHead>
+ <TableHead>Recorded by</TableHead>
  <TableHead>Allocation</TableHead>
  <TableHead>Status</TableHead>
  <TableHead>Date</TableHead>
@@ -1312,7 +1313,7 @@ export default function CustomerDetailPage() {
  <TableBody>
  {customerPayments.length === 0 ? (
  <TableRow>
- <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+ <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
  No payments found
  </TableCell>
  </TableRow>
@@ -1333,6 +1334,7 @@ export default function CustomerDetailPage() {
  {paymentSourceLabel(payment)}
  </Badge>
  </TableCell>
+ <TableCell>{paymentRecordedByLabel(payment)}</TableCell>
  <TableCell>
  <div className="text-xs space-y-0.5">
  <div className="flex justify-between gap-4">

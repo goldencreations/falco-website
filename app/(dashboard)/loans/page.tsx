@@ -1,4 +1,6 @@
 "use client";
+import { toast } from "sonner";
+import { canPostFinancialTransactions, FINANCE_ACTION_DENIED_MESSAGE } from "@/lib/finance-action-access";
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -443,7 +445,7 @@ export default function LoansPage() {
  </Button>
  {loanAcceptsPayment(loan) ? (
  <Button size="sm" variant="outline" className="h-8 flex-1 min-w-[7rem]" asChild>
- <Link href={`${paymentsBasePath}?loan=${loan.id}&openPayment=1`}>
+ <Link href={`${paymentsBasePath}?loan=${loan.id}&openPayment=1`} onClick={(event) => { if (!canPostFinancialTransactions(user)) { event.preventDefault(); toast.error(FINANCE_ACTION_DENIED_MESSAGE); } }}>
  <CreditCard className="mr-1 h-3.5 w-3.5" />
  Record Payment
  </Link>
@@ -609,7 +611,7 @@ export default function LoansPage() {
  </Button>
  {loanAcceptsPayment(loan) ? (
  <Button variant="ghost" size="sm" asChild title="Record payment">
- <Link href={`${paymentsBasePath}?loan=${loan.id}&openPayment=1`}>
+ <Link href={`${paymentsBasePath}?loan=${loan.id}&openPayment=1`} onClick={(event) => { if (!canPostFinancialTransactions(user)) { event.preventDefault(); toast.error(FINANCE_ACTION_DENIED_MESSAGE); } }}>
  <CreditCard className="h-4 w-4" />
  </Link>
  </Button>

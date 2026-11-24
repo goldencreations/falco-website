@@ -1,4 +1,6 @@
 "use client";
+import { toast } from "sonner";
+import { canPostFinancialTransactions, FINANCE_ACTION_DENIED_MESSAGE } from "@/lib/finance-action-access";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -705,7 +707,7 @@ export default function ApplicationsPage() {
  <span>{successMessage}</span>
  <div className="flex gap-2">
  <Button size="sm" variant="outline" asChild>
- <Link href="/disbursements">Loan Disbursement</Link>
+ <Link href="/disbursements" onClick={(event) => { if (!canPostFinancialTransactions(user)) { event.preventDefault(); toast.error(FINANCE_ACTION_DENIED_MESSAGE); } }}>Loan Disbursement</Link>
  </Button>
  <Button size="sm" variant="ghost" onClick={() => setSuccessMessage(null)}>
  Dismiss

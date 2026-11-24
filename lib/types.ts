@@ -416,6 +416,7 @@ export interface Payment {
  
  notes?: string;
  received_by: string;
+ received_by_name?: string | null;
  created_at: string;
 }
 

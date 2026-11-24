@@ -199,6 +199,7 @@ export function adaptApiDisbursementRow(raw: Record<string, unknown>): Disbursem
  ? (row.metadata as Record<string, unknown>)
  : undefined,
  prepared_by: str(row.prepared_by ?? row.created_by ?? ""),
+ completed_by_name: row.completed_by_name != null ? str(row.completed_by_name) : null,
  approved_by: row.approved_by != null ? str(row.approved_by) : null,
  approved_at: row.approved_at ? str(row.approved_at) : null,
  rejected_by: row.rejected_by != null ? str(row.rejected_by) : null,

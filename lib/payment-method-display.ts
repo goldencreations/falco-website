@@ -50,3 +50,9 @@ export function paymentSourceLabel(payment: PaymentLike): "Automatic" | "Manual"
   const source = raw == null ? "" : String(raw).toLowerCase();
   return AUTOMATIC_SOURCES.has(source) ? "Automatic" : "Manual";
 }
+
+export function paymentRecordedByLabel(payment: PaymentLike & { received_by_name?: string | null }): string {
+  const name = payment.received_by_name?.trim();
+  if (name) return name;
+  return paymentSourceLabel(payment) === "Automatic" ? "Automatic gateway" : "Not recorded";
+}

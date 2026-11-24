@@ -1,3 +1,4 @@
+import { canPostFinancialTransactions, FINANCE_ACTION_DENIED_MESSAGE } from "@/lib/finance-action-access";
 import { NextResponse } from "next/server";
 import { adaptApiDisbursementRow } from "@/lib/disbursement-adapters";
 import { enrichDisbursementRowsWithUserNames } from "@/lib/disbursement-enrichment";
@@ -19,6 +20,7 @@ export async function GET(
 ) {
  const auth = await requireApiUser(request);
  if ("response" in auth) return auth.response;
+ if (!canPostFinancialTransactions(auth.user)) return NextResponse.json({ message: FINANCE_ACTION_DENIED_MESSAGE, error: FINANCE_ACTION_DENIED_MESSAGE }, { status: 403 });
  const { id } = await context.params;
 
  const res = await falcoServerFetch<unknown>(`/disbursements/${encodeURIComponent(id)}`);
@@ -50,6 +52,7 @@ export async function PATCH(
 ) {
  const auth = await requireApiUser(request);
  if ("response" in auth) return auth.response;
+ if (!canPostFinancialTransactions(auth.user)) return NextResponse.json({ message: FINANCE_ACTION_DENIED_MESSAGE, error: FINANCE_ACTION_DENIED_MESSAGE }, { status: 403 });
  const { id } = await context.params;
 
  const pre = await falcoServerFetch<unknown>(`/disbursements/${encodeURIComponent(id)}`);
@@ -84,7 +87,7 @@ export async function PATCH(
 
  if (!canApproveDisbursement(auth.user)) {
  return NextResponse.json(
- { error: "You do not have permission to approve or complete disbursements." },
+ { error: FINANCE_ACTION_DENIED_MESSAGE },
  { status: 403 }
  );
  }

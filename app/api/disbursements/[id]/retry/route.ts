@@ -1,3 +1,4 @@
+import { canPostFinancialTransactions, FINANCE_ACTION_DENIED_MESSAGE } from "@/lib/finance-action-access";
 import { NextResponse } from "next/server";
 import { adaptApiDisbursementRow } from "@/lib/disbursement-adapters";
 import { enrichDisbursementRowsWithUserNames } from "@/lib/disbursement-enrichment";
@@ -27,10 +28,11 @@ export async function POST(
 ) {
   const auth = await requireApiUser(request);
   if ("response" in auth) return auth.response;
+ if (!canPostFinancialTransactions(auth.user)) return NextResponse.json({ message: FINANCE_ACTION_DENIED_MESSAGE, error: FINANCE_ACTION_DENIED_MESSAGE }, { status: 403 });
 
   if (!canApproveDisbursement(auth.user)) {
     return NextResponse.json(
-      { message: "You do not have permission to retry disbursements." },
+      { message: FINANCE_ACTION_DENIED_MESSAGE },
       { status: 403 }
     );
   }

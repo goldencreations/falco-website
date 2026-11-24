@@ -1,4 +1,5 @@
 "use client";
+import { canPostFinancialTransactions, FINANCE_ACTION_DENIED_MESSAGE } from "@/lib/finance-action-access";
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -68,7 +69,7 @@ import { formatApiResponseError } from "@/lib/falco-api";
 import { forceCachedReload } from "@/lib/client-fetch-cache";
 import { formatCurrency, formatDateTime } from "@/lib/formatters";
 import { parseJsonResponse } from "@/lib/parse-json-response";
-import { paymentMethodLabel, paymentSourceLabel } from "@/lib/payment-method-display";
+import { paymentMethodLabel, paymentSourceLabel, paymentRecordedByLabel } from "@/lib/payment-method-display";
 import { isBranchScopedStaffRole, rolePortalBase } from "@/lib/role-portal";
 import { useSessionUser } from "@/lib/use-session-user";
 import {
@@ -184,14 +185,8 @@ export default function PaymentsPage() {
  const [reverseReason, setReverseReason] = useState("");
  const [reverseLoading, setReverseLoading] = useState(false);
  const [manualExceptionConfirmed, setManualExceptionConfirmed] = useState(false);
- const canCreatePayment =
- user?.role === "super_admin" ||
- user?.role === "accountant" ||
- Boolean(user?.permissions?.includes("payments.create"));
- const canReverse =
- user?.role === "super_admin" ||
- user?.role === "accountant" ||
- Boolean(user?.permissions?.includes("payments.reverse"));
+ const canCreatePayment = canPostFinancialTransactions(user);
+ const canReverse = canPostFinancialTransactions(user);
 
  const load = useCallback(async (opts?: { silent?: boolean }) => {
  // After the first paint, keep the table mounted — focus / tab / poll refreshes
@@ -398,8 +393,11 @@ useEffect(() => {
  if (!preselectedLoan) return;
  setSelectedLoan(preselectedLoan.id);
  if (!paymentAmount) setPaymentAmount(String(Math.round(preselectedLoan.total_outstanding)));
- if (openPaymentForm === "1") setIsDialogOpen(true);
- }, [preselectedLoan, openPaymentForm, paymentAmount]);
+ if (openPaymentForm === "1") {
+  if (canCreatePayment) setIsDialogOpen(true);
+  else if (user?.role) setError(FINANCE_ACTION_DENIED_MESSAGE);
+ }
+ }, [preselectedLoan, openPaymentForm, paymentAmount, canCreatePayment, user?.role]);
 
  useEffect(() => {
   if (!isDialogOpen) {
@@ -413,7 +411,7 @@ useEffect(() => {
 
  const handleRecordPayment = async () => {
  if (!canCreatePayment) {
- setError("You do not have permission to record payments.");
+ setError(FINANCE_ACTION_DENIED_MESSAGE);
  return;
  }
  if (!selectedLoan || !paymentAmount) return;
@@ -623,7 +621,7 @@ useEffect(() => {
  </div>
  <p className="text-xs text-muted-foreground">
  ClickPesa BillPay repayments should appear here automatically after webhook confirmation.
- Use Record payment only for cash/officer collections or verified fallbacks.
+ Only Accountant and Admin can record cash collections or verified fallback payments.
  </p>
  </div>
  <div className="flex gap-2">
@@ -635,22 +633,23 @@ useEffect(() => {
  <Download className="mr-2 h-4 w-4" />
  Export
  </Button>
- <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
- {canCreatePayment ? (
+ <Dialog open={isDialogOpen} onOpenChange={(open) => {
+ if (open && !canCreatePayment) { setError(FINANCE_ACTION_DENIED_MESSAGE); return; }
+ setIsDialogOpen(open);
+ }}>
  <DialogTrigger asChild>
  <Button type="button" variant="outline">
  <Plus className="mr-2 h-4 w-4" />
  Record payment
  </Button>
  </DialogTrigger>
- ) : null}
  <DialogContent
  className="flex w-[calc(100%-1.5rem)] max-h-[calc(100dvh-1.5rem)] max-w-md scale-100 flex-col gap-0 overflow-hidden p-0 top-[max(0.5rem,env(safe-area-inset-top,0px))] left-[50%] translate-x-[-50%] translate-y-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 sm:max-w-md [&>button]:right-3 [&>button]:top-3 [&>button]:z-10"
  >
  <DialogHeader className="shrink-0 space-y-1 border-b px-4 py-3 pr-10 text-left">
  <DialogTitle className="text-base">Record payment (manual)</DialogTitle>
  <DialogDescription className="text-xs leading-relaxed">
- Manual fallback for cash / officer collections. ClickPesa BillPay should post
+ Accountant/Admin fallback for verified cash collections. ClickPesa BillPay should post
  automatically via webhook — do not use this for unsettled gateway payments.
  </DialogDescription>
  </DialogHeader>
@@ -887,6 +886,7 @@ useEffect(() => {
  ) : null}
  </div>
 
+ <p className="mt-2 text-xs text-muted-foreground">Recorded by: {paymentRecordedByLabel(payment)}</p>
  <div className="mt-3 rounded-lg border bg-background/80 p-2 text-xs">
  <p className="font-medium text-muted-foreground">Allocation</p>
  <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5">
@@ -924,6 +924,7 @@ useEffect(() => {
  <TableHead className="text-right">Amount</TableHead>
  <TableHead>Method</TableHead>
  <TableHead>Source</TableHead>
+ <TableHead>Recorded by</TableHead>
  <TableHead>Reference</TableHead>
  <TableHead>Allocation</TableHead>
  <TableHead>Status</TableHead>
@@ -935,7 +936,7 @@ useEffect(() => {
  <TableBody>
  {filteredPayments.length === 0 ? (
  <TableRow>
- <TableCell colSpan={canReverse ? 12 : 11} className="py-8 text-center text-muted-foreground">
+ <TableCell colSpan={canReverse ? 13 : 12} className="py-8 text-center text-muted-foreground">
  No payments found
  </TableCell>
  </TableRow>
@@ -982,6 +983,7 @@ useEffect(() => {
  {paymentSourceLabel(payment)}
  </Badge>
  </TableCell>
+ <TableCell>{paymentRecordedByLabel(payment)}</TableCell>
  <TableCell className="font-mono text-xs">
  {(payment.reference_number ?? String(payment.metadata?.gateway_payment_reference ?? "")) || "—"}
  </TableCell>

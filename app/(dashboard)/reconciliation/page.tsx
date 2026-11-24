@@ -1,4 +1,6 @@
 "use client";
+import { toast } from "sonner";
+import { canPostFinancialTransactions, FINANCE_ACTION_DENIED_MESSAGE } from "@/lib/finance-action-access";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -256,7 +258,7 @@ export default function ReconciliationPage() {
  Refresh
  </Button>
  <Button type="button" size="sm" className="bg-emerald-600 hover:bg-emerald-700" asChild>
- <Link href={paymentsBasePath}>
+ <Link href={paymentsBasePath} onClick={(event) => { if (!canPostFinancialTransactions(user)) { event.preventDefault(); toast.error(FINANCE_ACTION_DENIED_MESSAGE); } }}>
  <CreditCard className="mr-2 h-4 w-4" />
  Record payment
  </Link>

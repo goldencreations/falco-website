@@ -1,4 +1,5 @@
 "use client";
+import { paymentRecordedByLabel } from "@/lib/payment-method-display";
 
 import { FailedClickPesaAttempts } from "@/components/cashbook/failed-clickpesa-attempts";
 
@@ -1453,7 +1454,7 @@ export default function CashbookPage() {
                     Audit information
                   </h3>
                   <div className="rounded-lg border px-4">
-                    <PaymentDetailRow label="Received by" value={paymentDetail.received_by} mono />
+                    <PaymentDetailRow label="Recorded by" value={paymentRecordedByLabel(paymentDetail)} />
                     <PaymentDetailRow
                       label="Created"
                       value={paymentDetail.created_at ? formatDateTime(paymentDetail.created_at) : "—"}
