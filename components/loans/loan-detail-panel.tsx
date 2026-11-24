@@ -1,4 +1,5 @@
 "use client";
+import { paymentRecordedByLabel } from "@/lib/payment-method-display";
 
 import {
  Building2,
@@ -591,6 +592,7 @@ export function LoanDetailPanel({
  <TableRow>
  <TableHead>Date</TableHead>
  <TableHead>Reference</TableHead>
+ <TableHead>Recorded by</TableHead>
  <TableHead className="text-right">Amount</TableHead>
  <TableHead className="text-right">Penalty paid</TableHead>
  <TableHead className="text-right">Fees</TableHead>
@@ -605,6 +607,7 @@ export function LoanDetailPanel({
  <TableCell className="font-mono text-xs">
  {payment.reference_number || payment.payment_number}
  </TableCell>
+ <TableCell>{paymentRecordedByLabel(payment)}</TableCell>
  <TableCell className="text-right font-medium">{formatCurrency(payment.amount)}</TableCell>
  <TableCell className="text-right">{formatCurrency(payment.penalty_allocated)}</TableCell>
  <TableCell className="text-right">{formatCurrency(payment.fees_allocated)}</TableCell>

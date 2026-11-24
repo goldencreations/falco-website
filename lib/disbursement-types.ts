@@ -49,6 +49,7 @@ export interface Disbursement {
  can_record_manual_payout?: boolean;
  metadata?: Record<string, unknown>;
  prepared_by: string;
+ completed_by_name?: string | null;
  approved_by: string | null;
  approved_at: string | null;
  rejected_by: string | null;

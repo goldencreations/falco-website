@@ -1,3 +1,4 @@
+import { canPostFinancialTransactions, FINANCE_ACTION_DENIED_MESSAGE } from "@/lib/finance-action-access";
 import { NextResponse } from "next/server";
 import {
  extractPaymentsPayload,
@@ -48,6 +49,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
  const auth = await requireApiUser(request);
  if ("response" in auth) return auth.response;
+ if (!canPostFinancialTransactions(auth.user)) return NextResponse.json({ message: FINANCE_ACTION_DENIED_MESSAGE, error: FINANCE_ACTION_DENIED_MESSAGE }, { status: 403 });
 
  let body: Record<string, unknown>;
  try {

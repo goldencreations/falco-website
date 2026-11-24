@@ -1,4 +1,5 @@
 "use client";
+import { FINANCE_ACTION_DENIED_MESSAGE } from "@/lib/finance-action-access";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -509,7 +510,7 @@ export function DisbursementCreateForm() {
         </Button>
         <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
           <ShieldAlert className="h-4 w-4 shrink-0" />
-          You do not have permission to create disbursements.
+          {FINANCE_ACTION_DENIED_MESSAGE}
         </div>
       </div>
     );

@@ -1,3 +1,4 @@
+import { canPostFinancialTransactions, FINANCE_ACTION_DENIED_MESSAGE } from "@/lib/finance-action-access";
 import { NextResponse } from "next/server";
 import {
  extractDisbursementsApiPayload,
@@ -22,6 +23,7 @@ import { falcoServerFetch } from "@/lib/server-falco";
 export async function GET(request: Request) {
  const auth = await requireApiUser(request);
  if ("response" in auth) return auth.response;
+ if (!canPostFinancialTransactions(auth.user)) return NextResponse.json({ message: FINANCE_ACTION_DENIED_MESSAGE, error: FINANCE_ACTION_DENIED_MESSAGE }, { status: 403 });
 
  const url = new URL(request.url);
  const branchId = resolvedBranchIdForListQuery(auth.user, url.searchParams.get("branch_id"));
@@ -65,10 +67,11 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
  const auth = await requireApiUser(request);
  if ("response" in auth) return auth.response;
+ if (!canPostFinancialTransactions(auth.user)) return NextResponse.json({ message: FINANCE_ACTION_DENIED_MESSAGE, error: FINANCE_ACTION_DENIED_MESSAGE }, { status: 403 });
 
  if (!canPrepareDisbursement(auth.user)) {
  return NextResponse.json(
- { error: "You do not have permission to prepare disbursements." },
+ { error: FINANCE_ACTION_DENIED_MESSAGE },
  { status: 403 }
  );
  }

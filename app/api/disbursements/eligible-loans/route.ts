@@ -1,3 +1,4 @@
+import { canPostFinancialTransactions, FINANCE_ACTION_DENIED_MESSAGE } from "@/lib/finance-action-access";
 import { NextResponse } from "next/server";
 
 import { requireApiUser, resolvedBranchIdForListQuery } from "@/lib/authorization";
@@ -11,11 +12,12 @@ export async function GET(request: Request) {
  try {
  const auth = await requireApiUser(request);
  if ("response" in auth) return auth.response;
+ if (!canPostFinancialTransactions(auth.user)) return NextResponse.json({ message: FINANCE_ACTION_DENIED_MESSAGE, error: FINANCE_ACTION_DENIED_MESSAGE }, { status: 403 });
 
  if (!canPrepareDisbursement(auth.user)) {
  return NextResponse.json(
  {
- message: "You do not have permission to prepare disbursements (disbursements.prepare).",
+ message: FINANCE_ACTION_DENIED_MESSAGE,
  },
  { status: 403 }
  );

@@ -504,6 +504,7 @@ export function adaptApiPaymentRow(raw: Record<string, unknown>): Payment {
 
  notes: inner.notes ? str(inner.notes) : undefined,
  received_by: str(inner.received_by ?? inner.recorded_by ?? ""),
+ received_by_name: inner.received_by_name != null ? str(inner.received_by_name) : null,
  created_at: str(inner.created_at ?? inner.payment_date, "1970-01-01"),
  };
 }

@@ -1,4 +1,5 @@
 "use client";
+import { canPostFinancialTransactions } from "@/lib/finance-action-access";
 
 import { useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -254,6 +255,7 @@ export function AppSidebar() {
  .map((group) => ({
  ...group,
  items: group.items.filter((item) => {
+        if (item.href === "/disbursements") return canPostFinancialTransactions(user);
         if (item.href === "/users") return role === "super_admin";
         if (item.href === "/general-ledger") return user?.features?.includes("general_ledger") ?? false;
         if (item.href === "/cashbook") return role === "super_admin" || role === "accountant";

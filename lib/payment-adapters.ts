@@ -55,7 +55,7 @@ export function reconciliationFromPayment(raw: Record<string, unknown>): {
  if (notes.includes("[MANUAL_COLLECTION]")) {
  return {
  status: "manual_review",
- note: "Manual collection captured by loan officer; awaiting bank reconciliation.",
+ note: "Manual collection recorded by staff; awaiting bank reconciliation.",
  };
  }
 
